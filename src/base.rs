@@ -44,12 +44,24 @@ impl<X, O, V> AnnDataBase<X, O, V> {
         Ok(Self { file, x, obsm, varm })
     }
 
-    /*
-    pub fn write(&self, filename: &str) -> Result<()> {
-        let file = File::open(filename)?;
-        self.x
+    pub fn write(&self, filename: &str) -> Result<()>
+    where
+        X: BoxedData,
+        O: BoxedData,
+        V: BoxedData,
+    {
+        let file = File::create(filename)?;
+        self.x.write(&file, "X")?;
+        let obsm = file.create_group("obsm")?;
+        for (key, val) in self.obsm.iter() {
+            val.write(&obsm, key)?;
+        }
+        let varm = file.create_group("varm")?;
+        for (key, val) in self.varm.iter() {
+            val.write(&varm, key)?;
+        }
+        Ok(())
     }
-    */
 
     pub fn subset_obs(mut self, idx: &[usize]) -> Self
     where

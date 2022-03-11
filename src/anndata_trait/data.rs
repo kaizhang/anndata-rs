@@ -1,6 +1,6 @@
 use crate::utils::{create_str_attr, read_str_attr, COMPRESSION};
 
-use ndarray::{Array1, Array, Dimension};
+use ndarray::{Array1, Array2, ArrayD};
 use hdf5::{H5Type, Result, Group, Dataset,
     types::TypeDescriptor,
 };
@@ -156,10 +156,9 @@ where
     fn version(&self) -> &str { "0.1.0" }
 }
 
-impl<T, D> DataIO for Array<T, D>
+impl<T> DataIO for ArrayD<T>
 where
     T: H5Type,
-    D: Dimension,
 {
     fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>
     {
@@ -182,7 +181,6 @@ where
 }
 
 pub fn read_dyn_data(container: &Box<dyn DataContainer>) -> Result<Box<dyn DataIO>> {
-    let err = Err(hdf5::Error::Internal("not".to_string()));
     match container.as_ref().get_encoding_type()? {
         DataType::CsrMatrix(Integer(_)) => {
             let mat: CsrMatrix<i64> = DataIO::read(container)?;
@@ -196,9 +194,24 @@ pub fn read_dyn_data(container: &Box<dyn DataContainer>) -> Result<Box<dyn DataI
             let mat: CsrMatrix<f64> = DataIO::read(container)?;
             Ok(Box::new(mat))
         },
-        _ => err?,
+        DataType::Array(Integer(_)) => {
+            let mat: ArrayD<i64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        DataType::Array(Unsigned(_)) => {
+            let mat: ArrayD<u64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        DataType::Array(Float(_)) => {
+            let mat: ArrayD<f64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        unknown => Err(hdf5::Error::Internal(
+            format!("Not implemented: Dynamic reading of type {:?}", unknown)
+        ))?,
     }
 }
+
 
 
 /*

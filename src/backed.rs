@@ -3,7 +3,7 @@ use crate::base::*;
 
 use std::boxed::Box;
 use hdf5::{Result, Group}; 
-use ndarray::{Array2};
+use ndarray::{ArrayD};
 use nalgebra_sparse::csr::CsrMatrix;
 
 pub type AnnData = AnnDataBase<
@@ -48,10 +48,10 @@ impl Elem<dyn DataIO>
     pub fn csr_f64(&self) -> &Elem<CsrMatrix<f64>> { self.as_ref() }
     pub fn csr_u32(&self) -> &Elem<CsrMatrix<u32>> { self.as_ref() }
     pub fn csr_u64(&self) -> &Elem<CsrMatrix<u64>> { self.as_ref() }
-    pub fn arr2_f32(&self) -> &Elem<Array2<f32>> { self.as_ref() }
-    pub fn arr2_f64(&self) -> &Elem<Array2<f64>> { self.as_ref() }
-    pub fn arr2_u32(&self) -> &Elem<Array2<u32>> { self.as_ref() }
-    pub fn arr2_u64(&self) -> &Elem<Array2<u64>> { self.as_ref() }
+    pub fn arr_f32(&self) -> &Elem<ArrayD<f32>> { self.as_ref() }
+    pub fn arr_f64(&self) -> &Elem<ArrayD<f64>> { self.as_ref() }
+    pub fn arr_u32(&self) -> &Elem<ArrayD<u32>> { self.as_ref() }
+    pub fn arr_u64(&self) -> &Elem<ArrayD<u64>> { self.as_ref() }
 }
 
 impl BoxedData for Elem<dyn DataIO> {
@@ -122,7 +122,18 @@ impl BoxedData for ElemView<dyn DataSubset2D> {
         let inner = Elem { dtype, element: None, container };
         Ok(Self { obs_indices: None, var_indices: None, inner })
     }
-    fn write(&self, location: &Group, name: &str) -> Result<()> { todo!() }
+
+    fn write(&self, location: &Group, name: &str) -> Result<()> {
+        match &self.inner.element {
+            Some(data) => data.as_ref().write(location, name)?,
+            None => read_dyn_data_subset(
+                &self.inner.container,
+                self.obs_indices.as_ref().map(Vec::as_slice),
+                self.var_indices.as_ref().map(Vec::as_slice),
+            )?.as_ref().write(location, name)?,
+        };
+        Ok(())
+    }
 }
 
 impl ElemView<dyn DataSubset2D>
@@ -131,10 +142,10 @@ impl ElemView<dyn DataSubset2D>
     pub fn csr_f64(&self) -> &ElemView<CsrMatrix<f64>> { self.as_ref() }
     pub fn csr_u32(&self) -> &ElemView<CsrMatrix<u32>> { self.as_ref() }
     pub fn csr_u64(&self) -> &ElemView<CsrMatrix<u64>> { self.as_ref() }
-    pub fn arr2_f32(&self) -> &ElemView<Array2<f32>> { self.as_ref() }
-    pub fn arr2_f64(&self) -> &ElemView<Array2<f64>> { self.as_ref() }
-    pub fn arr2_u32(&self) -> &ElemView<Array2<u32>> { self.as_ref() }
-    pub fn arr2_u64(&self) -> &ElemView<Array2<u64>> { self.as_ref() }
+    pub fn arr_f32(&self) -> &ElemView<ArrayD<f32>> { self.as_ref() }
+    pub fn arr_f64(&self) -> &ElemView<ArrayD<f64>> { self.as_ref() }
+    pub fn arr_u32(&self) -> &ElemView<ArrayD<u32>> { self.as_ref() }
+    pub fn arr_u64(&self) -> &ElemView<ArrayD<u64>> { self.as_ref() }
 }
 
 // TODO: fix subsetting
@@ -166,27 +177,5 @@ impl BoxedDataSub2D for ElemView<dyn DataSubset2D> {
             self.inner.element = None;
         }
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test() {
-        let adata: AnnData = AnnData::read("data.h5ad").unwrap();
-        println!(
-            "{:?}",
-            adata.obsm.get("X_spectral").unwrap().arr2_f64().read_data(),
-        );
-
-        let adata_subset = adata.subset_obs(&[1,2,3]);
-        println!(
-            "{:?}",
-            adata_subset.obsm.get("X_spectral").unwrap().arr2_f64().read_data(),
-        );
-
-        //assert_eq!(beds, expected);
     }
 }
