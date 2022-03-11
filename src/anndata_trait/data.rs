@@ -1,10 +1,10 @@
 use crate::utils::{create_str_attr, read_str_attr, COMPRESSION};
 
-use itertools::zip;
-use ndarray::{Axis, Array1, Array2, Array, Dimension};
+use ndarray::{Array1, Array, Dimension};
 use hdf5::{H5Type, Result, Group, Dataset,
     types::TypeDescriptor,
 };
+use hdf5::types::TypeDescriptor::*;
 use nalgebra_sparse::csr::CsrMatrix;
 
 #[derive(Debug, PartialEq)]
@@ -17,13 +17,13 @@ pub enum DataType {
     Unknown,
 }
 
-pub trait ContainerType {
+pub trait DataContainer {
     fn container_type(&self) -> &str;
 
     fn _encoding_type(&self) -> Result<String>;
 }
 
-impl ContainerType for Group {
+impl DataContainer for Group {
     fn container_type(&self) -> &str { "group" }
     
     fn _encoding_type(&self) -> Result<String> {
@@ -31,7 +31,7 @@ impl ContainerType for Group {
     }
 }
 
-impl ContainerType for Dataset {
+impl DataContainer for Dataset {
     fn container_type(&self) -> &str { "dataset" }
 
     fn _encoding_type(&self) -> Result<String> {
@@ -39,7 +39,7 @@ impl ContainerType for Dataset {
     }
 }
 
-impl dyn ContainerType {
+impl dyn DataContainer {
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
             "array" => {
@@ -62,10 +62,10 @@ impl dyn ContainerType {
     }
 }
 
-impl AsRef<Group> for dyn ContainerType {
+impl AsRef<Group> for dyn DataContainer {
     fn as_ref(&self) -> &Group {
         if self.container_type() == "group" {
-            unsafe { &*(self as *const dyn ContainerType as *const Group) }
+            unsafe { &*(self as *const dyn DataContainer as *const Group) }
         } else {
             panic!(
                 "implementation error, cannot get ref Group from {:?}",
@@ -75,10 +75,10 @@ impl AsRef<Group> for dyn ContainerType {
     }
 }
 
-impl AsRef<Dataset> for dyn ContainerType {
+impl AsRef<Dataset> for dyn DataContainer {
     fn as_ref(&self) -> &Dataset {
         if self.container_type() == "dataset" {
-            unsafe { &*(self as *const dyn ContainerType as *const Dataset) }
+            unsafe { &*(self as *const dyn DataContainer as *const Dataset) }
         } else {
             panic!(
                 "implementation error, cannot get ref Dataset from {:?}",
@@ -88,13 +88,10 @@ impl AsRef<Dataset> for dyn ContainerType {
     }
 }
 
-#[derive(Clone)]
-pub struct StrVec(pub Vec<String>);
+pub trait DataIO {
+    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>;
 
-pub trait AnnDataType {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn ContainerType>>;
-
-    fn read(container: &Box<dyn ContainerType>) -> Result<Self> where Self: Sized;
+    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized;
 
     fn version(&self) -> &str;
 
@@ -103,11 +100,14 @@ pub trait AnnDataType {
     fn dtype() -> DataType where Self: Sized;
 }
 
-impl<T> AnnDataType for CsrMatrix<T>
+#[derive(Clone)]
+pub struct StrVec(pub Vec<String>);
+
+impl<T> DataIO for CsrMatrix<T>
 where
     T: H5Type,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn ContainerType>>
+    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>
     {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
@@ -132,7 +132,7 @@ where
         Ok(Box::new(group))
     }
 
-    fn read(container: &Box<dyn ContainerType>) -> Result<Self> where Self: Sized {
+    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized {
         let dataset: &Group = container.as_ref().as_ref();
         let shape: Vec<usize> = dataset.attr("shape")?.read_raw()?;
         let data = dataset.dataset("data")?.read_raw()?;
@@ -156,12 +156,12 @@ where
     fn version(&self) -> &str { "0.1.0" }
 }
 
-impl<T, D> AnnDataType for Array<T, D>
+impl<T, D> DataIO for Array<T, D>
 where
     T: H5Type,
     D: Dimension,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn ContainerType>>
+    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>
     {
         let dataset = location.new_dataset_builder().deflate(COMPRESSION)
             .with_data(self).create(name)?;
@@ -171,7 +171,7 @@ where
         Ok(Box::new(dataset))
     }
 
-    fn read(container: &Box<dyn ContainerType>) -> Result<Self> where Self: Sized {
+    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized {
         let dataset: &Dataset = container.as_ref().as_ref();
         dataset.read()
     }
@@ -181,8 +181,24 @@ where
     fn version(&self) -> &str { "0.2.0" }
 }
 
-
-
+pub fn read_dyn_data(container: &Box<dyn DataContainer>) -> Result<Box<dyn DataIO>> {
+    let err = Err(hdf5::Error::Internal("not".to_string()));
+    match container.as_ref().get_encoding_type()? {
+        DataType::CsrMatrix(Integer(_)) => {
+            let mat: CsrMatrix<i64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        DataType::CsrMatrix(Unsigned(_)) => {
+            let mat: CsrMatrix<u64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        DataType::CsrMatrix(Float(_)) => {
+            let mat: CsrMatrix<f64> = DataIO::read(container)?;
+            Ok(Box::new(mat))
+        },
+        _ => err?,
+    }
+}
 
 
 /*
@@ -264,119 +280,9 @@ impl AsRef<CsrMatrix<T>> for dyn AnnDataType {
 }
 */
 
-pub trait AnnDataGetRow: AnnDataType {
-    fn read_rows(
-        container: &Box<dyn ContainerType>,
-        idx: Option<&[usize]>,
-    ) -> Self
-    where Self: Sized,
-    {
-        let x: Self = AnnDataType::read(container).unwrap();
-        x.get_rows(idx)
-    }
-
-    fn get_rows(&self, idx: Option<&[usize]>) -> Self where Self: Sized;
-}
-
-impl<T> AnnDataGetRow for Array2<T>
+pub fn downcast_anndata<T>(val: Box<dyn DataIO>) -> Box<T>
 where
-    T: H5Type + Clone,
-{
-    fn get_rows(&self, idx: Option<&[usize]>) -> Self {
-        match idx {
-            None => self.clone(),
-            Some(i) => self.select(Axis(0), i),
-        }
-    }
-}
-
-impl<T> AnnDataGetRow for CsrMatrix<T>
-where
-    T: H5Type + Clone + Copy,
-{
-    fn get_rows(&self, idx: Option<&[usize]>) -> Self {
-        match idx {
-            None => self.clone(),
-            Some(i) => {
-                create_csr_from_rows(i.iter().map(|r| {
-                    let row = self.get_row(*r).unwrap();
-                    zip(row.col_indices(), row.values())
-                        .map(|(x, y)| (*x, *y)).collect()
-                }),
-                self.ncols()
-                )
-            }
-        }
-    }
-}
-
-pub trait AnnDataGetCol: AnnDataType {
-    fn read_columns(
-        container: &Box<dyn ContainerType>,
-        idx: Option<&[usize]>,
-    ) -> Self
-    where Self: Sized,
-    {
-        let x: Self = AnnDataType::read(container).unwrap();
-        x.get_columns(idx)
-    }
-
-    fn get_columns(&self, idx: Option<&[usize]>) -> Self where Self: Sized;
-}
-
-impl<T> AnnDataGetCol for Array2<T>
-where
-    T: H5Type + Clone,
-{
-    fn get_columns(&self, idx: Option<&[usize]>) -> Self {
-        match idx {
-            None => self.clone(),
-            Some(i) => self.select(Axis(1), i),
-        }
-    }
-}
-
-impl<T> AnnDataGetCol for CsrMatrix<T>
-where
-    T: H5Type + Clone,
-{
-    fn get_columns(&self, idx: Option<&[usize]>) -> Self {
-        todo!()
-    }
-}
-
-pub trait AnnDataSubset: AnnDataGetRow + AnnDataGetCol {
-    fn read_partial(
-        container: &Box<dyn ContainerType>,
-        ridx: Option<&[usize]>,
-        cidx: Option<&[usize]>,
-    ) -> Self
-    where Self: Sized,
-    {
-        let x: Self = AnnDataGetRow::read_rows(container, ridx);
-        match cidx {
-            None => x,
-            _ => x.get_columns(cidx),
-        }
-    }
-
-    fn subset(
-        &self,
-        ridx: Option<&[usize]>,
-        cidx: Option<&[usize]>
-    ) -> Self
-    where Self: Sized,
-    {
-        self.get_rows(ridx).get_columns(cidx)
-    }
-}
-
-impl<T> AnnDataSubset for CsrMatrix<T> where T: H5Type + Clone + Copy, {}
-impl<T> AnnDataSubset for Array2<T> where T: H5Type + Clone, {}
-
-pub fn downcast_anndata<T>(val: Box<dyn AnnDataType>) -> Box<T>
-where
-    T: AnnDataType,
+    T: DataIO,
 {
     let ptr = Box::into_raw(val);
     let type_expected = T::dtype();
@@ -391,40 +297,3 @@ where
         )
     }
 }
-
-/*
-pub fn cast_datatype(val: Box<dyn AnnDataType>) -> Box<dyn AnnDataSubset> {
-    let ptr = Box::into_raw(val);
-    let ty = unsafe { ptr.as_ref().unwrap().get_dtype() };
-    if true {
-        unsafe { Box::from_raw(ptr as *mut dyn AnnDataSubset) }
-    } else {
-        panic!(
-            "implementation error, cannot read {:?}",
-            ty,
-        )
-    }
-}
-*/
-
-fn create_csr_from_rows<I, T>(iter: I, num_col: usize) -> CsrMatrix<T>
-where
-    I: Iterator<Item = Vec<(usize, T)>>,
-    T: H5Type,
-{
-    let mut data: Vec<T> = Vec::new();
-    let mut indices: Vec<usize> = Vec::new();
-    let mut indptr: Vec<usize> = Vec::new();
-
-    let n = iter.fold(0, |r_idx, row| {
-        indptr.push(r_idx);
-        let new_idx = r_idx + row.len();
-        let (mut a, mut b) = row.into_iter().unzip();
-        indices.append(&mut a);
-        data.append(&mut b);
-        new_idx
-    });
-    indptr.push(n);
-    CsrMatrix::try_from_csr_data(indptr.len() - 1, num_col, indptr, indices, data).unwrap()
-}
-
