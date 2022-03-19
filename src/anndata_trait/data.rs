@@ -6,8 +6,11 @@ use hdf5::{H5Type, Result, Group, Dataset,
 };
 use hdf5::types::TypeDescriptor::*;
 use nalgebra_sparse::csr::CsrMatrix;
+use dyn_clone::DynClone;
+use downcast_rs::Downcast;
+use downcast_rs::impl_downcast;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     CsrMatrix(TypeDescriptor),
     CscMatrix(TypeDescriptor),
@@ -17,81 +20,64 @@ pub enum DataType {
     Unknown,
 }
 
-pub trait DataContainer {
-    fn container_type(&self) -> &str;
-
-    fn _encoding_type(&self) -> Result<String>;
+#[derive(Debug, Clone)]
+pub enum DataContainer {
+    H5Group(Group),
+    H5Dataset(Dataset),
 }
 
-impl DataContainer for Group {
-    fn container_type(&self) -> &str { "group" }
-    
+impl DataContainer {
     fn _encoding_type(&self) -> Result<String> {
-        read_str_attr(self, "encoding-type")
+        match self {
+            Self::H5Group(group) => read_str_attr(group, "encoding-type"),
+            Self::H5Dataset(dataset) => read_str_attr(dataset, "encoding-type"),
+        }
     }
-}
 
-impl DataContainer for Dataset {
-    fn container_type(&self) -> &str { "dataset" }
-
-    fn _encoding_type(&self) -> Result<String> {
-        read_str_attr(self, "encoding-type")
-    }
-}
-
-impl dyn DataContainer {
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
             "array" => {
-                let dataset: &Dataset = self.as_ref();
+                let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
                 Ok(DataType::Array(ty))
             }
             "csr_matrix" => {
-                let group: &Group = self.as_ref();
+                let group = self.get_group_ref()?;
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
                 Ok(DataType::CsrMatrix(ty))
             },
             "csc_matrix" => {
-                let group: &Group = self.as_ref();
+                let group = self.get_group_ref()?;
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
                 Ok(DataType::CscMatrix(ty))
-            }
+            },
             _ => todo!()
         }
     }
-}
 
-impl AsRef<Group> for dyn DataContainer {
-    fn as_ref(&self) -> &Group {
-        if self.container_type() == "group" {
-            unsafe { &*(self as *const dyn DataContainer as *const Group) }
-        } else {
-            panic!(
-                "implementation error, cannot get ref Group from {:?}",
-                self.container_type(),
-            )
+    fn get_group_ref(&self) -> Result<&Group> {
+        match self {
+            Self::H5Group(x) => Ok(&x),
+            _ => Err(hdf5::Error::Internal(format!(
+                "Expecting Group" 
+            ))),
+        }
+    }
+
+    fn get_dataset_ref(&self) -> Result<&Dataset> {
+        match self {
+            Self::H5Dataset(x) => Ok(&x),
+            _ => Err(hdf5::Error::Internal(format!(
+                "Expecting Dataset" 
+            ))),
         }
     }
 }
 
-impl AsRef<Dataset> for dyn DataContainer {
-    fn as_ref(&self) -> &Dataset {
-        if self.container_type() == "dataset" {
-            unsafe { &*(self as *const dyn DataContainer as *const Dataset) }
-        } else {
-            panic!(
-                "implementation error, cannot get ref Dataset from {:?}",
-                self.container_type(),
-            )
-        }
-    }
-}
+pub trait DataIO: Send + Sync + DynClone + Downcast {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>;
 
-pub trait DataIO {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>;
-
-    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized;
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
 
     fn version(&self) -> &str;
 
@@ -99,15 +85,17 @@ pub trait DataIO {
 
     fn dtype() -> DataType where Self: Sized;
 }
+impl_downcast!(DataIO);
+
 
 #[derive(Clone)]
 pub struct StrVec(pub Vec<String>);
 
 impl<T> DataIO for CsrMatrix<T>
 where
-    T: H5Type,
+    T: H5Type + Clone + Send + Sync,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
@@ -129,17 +117,17 @@ where
         group.new_dataset_builder().deflate(COMPRESSION)
             .with_data(&indptr).create("indptr")?;
 
-        Ok(Box::new(group))
+        Ok(DataContainer::H5Group(group))
     }
 
-    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized {
-        let dataset: &Group = container.as_ref().as_ref();
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Group = container.get_group_ref()?;
         let shape: Vec<usize> = dataset.attr("shape")?.read_raw()?;
         let data = dataset.dataset("data")?.read_raw()?;
         let indices: Vec<usize> = dataset.dataset("indices")?.read_raw()?;
         let indptr: Vec<usize> = dataset.dataset("indptr")?.read_raw()?;
 
-        match dataset._encoding_type()?.as_str() {
+        match container._encoding_type()?.as_str() {
             "csr_matrix" => Ok(CsrMatrix::try_from_csr_data(
                 shape[0],
                 shape[1],
@@ -158,20 +146,20 @@ where
 
 impl<T> DataIO for ArrayD<T>
 where
-    T: H5Type,
+    T: H5Type + Clone + Send + Sync,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<Box<dyn DataContainer>>
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
         let dataset = location.new_dataset_builder().deflate(COMPRESSION)
             .with_data(self).create(name)?;
 
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
-        Ok(Box::new(dataset))
+        Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn read(container: &Box<dyn DataContainer>) -> Result<Self> where Self: Sized {
-        let dataset: &Dataset = container.as_ref().as_ref();
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Dataset = container.get_dataset_ref()?;
         dataset.read()
     }
 
@@ -180,8 +168,8 @@ where
     fn version(&self) -> &str { "0.2.0" }
 }
 
-pub fn read_dyn_data(container: &Box<dyn DataContainer>) -> Result<Box<dyn DataIO>> {
-    match container.as_ref().get_encoding_type()? {
+pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
+    match container.get_encoding_type()? {
         DataType::CsrMatrix(Integer(_)) => {
             let mat: CsrMatrix<i64> = DataIO::read(container)?;
             Ok(Box::new(mat))

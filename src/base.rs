@@ -5,20 +5,20 @@ use hdf5::{File, Result, Group};
 use std::boxed::Box;
 
 pub trait BoxedData {
-    fn new(container: Box<dyn DataContainer>) -> Result<Self> where Self: Sized;
+    fn new(container: DataContainer) -> Result<Self> where Self: Sized;
     fn write(&self, location: &Group, name: &str) -> Result<()>;
 }
 
 pub trait BoxedDataSubRow {
-    fn subset_rows(self, idx: &[usize]) -> Self where Self: Sized;
+    fn subset_rows(&self, idx: &[usize]) -> Self where Self: Sized;
 }
 
 pub trait BoxedDataSubCol {
-    fn subset_cols(self, idx: &[usize]) -> Self where Self: Sized;
+    fn subset_cols(&self, idx: &[usize]) -> Self where Self: Sized;
 }
 
 pub trait BoxedDataSub2D: BoxedDataSubRow + BoxedDataSubCol {
-    fn subset(self, ridx: &[usize], cidx: &[usize]) -> Self where Self: Sized;
+    fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self where Self: Sized;
 }
 
 pub struct AnnDataBase<X, O, V> {
@@ -29,14 +29,13 @@ pub struct AnnDataBase<X, O, V> {
 }
 
 impl<X, O, V> AnnDataBase<X, O, V> {
-    pub fn read(path: &str) -> Result<Self>
+    pub fn read(file: File) -> Result<Self>
     where
         X: BoxedData,
         O: BoxedData,
         V: BoxedData,
     {
-        let file = File::open(path)?;
-        let x = BoxedData::new(Box::new(file.group("X")?))?;
+        let x = BoxedData::new(DataContainer::H5Group(file.group("X")?))?;
         let obsm = file.group("obsm").as_ref().map_or(Ok(HashMap::new()), |group|
             get_all_data(group))?;
         let varm = file.group("varm").as_ref().map_or(Ok(HashMap::new()), |group|
@@ -63,29 +62,31 @@ impl<X, O, V> AnnDataBase<X, O, V> {
         Ok(())
     }
 
-    pub fn subset_obs(mut self, idx: &[usize]) -> Self
+    pub fn subset_obs(&self, idx: &[usize]) -> Self
     where
         X: BoxedDataSubRow,
         O: BoxedDataSubRow,
+        V: Clone,
     {
         AnnDataBase {
-            file: self.file,
+            file: self.file.clone(),
             x: self.x.subset_rows(idx),
-            obsm: self.obsm.drain().map(|(k, v)| (k, v.subset_rows(idx))).collect(),
-            varm: self.varm,
+            obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(idx))).collect(),
+            varm: self.varm.clone(),
         }
     }
 
-    pub fn subset_var(mut self, idx: &[usize]) -> Self
+    pub fn subset_var(&self, idx: &[usize]) -> Self
     where
         X: BoxedDataSubCol,
+        O: Clone,
         V: BoxedDataSubCol,
     {
         AnnDataBase {
-            file: self.file,
+            file: self.file.clone(),
             x: self.x.subset_cols(idx),
-            obsm: self.obsm,
-            varm: self.varm.drain().map(|(k, v)| (k, v.subset_cols(idx))).collect(),
+            obsm: self.obsm.clone(),
+            varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(idx))).collect(),
         }
     }
 
@@ -108,8 +109,8 @@ fn get_all_data<B: BoxedData>(group: &Group) -> Result<HashMap<String, B>> {
     let get_name = |x: String| std::path::Path::new(&x).file_name()
         .unwrap().to_str().unwrap().to_string();
     Ok(group.groups()?.into_iter().map(|x|
-        (get_name(x.name()), BoxedData::new(Box::new(x)).unwrap())
+        (get_name(x.name()), BoxedData::new(DataContainer::H5Group(x)).unwrap())
     ).chain(group.datasets()?.into_iter().map(|x|
-        (get_name(x.name()), BoxedData::new(Box::new(x)).unwrap())
+        (get_name(x.name()), BoxedData::new(DataContainer::H5Dataset(x)).unwrap())
     )).collect())
 }

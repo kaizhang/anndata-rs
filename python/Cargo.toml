@@ -1,0 +1,26 @@
+[package]
+name = "anndata-python"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kai Zhang <kai@kzhang.org>"]
+description = "Rust APIs"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/"
+homepage = "https://github.com/"
+keywords = ["data"]
+
+[dependencies]
+anndata-rs = { path = "../" }
+numpy = "0.15.1"
+ndarray = "0.15.4"
+nalgebra-sparse = "0.6.0"
+hdf5 = "0.8.1"
+
+[dependencies.pyo3]
+version = "0.15.1"
+features = ["extension-module"]
+
+[lib]
+name = "_anndata"
+crate-type = ["cdylib"]
