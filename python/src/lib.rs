@@ -6,6 +6,8 @@ use nalgebra_sparse::csr::CsrMatrix;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
+use std::collections::HashMap;
+use ndarray::ArrayD;
 
 use anndata_rs::anndata_trait::DataType;
 use anndata_rs::backed::{AnnData, Elem2dView};
@@ -19,6 +21,20 @@ pub struct PyAnnData(AnnData);
 impl PyAnnData {
     fn get_x(&self) -> PyResult<PyElem2dView> {
         Ok(PyElem2dView(self.0.x.clone()))
+    }
+
+    fn get_obsm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
+        let obsm = self.0.obsm.iter()
+            .map(|(k, x)| (k.clone(), PyElem2dView(x.clone())))
+            .collect();
+        Ok(obsm)
+    }
+
+    fn get_varm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
+        let varm = self.0.varm.iter()
+            .map(|(k, x)| (k.clone(), PyElem2dView(x.clone())))
+            .collect();
+        Ok(varm)
     }
 
     fn subset_rows(&self, idx: Vec<usize>) -> PyResult<PyAnnData> {
@@ -67,6 +83,13 @@ fn data_to_py<'py>(
             csr_to_scipy::<f32>(py, *data.into_any().downcast().unwrap()),
         DataType::CsrMatrix(Float(FloatSize::U8)) =>
             csr_to_scipy::<f64>(py, *data.into_any().downcast().unwrap()),
+
+        DataType::Array(Float(FloatSize::U4)) => Ok((
+            &*data.into_any().downcast::<ArrayD<f32>>().unwrap().into_pyarray(py)
+        ).into()),
+        DataType::Array(Float(FloatSize::U8)) => Ok((
+            &*data.into_any().downcast::<ArrayD<f64>>().unwrap().into_pyarray(py)
+        ).into()),
         _ => todo!(),
     }
 }

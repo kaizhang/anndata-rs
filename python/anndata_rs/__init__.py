@@ -7,6 +7,18 @@ class AnnData:
     @property
     def X(self): return Elem2dView(self._anndata.get_x())
 
+    @property
+    def obsm(self):
+        obsm = self._anndata.get_obsm()
+        for k in obsm: obsm[k] = Elem2dView(obsm[k])
+        return obsm
+
+    @property
+    def varm(self):
+        varm = self._anndata.get_varm()
+        for k in varm: varm[k] = Elem2dView(varm[k])
+        return varm
+
     def __getitem__(self, index):
         ifnone = lambda a, b: b if a is None else a
         if index == ...:
