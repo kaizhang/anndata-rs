@@ -5,6 +5,7 @@ use hdf5::{H5Type, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
 use hdf5::types::TypeDescriptor::*;
+use polars::frame::DataFrame;
 
 pub trait DataSubsetRow: DataIO {
     fn read_rows(
@@ -18,6 +19,12 @@ pub trait DataSubsetRow: DataIO {
     }
 
     fn get_rows(&self, idx: &[usize]) -> Self where Self: Sized;
+}
+
+impl DataSubsetRow for DataFrame {
+    fn get_rows(&self, idx: &[usize]) -> Self {
+        self.take_iter(idx.iter().map(|i| *i)).unwrap()
+    }
 }
 
 impl<T> DataSubsetRow for ArrayD<T>
@@ -54,6 +61,12 @@ pub trait DataSubsetCol: DataIO {
     }
 
     fn get_columns(&self, idx: &[usize]) -> Self where Self: Sized;
+}
+
+impl DataSubsetCol for DataFrame {
+    fn get_columns(&self, idx: &[usize]) -> Self {
+        idx.iter().map(|i| self.select_at_idx(*i).unwrap().clone()).collect()
+    }
 }
 
 impl<T> DataSubsetCol for ArrayD<T>
@@ -95,6 +108,7 @@ pub trait DataSubset2D: DataSubsetRow + DataSubsetCol {
     }
 }
 
+impl DataSubset2D for DataFrame {}
 impl<T> DataSubset2D for CsrMatrix<T> where T: H5Type + Clone + Copy + Send + Sync, {}
 impl<T> DataSubset2D for ArrayD<T> where T: H5Type + Clone + Send + Sync, {}
 
@@ -148,6 +162,10 @@ pub fn read_dyn_data_subset(
         DataType::Array(Float(_)) => {
             let mat: ArrayD<f64> = read_data_subset(container, ridx, cidx);
             Ok(Box::new(mat))
+        },
+        DataType::DataFrame => {
+            let df: DataFrame = read_data_subset(container, ridx, cidx);
+            Ok(Box::new(df))
         },
         unknown => Err(hdf5::Error::Internal(
             format!("Not implemented: Dynamic reading of type {:?}", unknown)

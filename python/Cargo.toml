@@ -16,6 +16,8 @@ numpy = "0.15.1"
 ndarray = "0.15.4"
 nalgebra-sparse = "0.6.0"
 hdf5 = "0.8.1"
+polars = { version = "0.20.0", features = ["ndarray"] }
+polars-core = "0.20.0"
 
 [dependencies.pyo3]
 version = "0.15.1"

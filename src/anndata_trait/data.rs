@@ -1,21 +1,71 @@
-use crate::utils::{create_str_attr, read_str_attr, COMPRESSION};
+use crate::utils::{
+    create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION};
 
-use ndarray::{Array1, Array2, ArrayD};
-use hdf5::{H5Type, Result, Group, Dataset,
+use ndarray::{Array1, ArrayD, ArrayView, Dimension};
+use hdf5::{
+    H5Type, Result, Group, Dataset,
     types::TypeDescriptor,
+    types::VarLenUnicode,
 };
 use hdf5::types::TypeDescriptor::*;
+use hdf5::types::IntSize;
+use hdf5::types::FloatSize;
 use nalgebra_sparse::csr::CsrMatrix;
 use dyn_clone::DynClone;
+use polars::{
+    prelude::{NamedFromOwned, NamedFrom, IntoSeries},
+    series::Series,
+    datatypes::CategoricalChunkedBuilder,
+    frame::DataFrame,
+};
+use std::collections::HashMap;
 use downcast_rs::Downcast;
 use downcast_rs::impl_downcast;
+
+#[derive(Debug, Clone)]
+pub struct StrVector(Vec<String>);
+
+#[derive(Debug, Clone)]
+pub struct CategoricalArray {
+    codes: Vec<u32>,
+    categories: Vec<String>,
+}
+
+impl<'a> FromIterator<&'a str> for CategoricalArray {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = &'a str>,
+    {
+        let mut str_to_id = HashMap::new();
+        let mut counter = 0;
+        let codes = iter.into_iter().map(|x| {
+            let str = x.to_string();
+            match str_to_id.get(&str) {
+                Some(v) => *v,
+                None => {
+                    let v = counter;
+                    str_to_id.insert(str, v);
+                    counter += 1;
+                    v
+                },
+            }
+        }).collect();
+        let mut categories = str_to_id.drain().collect::<Vec<_>>();
+        categories.sort_by_key(|x| x.1);
+        CategoricalArray {
+            codes, categories: categories.into_iter().map(|x| x.0).collect()
+        }
+    }
+
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     CsrMatrix(TypeDescriptor),
     CscMatrix(TypeDescriptor),
-    Vector(TypeDescriptor),
     Array(TypeDescriptor),
+    Categorical,
+    DataFrame,
     StringVector,
     Unknown,
 }
@@ -27,6 +77,18 @@ pub enum DataContainer {
 }
 
 impl DataContainer {
+    fn open(group: &Group, name: &str) -> Result<Self> {
+        match group.dataset(name) {
+            Ok(x) => Ok(DataContainer::H5Dataset(x)),
+            _ => match group.group(name) {
+                Ok(x) => Ok(DataContainer::H5Group(x)),
+                _ => Err(hdf5::Error::Internal(format!(
+                    "Cannot open '{}' as group or dataset", name
+                ))),
+            },
+        }
+    }
+
     fn _encoding_type(&self) -> Result<String> {
         match self {
             Self::H5Group(group) => read_str_attr(group, "encoding-type"),
@@ -36,11 +98,13 @@ impl DataContainer {
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
-            "array" => {
+            "dataframe" => Ok(DataType::DataFrame),
+            "categorical" => Ok(DataType::Categorical),
+            "array" | "string-array" => {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
                 Ok(DataType::Array(ty))
-            }
+            },
             "csr_matrix" => {
                 let group = self.get_group_ref()?;
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
@@ -51,7 +115,9 @@ impl DataContainer {
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
                 Ok(DataType::CscMatrix(ty))
             },
-            _ => todo!()
+            ty => Err(hdf5::Error::Internal(format!(
+                "type '{}' is not supported", ty 
+            ))),
         }
     }
 
@@ -87,9 +153,32 @@ pub trait DataIO: Send + Sync + DynClone + Downcast {
 }
 impl_downcast!(DataIO);
 
+impl DataIO for CategoricalArray {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let group = location.create_group(name)?;
+        create_str_attr(&group, "encoding-type", "categorical")?;
+        create_str_attr(&group, "encoding-version", self.version())?;
+        group.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(self.codes.as_slice()).create("codes")?;
+        let cat: Vec<VarLenUnicode> = self.categories.iter()
+            .map(|x| x.parse().unwrap()).collect();
+        group.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(cat.as_slice()).create("categories")?;
+        Ok(DataContainer::H5Group(group))
+    }
 
-#[derive(Clone)]
-pub struct StrVec(pub Vec<String>);
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let group : &Group = container.get_group_ref()?;
+        let categories: Vec<String> = read_str_vec(&group.dataset("categories")?)?;
+        let codes: Vec<u32> = group.dataset("codes")?.read_raw()?;
+
+        Ok(CategoricalArray { categories, codes })
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Categorical }
+    fn dtype() -> DataType { DataType::Categorical }
+    fn version(&self) -> &str { "0.2.0" }
+}
 
 impl<T> DataIO for CsrMatrix<T>
 where
@@ -168,6 +257,164 @@ where
     fn version(&self) -> &str { "0.2.0" }
 }
 
+impl<T> DataIO for Vec<T>
+where
+    T: H5Type + Clone + Send + Sync,
+{
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
+    {
+        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(self).create(name)?;
+
+        create_str_attr(&*dataset, "encoding-type", "array")?;
+        create_str_attr(&*dataset, "encoding-version", self.version())?;
+        Ok(DataContainer::H5Dataset(dataset))
+    }
+
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Dataset = container.get_dataset_ref()?;
+        let arr: Array1<_> = dataset.read()?;
+        Ok(arr.into_raw_vec())
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
+    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl DataIO for StrVector
+{
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
+    {
+        let vec: Vec<VarLenUnicode> = self.0.iter()
+            .map(|x| x.as_str().parse().unwrap()).collect();
+        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(vec.as_slice()).create(name)?;
+
+        create_str_attr(&*dataset, "encoding-type", "string-array")?;
+        create_str_attr(&*dataset, "encoding-version", self.version())?;
+        Ok(DataContainer::H5Dataset(dataset))
+    }
+
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Dataset = container.get_dataset_ref()?;
+        Ok(StrVector(read_str_vec(dataset)?))
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Array(VarLenUnicode) }
+    fn dtype() -> DataType { DataType::Array(VarLenUnicode) }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl DataIO for DataFrame {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let group = location.create_group(name)?;
+        create_str_attr(&group, "encoding-type", "dataframe")?;
+        create_str_attr(&group, "encoding-version", self.version())?;
+
+        let colnames = self.get_column_names();
+        let index_name = colnames[0];
+        create_str_attr(&group, "_index", index_name)?;
+
+        let columns: Array1<hdf5::types::VarLenUnicode> = colnames.into_iter()
+            .skip(1).map(|x| x.parse().unwrap()).collect();
+        group.new_attr_builder().with_data(&columns).create("column-order")?;
+
+        for series in self.iter() {
+            let name = series.name();
+            match series.dtype() {
+                polars::datatypes::DataType::UInt8 => write_array_view(
+                    series.u8().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::UInt16 => write_array_view(
+                    series.u16().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::UInt32 => write_array_view(
+                    series.u32().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::UInt64 => write_array_view(
+                    series.u64().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::Int32 => write_array_view(
+                    series.i32().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::Int64 => write_array_view(
+                    series.i64().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::Float32 => write_array_view(
+                    series.f32().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::Float64 => write_array_view(
+                    series.f64().unwrap().to_ndarray().unwrap(), &group, name,
+                ),
+                polars::datatypes::DataType::Utf8 => {
+                    let vec: Vec<VarLenUnicode> = series.utf8().unwrap()
+                        .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
+                    let dataset = group.new_dataset_builder().deflate(COMPRESSION)
+                        .with_data(vec.as_slice()).create(name)?;
+                    create_str_attr(&*dataset, "encoding-type", "string-array")?;
+                    create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
+                    Ok(DataContainer::H5Dataset(dataset))
+                },
+                polars::datatypes::DataType::Categorical(_) => series
+                    .categorical().unwrap().iter_str().map(|x| x.unwrap())
+                    .collect::<CategoricalArray>().write(&group, name),
+                other => Err(hdf5::Error::Internal(
+                    format!("Not implemented: writing Series of type '{:?}'", other)
+                )),
+            }?;
+        }
+
+        Ok(DataContainer::H5Group(group))
+    }
+
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let group: &Group = container.get_group_ref()?;
+        let index = read_str_attr(group, "_index")?;
+        let columns = if group.attr("column-order")?.size() == 0 {
+            Vec::new()
+        } else {
+            read_str_vec_attr(group, "column-order")?
+        };
+
+        std::iter::once(index).chain(columns).map(|x| {
+            let name = x.as_str();
+            let data = DataContainer::open(group, name)?;
+            match data.get_encoding_type()? {
+                DataType::Array(Unsigned(IntSize::U4)) =>
+                    Ok(Series::from_vec(name, Vec::<u32>::read(&data).unwrap())),
+                DataType::Array(Unsigned(IntSize::U8)) =>
+                    Ok(Series::from_vec(name, Vec::<u64>::read(&data).unwrap())),
+                DataType::Array(Integer(IntSize::U4)) =>
+                    Ok(Series::from_vec(name, Vec::<i32>::read(&data).unwrap())),
+                DataType::Array(Integer(IntSize::U8)) =>
+                    Ok(Series::from_vec(name, Vec::<i64>::read(&data).unwrap())),
+                DataType::Array(Float(FloatSize::U4)) =>
+                    Ok(Series::from_vec(name, Vec::<f32>::read(&data).unwrap())),
+                DataType::Array(Float(FloatSize::U8)) =>
+                    Ok(Series::from_vec(name, Vec::<f64>::read(&data).unwrap())),
+                DataType::Array(VarLenUnicode) =>
+                    Ok(Series::new(name, read_str_vec(data.get_dataset_ref()?)?.as_slice())),
+                DataType::Categorical => {
+                    let arr = CategoricalArray::read(&data).unwrap();
+                    let mut builder = CategoricalChunkedBuilder::new(name, arr.codes.len());
+                    builder.drain_iter(arr.codes.into_iter()
+                        .map(|i| Some(arr.categories[i as usize].as_str()))
+                    );
+                    Ok(builder.finish().into_series())
+                },
+                unknown => Err(hdf5::Error::Internal(
+                    format!("Not implemented: reading Series from type '{:?}'", unknown)
+                )),
+            }
+        }).collect()
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::DataFrame }
+    fn dtype() -> DataType { DataType::DataFrame }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
 pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
     match container.get_encoding_type()? {
         DataType::CsrMatrix(Integer(_)) => {
@@ -194,92 +441,15 @@ pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
             let mat: ArrayD<f64> = DataIO::read(container)?;
             Ok(Box::new(mat))
         },
+        DataType::DataFrame => {
+            let df: DataFrame = DataIO::read(container)?;
+            Ok(Box::new(df))
+        },
         unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type {:?}", unknown)
+            format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
         ))?,
     }
 }
-
-
-
-/*
-impl<D: H5Type + Clone> AnnDataType for Vec<D> {
-    type Container = Dataset;
-
-    fn write(&self, location: &Group, name: &str) -> Result<Self::Container>
-    {
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(&arr1(self)).create(name)?;
-        create_str_attr(&*dataset, "encoding-type", "array")?;
-        create_str_attr(&*dataset, "encoding-version", self.version())?;
-        Ok(dataset)
-    }
-
-    fn read(dataset: &Self::Container) -> Result<Self> {
-        let data: Array1<D> = dataset.read_1d()?;
-        Ok(data.to_vec())
-    }
-
-    fn update(&self, container: &Self::Container) -> Result<()> {
-        container.resize(self.len())?;
-        container.write(&arr1(self))
-    }
-
-    fn dtype(&self) -> DataType {
-        DataType::Vector(D::type_descriptor())
-    }
-
-    fn version(&self) -> &str { "0.1.0" }
-}
-
-impl AnnDataType for StrVec {
-    type Container = Dataset;
-
-    fn write(&self, location: &Group, name: &str) -> Result<Self::Container>
-    {
-        let data: Array1<VarLenUnicode> = self.0.iter()
-            .map(|x| x.parse::<VarLenUnicode>().unwrap()).collect();
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(&data).create(name)?;
-        create_str_attr(&*dataset, "encoding-type", "string-array")?;
-        create_str_attr(&*dataset, "encoding-version", self.version())?;
-        Ok(dataset)
-    }
-
-    fn read(dataset: &Self::Container) -> Result<Self> {
-        let data: Array1<VarLenUnicode> = dataset.read_1d()?;
-        Ok(StrVec(data.into_iter().map(|x| x.parse().unwrap()).collect()))
-    }
-
-    fn update(&self, container: &Self::Container) -> Result<()> {
-        let data: Array1<VarLenUnicode> = self.0.iter()
-            .map(|x| x.parse::<VarLenUnicode>().unwrap()).collect();
-        container.resize(self.0.len())?;
-        container.write(&data)
-    }
-
-    fn dtype(&self) -> DataType { DataType::StringVector }
-    fn version(&self) -> &str { "0.2.0" }
-}
-*/
-
-
-/*
-impl AsRef<CsrMatrix<T>> for dyn AnnDataType {
-    fn as_ref(&self) -> &CsrMatrix<T> {
-        match self.dtype() {
-            DataType::CsrMatrix(_) =>
-                unsafe { &*(self as *const dyn AnnDataType as *const CsrMatrix<T>) },
-            _ => {
-                panic!(
-                    "implementation error, cannot get ref Group from {:?}",
-                    self.dtype(),
-                )
-            }
-        }
-    }
-}
-*/
 
 pub fn downcast_anndata<T>(val: Box<dyn DataIO>) -> Box<T>
 where
@@ -297,4 +467,21 @@ where
             type_actual,
         )
     }
+}
+
+fn write_array_view<'a, T, D>(
+    arr: ArrayView<'a, T, D>,
+    location: &Group,
+    name: &str
+) -> Result<DataContainer>
+where
+    D: Dimension,
+    T: H5Type,
+{
+    let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+        .with_data(arr).create(name)?;
+
+    create_str_attr(&*dataset, "encoding-type", "array")?;
+    create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
+    Ok(DataContainer::H5Dataset(dataset))
 }

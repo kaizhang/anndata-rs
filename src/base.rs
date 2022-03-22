@@ -2,7 +2,6 @@ use crate::anndata_trait::*;
 
 use std::collections::HashMap;
 use hdf5::{File, Result, Group}; 
-use std::boxed::Box;
 
 pub trait BoxedData {
     fn new(container: DataContainer) -> Result<Self> where Self: Sized;
@@ -24,7 +23,9 @@ pub trait BoxedDataSub2D: BoxedDataSubRow + BoxedDataSubCol {
 pub struct AnnDataBase<X, O, V> {
     file: File,
     pub x: X,
+    pub obs: O,
     pub obsm: HashMap<String, O>,
+    pub var: V,
     pub varm: HashMap<String, V>,
 }
 
@@ -36,11 +37,13 @@ impl<X, O, V> AnnDataBase<X, O, V> {
         V: BoxedData,
     {
         let x = BoxedData::new(DataContainer::H5Group(file.group("X")?))?;
+        let obs = BoxedData::new(DataContainer::H5Group(file.group("obs")?))?;
         let obsm = file.group("obsm").as_ref().map_or(Ok(HashMap::new()), |group|
             get_all_data(group))?;
+        let var = BoxedData::new(DataContainer::H5Group(file.group("var")?))?;
         let varm = file.group("varm").as_ref().map_or(Ok(HashMap::new()), |group|
             get_all_data(group))?;
-        Ok(Self { file, x, obsm, varm })
+        Ok(Self { file, x, obs, obsm, var, varm })
     }
 
     pub fn write(&self, filename: &str) -> Result<()>
@@ -51,6 +54,8 @@ impl<X, O, V> AnnDataBase<X, O, V> {
     {
         let file = File::create(filename)?;
         self.x.write(&file, "X")?;
+        self.obs.write(&file, "obs")?;
+        self.var.write(&file, "var")?;
         let obsm = file.create_group("obsm")?;
         for (key, val) in self.obsm.iter() {
             val.write(&obsm, key)?;
@@ -71,7 +76,9 @@ impl<X, O, V> AnnDataBase<X, O, V> {
         AnnDataBase {
             file: self.file.clone(),
             x: self.x.subset_rows(idx),
+            obs: self.obs.subset_rows(idx),
             obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(idx))).collect(),
+            var: self.var.clone(),
             varm: self.varm.clone(),
         }
     }
@@ -85,22 +92,26 @@ impl<X, O, V> AnnDataBase<X, O, V> {
         AnnDataBase {
             file: self.file.clone(),
             x: self.x.subset_cols(idx),
+            obs: self.obs.clone(),
             obsm: self.obsm.clone(),
+            var: self.var.subset_cols(idx),
             varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(idx))).collect(),
         }
     }
 
-    pub fn subset(mut self, ridx: &[usize], cidx: &[usize]) -> Self
+    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self
     where
         X: BoxedDataSub2D,
         O: BoxedDataSubRow,
         V: BoxedDataSubCol,
     {
         AnnDataBase {
-            file: self.file,
+            file: self.file.clone(),
             x: self.x.subset(ridx, cidx),
-            obsm: self.obsm.drain().map(|(k, v)| (k, v.subset_rows(ridx))).collect(),
-            varm: self.varm.drain().map(|(k, v)| (k, v.subset_cols(cidx))).collect(),
+            obs: self.obs.subset_rows(ridx),
+            obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(ridx))).collect(),
+            var: self.var.subset_cols(cidx),
+            varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(cidx))).collect(),
         }
     }
 }

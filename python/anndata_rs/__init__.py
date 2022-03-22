@@ -8,6 +8,12 @@ class AnnData:
     def X(self): return Elem2dView(self._anndata.get_x())
 
     @property
+    def obs(self): return Elem2dView(self._anndata.get_obs())
+
+    @property
+    def var(self): return Elem2dView(self._anndata.get_var())
+
+    @property
     def obsm(self):
         obsm = self._anndata.get_obsm()
         for k in obsm: obsm[k] = Elem2dView(obsm[k])

@@ -1,3 +1,6 @@
+mod utils;
+use utils::df_to_py;
+
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, PyArray1, PyReadonlyArray, Ix1, Ix2, PyArray, IntoPyArray};
@@ -8,6 +11,7 @@ use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use std::collections::HashMap;
 use ndarray::ArrayD;
+use polars::frame::DataFrame;
 
 use anndata_rs::anndata_trait::DataType;
 use anndata_rs::backed::{AnnData, Elem2dView};
@@ -23,11 +27,19 @@ impl PyAnnData {
         Ok(PyElem2dView(self.0.x.clone()))
     }
 
+    fn get_obs(&self) -> PyResult<PyElem2dView> {
+        Ok(PyElem2dView(self.0.obs.clone()))
+    }
+
     fn get_obsm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
         let obsm = self.0.obsm.iter()
             .map(|(k, x)| (k.clone(), PyElem2dView(x.clone())))
             .collect();
         Ok(obsm)
+    }
+
+    fn get_var(&self) -> PyResult<PyElem2dView> {
+        Ok(PyElem2dView(self.0.var.clone()))
     }
 
     fn get_varm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
@@ -72,7 +84,7 @@ fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
 fn data_to_py<'py>(
     py: Python<'py>,
     data: Box<dyn DataSubset2D>,
-) -> PyResult<Py<PyAny>>
+) -> PyResult<PyObject>
 {
     match data.as_ref().get_dtype() {
         DataType::CsrMatrix(Unsigned(IntSize::U4)) =>
@@ -86,10 +98,14 @@ fn data_to_py<'py>(
 
         DataType::Array(Float(FloatSize::U4)) => Ok((
             &*data.into_any().downcast::<ArrayD<f32>>().unwrap().into_pyarray(py)
-        ).into()),
+        ).to_object(py)),
         DataType::Array(Float(FloatSize::U8)) => Ok((
             &*data.into_any().downcast::<ArrayD<f64>>().unwrap().into_pyarray(py)
-        ).into()),
+        ).to_object(py)),
+
+        DataType::DataFrame =>
+            df_to_py(*data.into_any().downcast::<DataFrame>().unwrap()),
+
         _ => todo!(),
     }
 }
@@ -97,7 +113,7 @@ fn data_to_py<'py>(
 fn csr_to_scipy<'py, T>(
     py: Python<'py>,
     mat: CsrMatrix<T>
-) -> PyResult<Py<PyAny>>
+) -> PyResult<PyObject>
 where T: numpy::Element
 {
     let n = mat.nrows();
@@ -108,7 +124,7 @@ where T: numpy::Element
     Ok(scipy.getattr("csr_matrix")?.call1((
         (data.into_pyarray(py), indices.into_pyarray(py), intptr.into_pyarray(py)),
         (n, m),
-    ))?.into())
+    ))?.to_object(py))
 }
 
 #[pymodule]

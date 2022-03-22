@@ -11,3 +11,4 @@ ndarray = "0.15.4"
 nalgebra-sparse = "0.6.0"
 dyn-clone = "1.0.5"
 downcast-rs = "1.2.0"
+polars = { version = "0.20.0", features = ["ndarray", "dtype-categorical"] }

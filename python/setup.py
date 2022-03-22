@@ -19,5 +19,7 @@ setup(
         "numpy>=1.16.0",
         "pandas",
         "scipy>=1.4",
+        "polars>=0.13",
+        "pyarrow",
     ],
 )

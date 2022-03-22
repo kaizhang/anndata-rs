@@ -1,22 +1,31 @@
-use hdf5::{Location, Error, Selection, H5Type, Result, Extent, Group};
-use hdf5::dataset::Dataset;
+use hdf5::{
+    Location, Error, Selection, H5Type, Result, Extent, Group,
+    dataset::Dataset,
+    types::VarLenUnicode,
+};
 use std::marker::PhantomData;
-use ndarray::{Dimension, Array, ArrayView};
+use ndarray::{Dimension, Array1, Array, ArrayView};
 use itertools::Itertools;
 
 pub const COMPRESSION: u8 = 1;
 
 pub fn create_str_attr(location: &Location, name: &str, value: &str) -> Result<()>
 {
-    let attr = location.new_attr::<hdf5::types::VarLenUnicode>().create(name)?;
-    let value_: hdf5::types::VarLenUnicode = value.parse().unwrap();
+    let attr = location.new_attr::<VarLenUnicode>().create(name)?;
+    let value_: VarLenUnicode = value.parse().unwrap();
     attr.write_scalar(&value_)
 }
 
 pub fn read_str_attr(location: &Location, name: &str) -> Result<String>
 {
-    let attr: hdf5::types::VarLenUnicode = location.attr(name)?.read_scalar()?;
+    let attr: VarLenUnicode = location.attr(name)?.read_scalar()?;
     Ok(attr.parse().unwrap())
+}
+
+pub fn read_str_vec_attr(location: &Location, name: &str) -> Result<Vec<String>>
+{
+    let arr: Array1<VarLenUnicode> = location.attr(name)?.read()?;
+    Ok(arr.into_raw_vec().into_iter().map(|x| x.as_str().to_string()).collect())
 }
 
 pub struct ResizableVectorData<T> {
@@ -76,14 +85,7 @@ impl<T: H5Type> ResizableVectorData<T> {
 
 }
 
-/*
-impl Extend<T: H5Type> for ResizableVectorData<T> {
-    fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = A>,
-    {
-
-    }
-
+pub fn read_str_vec(dataset: &Dataset) -> Result<Vec<String>> {
+    let arr: Array1<VarLenUnicode> = dataset.read()?;
+    Ok(arr.into_raw_vec().into_iter().map(|x| x.as_str().to_string()).collect())
 }
-*/
