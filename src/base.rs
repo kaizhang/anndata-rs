@@ -30,6 +30,17 @@ pub struct AnnDataBase<X, O, V> {
 }
 
 impl<X, O, V> AnnDataBase<X, O, V> {
+    pub fn set_x<D>(&mut self, data: &D) -> Result<()>
+    where
+        X: BoxedData,
+        D: DataSubset2D,
+    {
+        self.file.unlink("X")?;
+        let container = data.write(&self.file, "X")?;
+        self.x = BoxedData::new(container)?;
+        Ok(())
+    }
+
     pub fn read(file: File) -> Result<Self>
     where
         X: BoxedData,

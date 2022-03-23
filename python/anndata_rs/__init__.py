@@ -1,4 +1,5 @@
 import anndata_rs._anndata as internal
+from scipy.sparse import spmatrix
 
 class AnnData:
     def __init__(self, pyanndata):
@@ -6,6 +7,14 @@ class AnnData:
 
     @property
     def X(self): return Elem2dView(self._anndata.get_x())
+
+    @X.setter
+    def X(self, X):
+        self._anndata.set_x(X)
+        if isinstance(X, spmatrix):
+            ...
+        else:
+            ...
 
     @property
     def obs(self): return Elem2dView(self._anndata.get_obs())

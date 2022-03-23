@@ -12,7 +12,7 @@ keywords = ["data"]
 
 [dependencies]
 anndata-rs = { path = "../" }
-numpy = "0.15.1"
+numpy = "0.16.2"
 ndarray = "0.15.4"
 nalgebra-sparse = "0.6.0"
 hdf5 = "0.8.1"
@@ -20,7 +20,7 @@ polars = { version = "0.20.0", features = ["ndarray"] }
 polars-core = "0.20.0"
 
 [dependencies.pyo3]
-version = "0.15.1"
+version = "0.16.2"
 features = ["extension-module"]
 
 [lib]

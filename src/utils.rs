@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use ndarray::{Dimension, Array1, Array, ArrayView};
 use itertools::Itertools;
 
-pub const COMPRESSION: u8 = 1;
+pub const COMPRESSION: u8 = 2;
 
 pub fn create_str_attr(location: &Location, name: &str, value: &str) -> Result<()>
 {

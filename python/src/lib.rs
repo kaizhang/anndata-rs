@@ -3,14 +3,14 @@ use utils::df_to_py;
 
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
-use numpy::{PyReadonlyArrayDyn, PyArrayDyn, PyArray1, PyReadonlyArray, Ix1, Ix2, PyArray, IntoPyArray};
+use numpy::{PyReadonlyArrayDyn, PyReadonlyArray2, PyArrayDyn, PyArray1, PyReadonlyArray, Ix1, Ix2, PyArray, IntoPyArray};
 use pyo3::{pymodule, types::PyModule, PyResult, Python};
 use nalgebra_sparse::csr::CsrMatrix;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use std::collections::HashMap;
-use ndarray::ArrayD;
+use ndarray::{ArrayD, Array2};
 use polars::frame::DataFrame;
 
 use anndata_rs::anndata_trait::DataType;
@@ -23,6 +23,13 @@ pub struct PyAnnData(AnnData);
 
 #[pymethods]
 impl PyAnnData {
+    fn set_x(&mut self, data: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.set_x(&py_to_data2(py, data)?).unwrap();
+            Ok(())
+        })
+    }
+
     fn get_x(&self) -> PyResult<PyElem2dView> {
         Ok(PyElem2dView(self.0.x.clone()))
     }
@@ -108,6 +115,31 @@ fn data_to_py<'py>(
 
         _ => todo!(),
     }
+}
+
+fn py_to_data<'py>(
+    py: Python<'py>,
+    obj: PyObject,
+) -> PyResult<CsrMatrix<f64>>
+{
+    let shape: Vec<usize> = obj.getattr(py, "shape")?.extract(py)?;
+    let data = obj.getattr(py, "data")?
+        .extract::<PyReadonlyArrayDyn<f64>>(py)?.to_vec().unwrap();
+    let indices = obj.getattr(py, "indices")?
+        .extract::<PyReadonlyArrayDyn<i32>>(py)?.as_array().iter()
+        .map(|x| (*x).try_into().unwrap()).collect();
+    let indptr = obj.getattr(py, "indptr")?
+        .extract::<PyReadonlyArrayDyn<i32>>(py)?.as_array().iter()
+        .map(|x| (*x).try_into().unwrap()).collect();
+    Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+}
+
+fn py_to_data2<'py>(
+    py: Python<'py>,
+    obj: PyObject,
+) -> PyResult<ArrayD<f64>>
+{
+    Ok(obj.extract::<PyReadonlyArrayDyn<f64>>(py)?.to_owned_array())
 }
 
 fn csr_to_scipy<'py, T>(
