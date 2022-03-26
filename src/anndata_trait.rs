@@ -76,3 +76,22 @@ pub fn read_dyn_data_subset(
 
     dyn_data_reader!(container.get_encoding_type()?, read_data_subset(container, ridx, cidx))
 }
+
+macro_rules! size_reader {
+    ($container:expr, $ty:ident, $size:ident) => {
+        match $container.get_encoding_type().unwrap() {
+            DataType::CsrMatrix(_) => <CsrMatrix<i8> as $ty>::$size($container),
+            DataType::Array(_) => <ArrayD<i8> as $ty>::$size($container),
+            DataType::DataFrame => <DataFrame as $ty>::$size($container),
+            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
+        }
+    };
+}
+
+pub fn get_nrows(container: &DataContainer) -> usize {
+    size_reader!(container, DataSubsetRow, container_nrows)
+}
+ 
+pub fn get_ncols(container: &DataContainer) -> usize {
+    size_reader!(container, DataSubsetCol, container_ncols)
+}

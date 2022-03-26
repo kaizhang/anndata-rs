@@ -121,7 +121,7 @@ impl DataContainer {
         }
     }
 
-    fn get_group_ref(&self) -> Result<&Group> {
+    pub fn get_group_ref(&self) -> Result<&Group> {
         match self {
             Self::H5Group(x) => Ok(&x),
             _ => Err(hdf5::Error::Internal(format!(
@@ -130,7 +130,7 @@ impl DataContainer {
         }
     }
 
-    fn get_dataset_ref(&self) -> Result<&Dataset> {
+    pub fn get_dataset_ref(&self) -> Result<&Dataset> {
         match self {
             Self::H5Dataset(x) => Ok(&x),
             _ => Err(hdf5::Error::Internal(format!(

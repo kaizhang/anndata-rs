@@ -5,13 +5,12 @@ use hdf5::H5Type;
 use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
 use polars::frame::DataFrame;
+use crate::utils::read_str_attr;
 
 pub trait DataSubsetRow: DataIO {
     fn nrows(&self) -> usize;
 
-    fn nrows2(container: &DataContainer) -> usize where Self: Sized {
-        todo!()
-    }
+    fn container_nrows(container: &DataContainer) -> usize where Self: Sized;
 
     fn read_rows(
         container: &DataContainer,
@@ -29,6 +28,12 @@ pub trait DataSubsetRow: DataIO {
 impl DataSubsetRow for DataFrame {
     fn nrows(&self) -> usize { self.height() }
 
+    fn container_nrows(container: &DataContainer) -> usize {
+        let group = container.get_group_ref().unwrap();
+        let attr = read_str_attr(group, "_index").unwrap();
+        group.dataset(attr.as_str()).unwrap().shape()[0]
+    }
+
     fn get_rows(&self, idx: &[usize]) -> Self {
         self.take_iter(idx.iter().map(|i| *i)).unwrap()
     }
@@ -40,6 +45,10 @@ where
 {
     fn nrows(&self) -> usize { self.shape()[0] }
 
+    fn container_nrows(container: &DataContainer) -> usize {
+        container.get_dataset_ref().unwrap().shape()[0]
+    }
+
     fn get_rows(&self, idx: &[usize]) -> Self { self.select(Axis(0), idx) }
 }
 
@@ -48,6 +57,11 @@ where
     T: H5Type + Copy + Send + Sync,
 {
     fn nrows(&self) -> usize { self.nrows() }
+
+    fn container_nrows(container: &DataContainer) -> usize {
+        container.get_group_ref().unwrap().attr("shape").unwrap()
+            .read_raw().unwrap()[0]
+    }
 
     fn get_rows(&self, idx: &[usize]) -> Self {
         create_csr_from_rows(idx.iter().map(|r| {
@@ -63,6 +77,8 @@ where
 pub trait DataSubsetCol: DataIO {
     fn ncols(&self) -> usize;
 
+    fn container_ncols(container: &DataContainer) -> usize where Self: Sized;
+
     fn read_columns(
         container: &DataContainer,
         idx: &[usize],
@@ -77,11 +93,13 @@ pub trait DataSubsetCol: DataIO {
 }
 
 impl DataSubsetCol for DataFrame {
-    fn ncols(&self) -> usize { self.width() }
+    fn ncols(&self) -> usize { self.height() }
 
-    fn get_columns(&self, idx: &[usize]) -> Self {
-        idx.iter().map(|i| self.select_at_idx(*i).unwrap().clone()).collect()
+    fn container_ncols(container: &DataContainer) -> usize {
+        <DataFrame as DataSubsetRow>::container_nrows(container)
     }
+
+    fn get_columns(&self, idx: &[usize]) -> Self { self.get_rows(idx) }
 }
 
 impl<T> DataSubsetCol for ArrayD<T>
@@ -89,6 +107,10 @@ where
     T: H5Type + Clone + Send + Sync,
 {
     fn ncols(&self) -> usize { self.shape()[1] }
+
+    fn container_ncols(container: &DataContainer) -> usize {
+        container.get_dataset_ref().unwrap().shape()[1]
+    }
 
     fn get_columns(&self, idx: &[usize]) -> Self { self.select(Axis(1), idx) }
 }
@@ -98,6 +120,11 @@ where
     T: H5Type + Clone + Send + Sync,
 {
     fn ncols(&self) -> usize { self.ncols() }
+
+    fn container_ncols(container: &DataContainer) -> usize {
+        container.get_group_ref().unwrap().attr("shape").unwrap()
+            .read_raw().unwrap()[1]
+    }
 
     fn get_columns(&self, idx: &[usize]) -> Self {
         todo!()

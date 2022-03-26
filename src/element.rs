@@ -19,6 +19,10 @@ impl MatrixElem {
         self.0.write_elem(location, name)
     }
 
+    pub fn nrows(&self) -> usize { self.0.nrows }
+
+    pub fn ncols(&self) -> usize { self.0.ncols }
+
     pub fn subset_rows(&self, idx: &[usize]) -> Self {
         Self(Arc::new(self.0.subset_rows(idx)))
     }

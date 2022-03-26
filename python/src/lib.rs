@@ -2,20 +2,21 @@ mod utils;
 use utils::df_to_py;
 
 use pyo3::prelude::*;
-use pyo3::types::PyIterator;
-use numpy::{PyReadonlyArrayDyn, PyReadonlyArray2, PyArrayDyn, PyArray1, PyReadonlyArray, Ix1, Ix2, PyArray, IntoPyArray};
+use numpy::{PyReadonlyArrayDyn, IntoPyArray};
 use pyo3::{pymodule, types::PyModule, PyResult, Python};
 use nalgebra_sparse::csr::CsrMatrix;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use std::collections::HashMap;
-use ndarray::{ArrayD, Array2};
+use ndarray::ArrayD;
 use polars::frame::DataFrame;
 
-use anndata_rs::anndata_trait::DataType;
-use anndata_rs::backed::{AnnData, Elem2dView};
-use anndata_rs::anndata_trait::DataSubset2D;
+use anndata_rs::{
+    base::AnnData,
+    element::MatrixElem,
+    anndata_trait::{DataType, DataSubset2D},
+};
 
 #[pyclass]
 #[repr(transparent)]
@@ -68,12 +69,12 @@ impl PyAnnData {
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyElem2dView(Elem2dView);
+pub struct PyElem2dView(MatrixElem);
 
 #[pymethods]
 impl PyElem2dView {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| data_to_py(py, self.0.read_elem().unwrap()))
+        Python::with_gil(|py| data_to_py(py, self.0.0.read_elem().unwrap()))
     }
 }
 

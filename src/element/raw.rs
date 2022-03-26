@@ -37,8 +37,8 @@ where
 pub struct RawMatrixElem<T: ?Sized> {
     pub obs_indices: Option<Vec<usize>>,
     pub var_indices: Option<Vec<usize>>,
-    //pub n_obs: usize,
-    //pub n_var: usize,
+    pub nrows: usize,
+    pub ncols: usize,
     pub inner: RawElem<T>,
 }
 
@@ -89,8 +89,10 @@ impl RawMatrixElem<dyn DataSubset2D>
 {
     pub fn new(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type().unwrap();
+        let nrows = get_nrows(&container);
+        let ncols = get_ncols(&container);
         let inner = RawElem { dtype, element: None, container };
-        Ok(Self { obs_indices: None, var_indices: None, inner })
+        Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
     }
 
     pub fn read_elem(&self) -> Result<Box<dyn DataSubset2D>> {
@@ -118,6 +120,12 @@ impl RawMatrixElem<dyn DataSubset2D>
 
     // TODO: fix subsetting
     pub fn subset_rows(&self, idx: &[usize]) -> Self {
+        for i in idx {
+            if *i >= self.nrows {
+                panic!("index out of bound")
+            }
+        }
+
         let inner = RawElem {
             dtype: self.inner.dtype.clone(),
             container: self.inner.container.clone(),
@@ -126,6 +134,8 @@ impl RawMatrixElem<dyn DataSubset2D>
         Self {
             obs_indices: Some(idx.iter().map(|x| *x).collect()),
             var_indices: self.var_indices.clone(),
+            nrows: self.nrows,
+            ncols: self.ncols,
             inner,
         }
     }
@@ -139,6 +149,8 @@ impl RawMatrixElem<dyn DataSubset2D>
         Self {
             obs_indices: self.obs_indices.clone(),
             var_indices: Some(idx.iter().map(|x| *x).collect()),
+            nrows: self.nrows,
+            ncols: self.ncols,
             inner,
         }
     }
@@ -152,6 +164,8 @@ impl RawMatrixElem<dyn DataSubset2D>
         Self {
             obs_indices: Some(ridx.iter().map(|x| *x).collect()),
             var_indices: Some(cidx.iter().map(|x| *x).collect()),
+            nrows: self.nrows,
+            ncols: self.ncols,
             inner,
         }
     }
