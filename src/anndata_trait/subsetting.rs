@@ -1,13 +1,18 @@
-use crate::anndata_trait::data::{DataType, DataIO, DataContainer};
+use crate::anndata_trait::data::{DataIO, DataContainer};
 
 use ndarray::{Axis, ArrayD};
-use hdf5::{H5Type, Result};
+use hdf5::H5Type;
 use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
-use hdf5::types::TypeDescriptor::*;
 use polars::frame::DataFrame;
 
 pub trait DataSubsetRow: DataIO {
+    fn nrows(&self) -> usize;
+
+    fn nrows2(container: &DataContainer) -> usize where Self: Sized {
+        todo!()
+    }
+
     fn read_rows(
         container: &DataContainer,
         idx: &[usize],
@@ -22,6 +27,8 @@ pub trait DataSubsetRow: DataIO {
 }
 
 impl DataSubsetRow for DataFrame {
+    fn nrows(&self) -> usize { self.height() }
+
     fn get_rows(&self, idx: &[usize]) -> Self {
         self.take_iter(idx.iter().map(|i| *i)).unwrap()
     }
@@ -31,6 +38,8 @@ impl<T> DataSubsetRow for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
+    fn nrows(&self) -> usize { self.shape()[0] }
+
     fn get_rows(&self, idx: &[usize]) -> Self { self.select(Axis(0), idx) }
 }
 
@@ -38,6 +47,8 @@ impl<T> DataSubsetRow for CsrMatrix<T>
 where
     T: H5Type + Copy + Send + Sync,
 {
+    fn nrows(&self) -> usize { self.nrows() }
+
     fn get_rows(&self, idx: &[usize]) -> Self {
         create_csr_from_rows(idx.iter().map(|r| {
             let row = self.get_row(*r).unwrap();
@@ -50,6 +61,8 @@ where
 }
 
 pub trait DataSubsetCol: DataIO {
+    fn ncols(&self) -> usize;
+
     fn read_columns(
         container: &DataContainer,
         idx: &[usize],
@@ -64,6 +77,8 @@ pub trait DataSubsetCol: DataIO {
 }
 
 impl DataSubsetCol for DataFrame {
+    fn ncols(&self) -> usize { self.width() }
+
     fn get_columns(&self, idx: &[usize]) -> Self {
         idx.iter().map(|i| self.select_at_idx(*i).unwrap().clone()).collect()
     }
@@ -73,6 +88,8 @@ impl<T> DataSubsetCol for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
+    fn ncols(&self) -> usize { self.shape()[1] }
+
     fn get_columns(&self, idx: &[usize]) -> Self { self.select(Axis(1), idx) }
 }
 
@@ -80,6 +97,8 @@ impl<T> DataSubsetCol for CsrMatrix<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
+    fn ncols(&self) -> usize { self.ncols() }
+
     fn get_columns(&self, idx: &[usize]) -> Self {
         todo!()
     }
@@ -131,61 +150,4 @@ where
     });
     indptr.push(n);
     CsrMatrix::try_from_csr_data(indptr.len() - 1, num_col, indptr, indices, data).unwrap()
-}
-
-pub fn read_dyn_data_subset(
-    container: &DataContainer,
-    ridx: Option<&[usize]>,
-    cidx: Option<&[usize]>,
-) -> Result<Box<dyn DataSubset2D>> {
-    match container.get_encoding_type()? {
-        DataType::CsrMatrix(Integer(_)) => {
-            let mat: CsrMatrix<i64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::CsrMatrix(Unsigned(_)) => {
-            let mat: CsrMatrix<u64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::CsrMatrix(Float(_)) => {
-            let mat: CsrMatrix<f64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Integer(_)) => {
-            let mat: ArrayD<i64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Unsigned(_)) => {
-            let mat: ArrayD<u64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Float(_)) => {
-            let mat: ArrayD<f64> = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(mat))
-        },
-        DataType::DataFrame => {
-            let df: DataFrame = read_data_subset(container, ridx, cidx);
-            Ok(Box::new(df))
-        },
-        unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type {:?}", unknown)
-        ))?,
-    }
-}
-
-fn read_data_subset<T: DataSubset2D>(
-    container: &DataContainer,
-    ridx: Option<&[usize]>,
-    cidx: Option<&[usize]>,
-) -> T {
-    match ridx {
-        None => match cidx {
-            None => DataIO::read(container).unwrap(),
-            Some(j) => DataSubsetCol::read_columns(container, j),
-        },
-        Some(i) => match cidx {
-            None => DataSubsetRow::read_rows(container, i),
-            Some(j) => DataSubset2D::read_partial(container, i, j),
-        },
-    }
 }

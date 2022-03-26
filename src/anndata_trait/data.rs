@@ -415,41 +415,6 @@ impl DataIO for DataFrame {
     fn version(&self) -> &str { "0.2.0" }
 }
 
-pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
-    match container.get_encoding_type()? {
-        DataType::CsrMatrix(Integer(_)) => {
-            let mat: CsrMatrix<i64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::CsrMatrix(Unsigned(_)) => {
-            let mat: CsrMatrix<u64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::CsrMatrix(Float(_)) => {
-            let mat: CsrMatrix<f64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Integer(_)) => {
-            let mat: ArrayD<i64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Unsigned(_)) => {
-            let mat: ArrayD<u64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::Array(Float(_)) => {
-            let mat: ArrayD<f64> = DataIO::read(container)?;
-            Ok(Box::new(mat))
-        },
-        DataType::DataFrame => {
-            let df: DataFrame = DataIO::read(container)?;
-            Ok(Box::new(df))
-        },
-        unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-        ))?,
-    }
-}
 
 pub fn downcast_anndata<T>(val: Box<dyn DataIO>) -> Box<T>
 where
