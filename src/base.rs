@@ -8,77 +8,134 @@ pub struct AnnData {
     file: File,
     pub n_obs: usize,
     pub n_var: usize,
-    pub x: MatrixElem,
-    pub obs: MatrixElem,
+    pub x: Option<MatrixElem>,
+    pub obs: Option<MatrixElem>,
     pub obsm: HashMap<String, MatrixElem>,
-    pub var: MatrixElem,
+    pub var: Option<MatrixElem>,
     pub varm: HashMap<String, MatrixElem>,
 }
 
 impl AnnData {
-    pub fn set_x<D>(&mut self, data: &D) -> Result<()>
-    where
-        D: DataSubset2D,
-    {
+    pub fn set_x(&mut self, data: &Box<dyn DataSubset2D>) -> Result<()> {
         assert!(
             self.n_obs == data.nrows(),
-            "number of observations mismatched, expecting {}, but found {}",
+            "Number of observations mismatched, expecting {}, but found {}",
             self.n_obs, data.nrows(),
         );
         assert!(
             self.n_var == data.ncols(),
-            "number of variables mismatched, expecting {}, but found {}",
+            "Number of variables mismatched, expecting {}, but found {}",
             self.n_var, data.ncols(),
         );
-        self.file.unlink("X")?;
+        if self.x.is_some() { self.file.unlink("X")?; }
         let container = data.write(&self.file, "X")?;
-        self.x = MatrixElem::new(container)?;
+        self.x = Some(MatrixElem::new(container)?);
         Ok(())
+    }
+
+    pub fn add_obsm(&mut self, key: &str, data: &Box<dyn DataSubset2D>) -> Result<()> {
+        assert!(
+            self.n_obs == data.nrows(),
+            "Number of observations mismatched, expecting {}, but found {}",
+            self.n_obs, data.nrows(),
+        );
+
+        let obsm = match self.file.group("obsm") {
+            Ok(x) => x,
+            _ => self.file.create_group("obsm").unwrap(),
+        };
+        if self.obsm.contains_key(key) { obsm.unlink(key)?; } 
+        let container = data.write(&obsm, key)?;
+        let elem = MatrixElem::new(container)?;
+        self.obsm.insert(key.to_string(), elem);
+        Ok(())
+    }
+
+    pub fn new(filename: &str, n_obs: usize, n_var: usize) -> Result<Self> {
+        let file = hdf5::File::create_excl(filename)?;
+        Ok(Self { file, n_obs, n_var, x: None, obs: None,
+            obsm: HashMap::new(), var: None, varm: HashMap::new(),
+        })
     }
 
     pub fn read(file: File) -> Result<Self>
     {
-        let x = MatrixElem::new(DataContainer::H5Group(file.group("X")?))?;
-        let n_obs = x.nrows();
-        let n_var = x.ncols();
+        let mut n_obs = None;
+        let mut n_var = None;
 
-        let obs = MatrixElem::new(DataContainer::H5Group(file.group("obs")?))?;
-        assert!(n_obs == obs.nrows(),
-            "inconsistent number of observations: {} (X) != {} (obs)", n_obs, obs.nrows(),
-        );
+        // Read X
+        let x = if file.link_exists("X") {
+            let x = MatrixElem::new(DataContainer::open(&file, "X")?)?;
+            n_obs = Some(x.nrows());
+            n_var = Some(x.ncols());
+            Some(x)
+        } else {
+            None
+        };
 
+        // Read obs
+        let obs = if file.link_exists("obs") {
+            let obs = MatrixElem::new(DataContainer::open(&file, "obs")?)?;
+            if n_obs.is_none() { n_obs = Some(obs.nrows()); }
+            assert!(n_obs.unwrap() == obs.nrows(),
+                "Inconsistent number of observations: {} (X) != {} (obs)",
+                n_obs.unwrap(), obs.nrows(),
+            );
+            Some(obs)
+        } else {
+            None
+        };
+
+        // Read obsm
         let obsm = file.group("obsm").as_ref().map_or(Ok(HashMap::new()), |group|
             get_all_data(group))?;
         for (k, v) in obsm.iter() {
-            assert!(n_obs == v.nrows(), 
-                "inconsistent number of observations: {} (X) != {} ({})",
-                n_obs, v.nrows(), k,
+            if n_obs.is_none() { n_obs = Some(v.nrows()); }
+            assert!(n_obs.unwrap() == v.nrows(), 
+                "Inconsistent number of observations: {} (X) != {} ({})",
+                n_obs.unwrap(), v.nrows(), k,
             );
         }
 
-        let var = MatrixElem::new(DataContainer::H5Group(file.group("var")?))?;
-        assert!(n_var == var.ncols(),
-            "inconsistent number of variables: {} (X) != {} (var)", n_var, var.ncols(),
-        );
+        // Read var
+        let var = if file.link_exists("var") {
+            let var = MatrixElem::new(DataContainer::open(&file, "var")?)?;
+            if n_var.is_none() { n_var = Some(var.ncols()); }
+            assert!(n_var.unwrap() == var.ncols(),
+                "Inconsistent number of variables: {} (X) != {} (var)",
+                n_var.unwrap(), var.ncols(),
+            );
+            Some(var)
+        } else {
+            None
+        };
 
+        // Read varm
         let varm = file.group("varm").as_ref().map_or(Ok(HashMap::new()), |group|
             get_all_data(group))?;
         for (k, v) in varm.iter() {
-            assert!(n_var == var.ncols(), 
-                "inconsistent number of variables: {} (X) != {} ({})",
-                n_var, var.ncols(), k,
+            if n_var.is_none() { n_var = Some(v.ncols()); }
+            assert!(n_var.unwrap() == v.ncols(), 
+                "Inconsistent number of variables: {} (X) != {} ({})",
+                n_var.unwrap(), v.ncols(), k,
             );
         }
 
-        Ok(Self { file, n_obs, n_var, x, obs, obsm, var, varm })
+        Ok(Self {
+            file,
+            n_obs: n_obs.unwrap_or(0),
+            n_var: n_var.unwrap_or(0),
+            x, obs, obsm, var, varm
+        })
     }
 
     pub fn write(&self, filename: &str) -> Result<()>
     {
         let file = File::create(filename)?;
-        self.x.write(&file, "X")?;
-        self.obs.write(&file, "obs")?;
-        self.var.write(&file, "var")?;
+
+        if let Some(x) = &self.x { x.write(&file, "X")?; }
+        if let Some(obs) = &self.obs { obs.write(&file, "obs")?; }
+        if let Some(var) = &self.var { var.write(&file, "var")?; }
         let obsm = file.create_group("obsm")?;
         for (key, val) in self.obsm.iter() {
             val.write(&obsm, key)?;
@@ -96,8 +153,8 @@ impl AnnData {
             file: self.file.clone(),
             n_obs: idx.len(),
             n_var: self.n_var,
-            x: self.x.subset_rows(idx),
-            obs: self.obs.subset_rows(idx),
+            x: self.x.as_ref().map(|x| x.subset_rows(idx)),
+            obs: self.obs.as_ref().map(|x| x.subset_rows(idx)),
             obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(idx))).collect(),
             var: self.var.clone(),
             varm: self.varm.clone(),
@@ -110,10 +167,10 @@ impl AnnData {
             file: self.file.clone(),
             n_obs: self.n_obs,
             n_var: idx.len(),
-            x: self.x.subset_cols(idx),
+            x: self.x.as_ref().map(|x| x.subset_cols(idx)),
             obs: self.obs.clone(),
             obsm: self.obsm.clone(),
-            var: self.var.subset_cols(idx),
+            var: self.var.as_ref().map(|x| x.subset_cols(idx)),
             varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(idx))).collect(),
         }
     }
@@ -124,10 +181,10 @@ impl AnnData {
             file: self.file.clone(),
             n_obs: ridx.len(),
             n_var: cidx.len(),
-            x: self.x.subset(ridx, cidx),
-            obs: self.obs.subset_rows(ridx),
+            x: self.x.as_ref().map(|x| x.subset(ridx, cidx)),
+            obs: self.obs.as_ref().map(|x| x.subset_rows(ridx)),
             obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(ridx))).collect(),
-            var: self.var.subset_cols(cidx),
+            var: self.var.as_ref().map(|x| x.subset_cols(cidx)),
             varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(cidx))).collect(),
         }
     }

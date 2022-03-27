@@ -2,8 +2,23 @@ import anndata_rs._anndata as internal
 from scipy.sparse import spmatrix
 
 class AnnData:
-    def __init__(self, pyanndata):
-        self._anndata = pyanndata
+    def __init__(
+        self,
+        *,
+        filename: str = None,
+        X = None,
+        n_obs: int = None,
+        n_var: int = None,
+        obs = None,
+        var = None,
+        pyanndata = None,
+    ):
+        if pyanndata is None:
+            if X is not None: (n_obs, n_var) = X.shape
+            self._anndata = internal.PyAnnData(filename, n_obs, n_var)
+            if X is not None: self.X = X
+        else:
+            self._anndata = pyanndata
 
     @property
     def X(self): return Elem2dView(self._anndata.get_x())
@@ -24,9 +39,7 @@ class AnnData:
 
     @property
     def obsm(self):
-        obsm = self._anndata.get_obsm()
-        for k in obsm: obsm[k] = Elem2dView(obsm[k])
-        return obsm
+        return OBSM(self._anndata)
 
     @property
     def varm(self):
@@ -44,12 +57,22 @@ class AnnData:
                 # do something with itertools.count()
             else:
                 idx = list(range(ifnone(index.start, 0), index.stop, ifnone(index.step, 1)))
-                return AnnData(self._anndata.subset_rows(idx))
+                return AnnData(pyanndata=self._anndata.subset_rows(idx))
         else:
-            return AnnData(self._anndata.subset_rows(list(index)))
+            return AnnData(pyanndata=self._anndata.subset_rows(list(index)))
 
     def write(self, filename: str):
         self._anndata.write(filename)
+
+class OBSM:
+    def __init__(self, anndata):
+        self._anndata = anndata
+
+    def __getitem__(self, key):
+        return Elem2dView(self._anndata.get_obsm(key))
+
+    def __setitem__(self, key, data):
+        self._anndata.add_obsm(key, data)
 
 class Elem2dView:
     def __init__(self, elem):
@@ -67,4 +90,4 @@ class Elem2dView:
             print(subscript)
 
 def read_h5ad(filename: str, mode: str = "r") -> AnnData:
-    return AnnData(internal.read_anndata(filename, mode))
+    return AnnData(pyanndata=internal.read_anndata(filename, mode))

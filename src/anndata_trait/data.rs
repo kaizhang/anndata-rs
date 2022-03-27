@@ -77,7 +77,7 @@ pub enum DataContainer {
 }
 
 impl DataContainer {
-    fn open(group: &Group, name: &str) -> Result<Self> {
+    pub fn open(group: &Group, name: &str) -> Result<Self> {
         match group.dataset(name) {
             Ok(x) => Ok(DataContainer::H5Dataset(x)),
             _ => match group.group(name) {

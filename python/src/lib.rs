@@ -1,9 +1,12 @@
 mod utils;
 use utils::df_to_py;
 
-use pyo3::prelude::*;
+use pyo3::{
+    prelude::*,
+    types::PyType,
+    pymodule, types::PyModule, PyResult, Python,
+};
 use numpy::{PyReadonlyArrayDyn, IntoPyArray};
-use pyo3::{pymodule, types::PyModule, PyResult, Python};
 use nalgebra_sparse::csr::CsrMatrix;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
@@ -18,36 +21,56 @@ use anndata_rs::{
     anndata_trait::{DataType, DataSubset2D},
 };
 
+fn to_rust_array<'py>(
+    py: Python<'py>,
+    obj: PyObject,
+) -> PyResult<Box<dyn DataSubset2D>> {
+    Ok(match obj.as_ref(py).getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+        "float64" => Box::new(obj.extract::<PyReadonlyArrayDyn<f64>>(py)?.to_owned_array()),
+        "int64" => Box::new(obj.extract::<PyReadonlyArrayDyn<i64>>(py)?.to_owned_array()),
+        dtype => panic!("{}", dtype),
+    })
+}
+
 #[pyclass]
 #[repr(transparent)]
 pub struct PyAnnData(AnnData);
 
 #[pymethods]
 impl PyAnnData {
+    #[new]
+    fn new(filename: &str, n_obs: usize, n_var: usize) -> Self {
+        PyAnnData(AnnData::new(filename, n_obs, n_var).unwrap())
+    }
+
     fn set_x(&mut self, data: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
-            self.0.set_x(&py_to_data2(py, data)?).unwrap();
+            self.0.set_x(&to_rust_array(py, data)?).unwrap();
             Ok(())
         })
     }
 
-    fn get_x(&self) -> PyResult<PyElem2dView> {
-        Ok(PyElem2dView(self.0.x.clone()))
+    fn get_x(&self) -> PyResult<Option<PyElem2dView>> {
+        Ok(self.0.x.clone().map(PyElem2dView))
     }
 
-    fn get_obs(&self) -> PyResult<PyElem2dView> {
-        Ok(PyElem2dView(self.0.obs.clone()))
+    fn get_obs(&self) -> PyResult<Option<PyElem2dView>> {
+        Ok(self.0.obs.clone().map(PyElem2dView))
     }
 
-    fn get_obsm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
-        let obsm = self.0.obsm.iter()
-            .map(|(k, x)| (k.clone(), PyElem2dView(x.clone())))
-            .collect();
-        Ok(obsm)
+    fn get_obsm(&self, key: &str) -> PyResult<PyElem2dView> {
+        Ok(PyElem2dView(self.0.obsm.get(key).unwrap().clone()))
     }
 
-    fn get_var(&self) -> PyResult<PyElem2dView> {
-        Ok(PyElem2dView(self.0.var.clone()))
+    fn add_obsm(&mut self, key: &str, data: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.add_obsm(key, &to_rust_array(py, data)?).unwrap();
+            Ok(())
+        })
+    }
+
+    fn get_var(&self) -> PyResult<Option<PyElem2dView>> {
+        Ok(self.0.var.clone().map(PyElem2dView))
     }
 
     fn get_varm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
@@ -140,8 +163,14 @@ fn py_to_data2<'py>(
     obj: PyObject,
 ) -> PyResult<ArrayD<f64>>
 {
+
+    let ty = py.import("numpy")?.getattr("ndarray")?.downcast::<PyType>().unwrap();
+    println!("{:?}", ty);
+    println!("{:?}", obj.as_ref(py).get_type());
+    println!("{:?}", obj.as_ref(py).is_instance(ty)?);
     Ok(obj.extract::<PyReadonlyArrayDyn<f64>>(py)?.to_owned_array())
 }
+
 
 fn csr_to_scipy<'py, T>(
     py: Python<'py>,
