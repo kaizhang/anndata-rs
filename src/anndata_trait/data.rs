@@ -11,7 +11,6 @@ use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use nalgebra_sparse::csr::CsrMatrix;
-use dyn_clone::DynClone;
 use polars::{
     prelude::{NamedFromOwned, NamedFrom, IntoSeries},
     series::Series,
@@ -19,8 +18,6 @@ use polars::{
     frame::DataFrame,
 };
 use std::collections::HashMap;
-use downcast_rs::Downcast;
-use downcast_rs::impl_downcast;
 
 #[derive(Debug, Clone)]
 pub struct StrVector(Vec<String>);
@@ -140,10 +137,8 @@ impl DataContainer {
     }
 }
 
-pub trait DataIO: Send + Sync + DynClone + Downcast {
+pub trait WriteData {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>;
-
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
 
     fn version(&self) -> &str;
 
@@ -151,9 +146,12 @@ pub trait DataIO: Send + Sync + DynClone + Downcast {
 
     fn dtype() -> DataType where Self: Sized;
 }
-impl_downcast!(DataIO);
 
-impl DataIO for CategoricalArray {
+pub trait ReadData {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
+}
+
+impl WriteData for CategoricalArray {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "categorical")?;
@@ -167,6 +165,12 @@ impl DataIO for CategoricalArray {
         Ok(DataContainer::H5Group(group))
     }
 
+    fn get_dtype(&self) -> DataType { DataType::Categorical }
+    fn dtype() -> DataType { DataType::Categorical }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl ReadData for CategoricalArray {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let group : &Group = container.get_group_ref()?;
         let categories: Vec<String> = read_str_vec(&group.dataset("categories")?)?;
@@ -174,13 +178,9 @@ impl DataIO for CategoricalArray {
 
         Ok(CategoricalArray { categories, codes })
     }
-
-    fn get_dtype(&self) -> DataType { DataType::Categorical }
-    fn dtype() -> DataType { DataType::Categorical }
-    fn version(&self) -> &str { "0.2.0" }
 }
 
-impl<T> DataIO for CsrMatrix<T>
+impl<T> WriteData for CsrMatrix<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
@@ -209,6 +209,15 @@ where
         Ok(DataContainer::H5Group(group))
     }
 
+    fn get_dtype(&self) -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
+    fn dtype() -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
+    fn version(&self) -> &str { "0.1.0" }
+}
+
+impl<T> ReadData for CsrMatrix<T>
+where
+    T: H5Type + Clone + Send + Sync,
+{
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let dataset: &Group = container.get_group_ref()?;
         let shape: Vec<usize> = dataset.attr("shape")?.read_raw()?;
@@ -227,13 +236,9 @@ where
             _ => Err(hdf5::Error::from("not a csr matrix!")),
         }
     }
-
-    fn get_dtype(&self) -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.1.0" }
 }
 
-impl<T> DataIO for ArrayD<T>
+impl<T> WriteData for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
@@ -245,11 +250,6 @@ where
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
         Ok(DataContainer::H5Dataset(dataset))
-    }
-
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        let dataset: &Dataset = container.get_dataset_ref()?;
-        dataset.read()
     }
 
     fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
@@ -257,7 +257,17 @@ where
     fn version(&self) -> &str { "0.2.0" }
 }
 
-impl<T> DataIO for Vec<T>
+impl<T> ReadData for ArrayD<T>
+where
+    T: H5Type + Clone + Send + Sync,
+{
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Dataset = container.get_dataset_ref()?;
+        dataset.read()
+    }
+}
+
+impl<T> WriteData for Vec<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
@@ -271,18 +281,23 @@ where
         Ok(DataContainer::H5Dataset(dataset))
     }
 
+    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
+    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl<T> ReadData for Vec<T>
+where
+    T: H5Type + Clone + Send + Sync,
+{
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let dataset: &Dataset = container.get_dataset_ref()?;
         let arr: Array1<_> = dataset.read()?;
         Ok(arr.into_raw_vec())
     }
-
-    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.2.0" }
 }
 
-impl DataIO for StrVector
+impl WriteData for StrVector
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
@@ -296,17 +311,19 @@ impl DataIO for StrVector
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        let dataset: &Dataset = container.get_dataset_ref()?;
-        Ok(StrVector(read_str_vec(dataset)?))
-    }
-
     fn get_dtype(&self) -> DataType { DataType::Array(VarLenUnicode) }
     fn dtype() -> DataType { DataType::Array(VarLenUnicode) }
     fn version(&self) -> &str { "0.2.0" }
 }
 
-impl DataIO for DataFrame {
+impl ReadData for StrVector {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset: &Dataset = container.get_dataset_ref()?;
+        Ok(StrVector(read_str_vec(dataset)?))
+    }
+}
+
+impl WriteData for DataFrame {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "dataframe")?;
@@ -323,30 +340,22 @@ impl DataIO for DataFrame {
         for series in self.iter() {
             let name = series.name();
             match series.dtype() {
-                polars::datatypes::DataType::UInt8 => write_array_view(
-                    series.u8().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::UInt16 => write_array_view(
-                    series.u16().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::UInt32 => write_array_view(
-                    series.u32().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::UInt64 => write_array_view(
-                    series.u64().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::Int32 => write_array_view(
-                    series.i32().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::Int64 => write_array_view(
-                    series.i64().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::Float32 => write_array_view(
-                    series.f32().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
-                polars::datatypes::DataType::Float64 => write_array_view(
-                    series.f64().unwrap().to_ndarray().unwrap(), &group, name,
-                ),
+                polars::datatypes::DataType::UInt8 =>
+                    series.u8().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::UInt16 =>
+                    series.u16().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::UInt32 =>
+                    series.u32().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::UInt64 =>
+                    series.u64().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::Int32 =>
+                    series.i32().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::Int64 =>
+                    series.i64().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::Float32 => 
+                    series.f32().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::Float64 => 
+                    series.f64().unwrap().to_ndarray().unwrap().write(&group, name),
                 polars::datatypes::DataType::Utf8 => {
                     let vec: Vec<VarLenUnicode> = series.utf8().unwrap()
                         .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
@@ -368,6 +377,12 @@ impl DataIO for DataFrame {
         Ok(DataContainer::H5Group(group))
     }
 
+    fn get_dtype(&self) -> DataType { DataType::DataFrame }
+    fn dtype() -> DataType { DataType::DataFrame }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl ReadData for DataFrame {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let group: &Group = container.get_group_ref()?;
         let index = read_str_attr(group, "_index")?;
@@ -409,13 +424,9 @@ impl DataIO for DataFrame {
             }
         }).collect()
     }
-
-    fn get_dtype(&self) -> DataType { DataType::DataFrame }
-    fn dtype() -> DataType { DataType::DataFrame }
-    fn version(&self) -> &str { "0.2.0" }
 }
 
-
+/*
 pub fn downcast_anndata<T>(val: Box<dyn DataIO>) -> Box<T>
 where
     T: DataIO,
@@ -433,20 +444,23 @@ where
         )
     }
 }
+*/
 
-fn write_array_view<'a, T, D>(
-    arr: ArrayView<'a, T, D>,
-    location: &Group,
-    name: &str
-) -> Result<DataContainer>
+impl<'a, T, D> WriteData for ArrayView<'a, T, D>
 where
     D: Dimension,
     T: H5Type,
 {
-    let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-        .with_data(arr).create(name)?;
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(self).create(name)?;
 
-    create_str_attr(&*dataset, "encoding-type", "array")?;
-    create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
-    Ok(DataContainer::H5Dataset(dataset))
+        create_str_attr(&*dataset, "encoding-type", "array")?;
+        create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
+        Ok(DataContainer::H5Dataset(dataset))
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
+    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
+    fn version(&self) -> &str { "0.2.0" }
 }

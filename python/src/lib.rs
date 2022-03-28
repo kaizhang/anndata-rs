@@ -18,18 +18,27 @@ use polars::frame::DataFrame;
 use anndata_rs::{
     base::AnnData,
     element::MatrixElem,
-    anndata_trait::{DataType, DataSubset2D},
+    anndata_trait::{DataType, WritePartialData, DataPartialIO},
 };
 
 fn to_rust_array<'py>(
     py: Python<'py>,
-    obj: PyObject,
-) -> PyResult<Box<dyn DataSubset2D>> {
-    Ok(match obj.as_ref(py).getattr("dtype")?.getattr("name")?.extract::<&str>()? {
-        "float64" => Box::new(obj.extract::<PyReadonlyArrayDyn<f64>>(py)?.to_owned_array()),
-        "int64" => Box::new(obj.extract::<PyReadonlyArrayDyn<i64>>(py)?.to_owned_array()),
-        dtype => panic!("{}", dtype),
-    })
+    obj_: PyObject,
+) -> PyResult<Box<dyn WritePartialData>> {
+    let obj = obj_.as_ref(py);
+    let ndarray = py.import("numpy")?.getattr("ndarray")?.downcast::<PyType>().unwrap();
+    let csr_matrix = py.import("scipy.sparse.csr")?.getattr("csr_matrix")?.downcast::<PyType>().unwrap();
+    if obj.is_instance(ndarray)? {
+        Ok(match obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+            "float64" => Box::new(obj.extract::<PyReadonlyArrayDyn<f64>>()?.to_owned_array()),
+            "int64" => Box::new(obj.extract::<PyReadonlyArrayDyn<i64>>()?.to_owned_array()),
+            dtype => panic!("{}", dtype),
+        })
+    } else if obj.is_instance(csr_matrix)? {
+        to_rust_csr(obj)
+    } else {
+        panic!("Cannot convert type \"{}\" to array", obj.get_type())
+    }
 }
 
 #[pyclass]
@@ -39,8 +48,18 @@ pub struct PyAnnData(AnnData);
 #[pymethods]
 impl PyAnnData {
     #[new]
-    fn new(filename: &str, n_obs: usize, n_var: usize) -> Self {
-        PyAnnData(AnnData::new(filename, n_obs, n_var).unwrap())
+    fn new(filename: &str, n_obs: usize, n_vars: usize) -> Self {
+        PyAnnData(AnnData::new(filename, n_obs, n_vars).unwrap())
+    }
+
+    #[getter]
+    fn n_obs(&self) -> PyResult<usize> {
+        Ok(self.0.n_obs)
+    }
+
+    #[getter]
+    fn n_vars(&self) -> PyResult<usize> {
+        Ok(self.0.n_vars)
     }
 
     fn set_x(&mut self, data: PyObject) -> PyResult<()> {
@@ -60,6 +79,18 @@ impl PyAnnData {
 
     fn get_obsm(&self, key: &str) -> PyResult<PyElem2dView> {
         Ok(PyElem2dView(self.0.obsm.get(key).unwrap().clone()))
+    }
+
+    fn set_obsm(&mut self, mut obsm: HashMap<String, PyObject>) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let obsm_ = obsm.drain().map(|(k, v)| (k, to_rust_array(py, v).unwrap())).collect();
+            self.0.set_obsm(&obsm_).unwrap();
+            Ok(())
+        })
+    }
+    
+    fn list_obsm(&self) -> PyResult<Vec<String>> {
+        Ok(self.0.obsm.keys().map(|x| x.to_string()).collect())
     }
 
     fn add_obsm(&mut self, key: &str, data: PyObject) -> PyResult<()> {
@@ -114,7 +145,7 @@ fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
 
 fn data_to_py<'py>(
     py: Python<'py>,
-    data: Box<dyn DataSubset2D>,
+    data: Box<dyn DataPartialIO>,
 ) -> PyResult<PyObject>
 {
     match data.as_ref().get_dtype() {
@@ -141,34 +172,28 @@ fn data_to_py<'py>(
     }
 }
 
-fn py_to_data<'py>(
-    py: Python<'py>,
-    obj: PyObject,
-) -> PyResult<CsrMatrix<f64>>
-{
-    let shape: Vec<usize> = obj.getattr(py, "shape")?.extract(py)?;
-    let data = obj.getattr(py, "data")?
-        .extract::<PyReadonlyArrayDyn<f64>>(py)?.to_vec().unwrap();
-    let indices = obj.getattr(py, "indices")?
-        .extract::<PyReadonlyArrayDyn<i32>>(py)?.as_array().iter()
+fn to_rust_csr<'py>(obj: &'py PyAny) -> PyResult<Box<dyn WritePartialData>> {
+    let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
+    let indices = obj.getattr("indices")?
+        .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
         .map(|x| (*x).try_into().unwrap()).collect();
-    let indptr = obj.getattr(py, "indptr")?
-        .extract::<PyReadonlyArrayDyn<i32>>(py)?.as_array().iter()
+    let indptr = obj.getattr("indptr")?
+        .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
         .map(|x| (*x).try_into().unwrap()).collect();
-    Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
-}
 
-fn py_to_data2<'py>(
-    py: Python<'py>,
-    obj: PyObject,
-) -> PyResult<ArrayD<f64>>
-{
-
-    let ty = py.import("numpy")?.getattr("ndarray")?.downcast::<PyType>().unwrap();
-    println!("{:?}", ty);
-    println!("{:?}", obj.as_ref(py).get_type());
-    println!("{:?}", obj.as_ref(py).is_instance(ty)?);
-    Ok(obj.extract::<PyReadonlyArrayDyn<f64>>(py)?.to_owned_array())
+    Ok(match obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+        "float64" => {
+            let data = obj.getattr("data")?
+                .extract::<PyReadonlyArrayDyn<f64>>()?.to_vec().unwrap();
+            Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+        },
+        "int64" => {
+            let data = obj.getattr("data")?
+                .extract::<PyReadonlyArrayDyn<i64>>()?.to_vec().unwrap();
+            Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+        },
+        dtype => panic!("{}", dtype),
+    })
 }
 
 

@@ -1,4 +1,4 @@
-use crate::anndata_trait::data::{DataIO, DataContainer};
+use crate::anndata_trait::data::{DataContainer, ReadData};
 
 use ndarray::{Axis, ArrayD};
 use hdf5::H5Type;
@@ -7,20 +7,10 @@ use itertools::zip;
 use polars::frame::DataFrame;
 use crate::utils::read_str_attr;
 
-pub trait DataSubsetRow: DataIO {
+pub trait DataSubsetRow {
     fn nrows(&self) -> usize;
 
     fn container_nrows(container: &DataContainer) -> usize where Self: Sized;
-
-    fn read_rows(
-        container: &DataContainer,
-        idx: &[usize],
-    ) -> Self
-    where Self: Sized,
-    {
-        let x: Self = DataIO::read(container).unwrap();
-        x.get_rows(idx)
-    }
 
     fn get_rows(&self, idx: &[usize]) -> Self where Self: Sized;
 }
@@ -74,20 +64,26 @@ where
     }
 }
 
-pub trait DataSubsetCol: DataIO {
-    fn ncols(&self) -> usize;
-
-    fn container_ncols(container: &DataContainer) -> usize where Self: Sized;
-
-    fn read_columns(
+pub trait ReadRows: DataSubsetRow {
+    fn read_rows(
         container: &DataContainer,
         idx: &[usize],
     ) -> Self
-    where Self: Sized,
+    where Self: Sized + ReadData,
     {
-        let x: Self = DataIO::read(container).unwrap();
-        x.get_columns(idx)
+        let x: Self = ReadData::read(container).unwrap();
+        x.get_rows(idx)
     }
+}
+
+impl<T> ReadRows for ArrayD<T> where T: H5Type + Clone + Send + Sync {}
+impl ReadRows for DataFrame {}
+impl<T> ReadRows for CsrMatrix<T> where T: H5Type + Copy + Clone + Send + Sync {}
+
+pub trait DataSubsetCol {
+    fn ncols(&self) -> usize;
+
+    fn container_ncols(container: &DataContainer) -> usize where Self: Sized;
 
     fn get_columns(&self, idx: &[usize]) -> Self where Self: Sized;
 }
@@ -131,18 +127,40 @@ where
     }
 }
 
-pub trait DataSubset2D: DataSubsetRow + DataSubsetCol {
+pub trait ReadCols: DataSubsetCol {
+    fn read_columns(
+        container: &DataContainer,
+        idx: &[usize],
+    ) -> Self
+    where Self: Sized + ReadData,
+    {
+        let x: Self = ReadData::read(container).unwrap();
+        x.get_columns(idx)
+    }
+}
+
+impl<T> ReadCols for ArrayD<T> where T: H5Type + Clone + Send + Sync {}
+impl ReadCols for DataFrame {}
+impl<T> ReadCols for CsrMatrix<T> where T: H5Type + Clone + Send + Sync {}
+
+pub trait ReadPartial: ReadRows + ReadCols {
     fn read_partial(
         container: &DataContainer,
         ridx: &[usize],
         cidx: &[usize],
     ) -> Self
-    where Self: Sized,
+    where Self: Sized + ReadData,
     {
-        let x: Self = DataSubsetRow::read_rows(container, ridx);
+        let x: Self = ReadRows::read_rows(container, ridx);
         x.get_columns(cidx)
     }
+}
 
+impl ReadPartial for DataFrame {}
+impl<T> ReadPartial for CsrMatrix<T> where T: H5Type + Clone + Copy + Send + Sync, {}
+impl<T> ReadPartial for ArrayD<T> where T: H5Type + Clone + Send + Sync, {}
+
+pub trait DataSubset2D: DataSubsetRow + DataSubsetCol {
     fn subset(
         &self,
         ridx: &[usize],

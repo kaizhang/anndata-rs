@@ -13,7 +13,7 @@ impl<T> RawElem<T>
 where
     T: DataIO,
 {
-    pub fn read_data(&self) -> T { DataIO::read(&self.container).unwrap() }
+    pub fn read_data(&self) -> T { ReadData::read(&self.container).unwrap() }
 }
 
 impl<T> AsRef<RawElem<T>> for RawElem<dyn DataIO>
@@ -44,21 +44,21 @@ pub struct RawMatrixElem<T: ?Sized> {
 
 impl<T> RawMatrixElem<T>
 where
-    T: DataSubset2D,
+    T: DataPartialIO,
 {
     pub fn dtype(&self) -> DataType { self.inner.dtype.clone() }
 
     pub fn read_data(&self) -> T {
         match self.obs_indices.as_ref() {
             None => match self.var_indices.as_ref() {
-                None => DataIO::read(&self.inner.container).unwrap(),
-                Some(cidx) => DataSubsetCol::read_columns(
+                None => ReadData::read(&self.inner.container).unwrap(),
+                Some(cidx) => ReadCols::read_columns(
                     &self.inner.container, cidx
                 ),
             },
             Some(ridx) => match self.var_indices.as_ref() {
-                None => DataSubsetRow::read_rows(&self.inner.container, ridx),
-                Some(cidx) => DataSubset2D::read_partial(
+                None => ReadRows::read_rows(&self.inner.container, ridx),
+                Some(cidx) => ReadPartial::read_partial(
                     &self.inner.container, ridx, cidx,
                 ),
             }
@@ -68,13 +68,13 @@ where
 
 // NOTE: this requires `element` is the last field, as trait object contains a vtable
 // at the end: https://docs.rs/vptr/latest/vptr/index.html.
-impl<T> AsRef<RawMatrixElem<T>> for RawMatrixElem<dyn DataSubset2D>
+impl<T> AsRef<RawMatrixElem<T>> for RawMatrixElem<dyn DataPartialIO>
 where
-    T: DataSubset2D,
+    T: DataPartialIO,
 {
     fn as_ref(&self) -> &RawMatrixElem<T> {
         if self.inner.dtype == T::dtype() {
-            unsafe { &*(self as *const RawMatrixElem<dyn DataSubset2D> as *const RawMatrixElem<T>) }
+            unsafe { &*(self as *const RawMatrixElem<dyn DataPartialIO> as *const RawMatrixElem<T>) }
         } else {
             panic!(
                 "implementation error, cannot convert {:?} to {:?}",
@@ -85,7 +85,7 @@ where
     }
 }
 
-impl RawMatrixElem<dyn DataSubset2D>
+impl RawMatrixElem<dyn DataPartialIO>
 {
     pub fn new(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type().unwrap();
@@ -95,7 +95,7 @@ impl RawMatrixElem<dyn DataSubset2D>
         Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
     }
 
-    pub fn read_elem(&self) -> Result<Box<dyn DataSubset2D>> {
+    pub fn read_elem(&self) -> Result<Box<dyn DataPartialIO>> {
         match &self.inner.element {
             Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
             None => read_dyn_data_subset(

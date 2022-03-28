@@ -7,7 +7,7 @@ use hdf5::{Result, Group};
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct MatrixElem(pub Arc<RawMatrixElem<dyn DataSubset2D>>);
+pub struct MatrixElem(pub Arc<RawMatrixElem<dyn DataPartialIO>>);
 
 impl MatrixElem {
     pub fn new(container: DataContainer) -> Result<Self> {

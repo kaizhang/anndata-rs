@@ -9,6 +9,19 @@ use hdf5::Result;
 use hdf5::types::TypeDescriptor::*;
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
+use dyn_clone::DynClone;
+use downcast_rs::Downcast;
+use downcast_rs::impl_downcast;
+
+pub trait DataIO: Send + Sync + DynClone + Downcast + WriteData + ReadData {}
+impl_downcast!(DataIO);
+impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
+
+pub trait DataPartialIO: DataIO + DataSubset2D + ReadPartial {}
+impl<T> DataPartialIO for T where T: DataIO + DataSubset2D + ReadPartial {}
+
+pub trait WritePartialData: DataSubset2D + WriteData {}
+impl<T> WritePartialData for T where T: DataSubset2D + WriteData {}
 
 macro_rules! dyn_data_reader {
     ($get_type:expr, $reader:expr) => {
@@ -49,27 +62,27 @@ macro_rules! dyn_data_reader {
 }
 
 pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
-    dyn_data_reader!(container.get_encoding_type()?, DataIO::read(container)?)
+    dyn_data_reader!(container.get_encoding_type()?, ReadData::read(container)?)
 }
 
 pub fn read_dyn_data_subset(
     container: &DataContainer,
     ridx: Option<&[usize]>,
     cidx: Option<&[usize]>,
-) -> Result<Box<dyn DataSubset2D>> {
-    fn read_data_subset<T: DataSubset2D>(
+) -> Result<Box<dyn DataPartialIO>> {
+    fn read_data_subset<T: DataPartialIO>(
         container: &DataContainer,
         ridx: Option<&[usize]>,
         cidx: Option<&[usize]>,
     ) -> T {
         match ridx {
             None => match cidx {
-                None => DataIO::read(container).unwrap(),
-                Some(j) => DataSubsetCol::read_columns(container, j),
+                None => ReadData::read(container).unwrap(),
+                Some(j) => ReadCols::read_columns(container, j),
             },
             Some(i) => match cidx {
-                None => DataSubsetRow::read_rows(container, i),
-                Some(j) => DataSubset2D::read_partial(container, i, j),
+                None => ReadRows::read_rows(container, i),
+                Some(j) => ReadPartial::read_partial(container, i, j),
             },
         }
     }

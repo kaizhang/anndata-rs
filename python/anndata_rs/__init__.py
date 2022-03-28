@@ -8,17 +8,21 @@ class AnnData:
         filename: str = None,
         X = None,
         n_obs: int = None,
-        n_var: int = None,
+        n_vars: int = None,
         obs = None,
         var = None,
+        obsm = None,
         pyanndata = None,
     ):
         if pyanndata is None:
-            if X is not None: (n_obs, n_var) = X.shape
-            self._anndata = internal.PyAnnData(filename, n_obs, n_var)
+            if X is not None: (n_obs, n_vars) = X.shape
+            self._anndata = internal.PyAnnData(filename, n_obs, n_vars)
             if X is not None: self.X = X
+            if obsm is not None: self.obsm = obsm
         else:
             self._anndata = pyanndata
+        self.n_obs = self._anndata.n_obs
+        self.n_vars = self._anndata.n_vars
 
     @property
     def X(self): return Elem2dView(self._anndata.get_x())
@@ -32,14 +36,20 @@ class AnnData:
             ...
 
     @property
-    def obs(self): return Elem2dView(self._anndata.get_obs())
+    def obs(self): 
+        return Elem2dView(self._anndata.get_obs())
 
     @property
-    def var(self): return Elem2dView(self._anndata.get_var())
+    def var(self):
+        return Elem2dView(self._anndata.get_var())
 
     @property
     def obsm(self):
         return OBSM(self._anndata)
+
+    @obsm.setter
+    def obsm(self, obsm):
+        self._anndata.set_obsm(obsm)
 
     @property
     def varm(self):
@@ -61,6 +71,19 @@ class AnnData:
         else:
             return AnnData(pyanndata=self._anndata.subset_rows(list(index)))
 
+    def __repr__(self) -> str:
+        descr = f"AnnData object with n_obs x n_vars = {self.n_obs} x {self.n_vars}"
+        if self.obs is not None: descr += f"\n    obs: {str(self.obs[...].columns)[1:-1]}"
+        if self.var is not None: descr += f"\n    var: {str(self.var[...].columns)[1:-1]}"
+        for attr in [
+            "obsm",
+            "varm",
+        ]:
+            keys = getattr(self, attr).keys()
+            if len(keys) > 0:
+                descr += f"\n    {attr}: {str(list(keys))[1:-1]}"
+        return descr
+
     def write(self, filename: str):
         self._anndata.write(filename)
 
@@ -74,8 +97,18 @@ class OBSM:
     def __setitem__(self, key, data):
         self._anndata.add_obsm(key, data)
 
+    def keys(self):
+        return self._anndata.list_obsm()
+
 class Elem2dView:
-    def __init__(self, elem):
+    def __new__(cls, elem, *args, **kwargs):
+        if elem is not None:
+            return(super(Elem2dView, cls).__new__(cls, *args, **kwargs))
+        else:
+            return None
+
+    def __init__(self, elem, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._elem = elem
 
     def __getitem__(self, subscript):
