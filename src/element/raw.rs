@@ -44,7 +44,7 @@ pub struct RawMatrixElem<T: ?Sized> {
 
 impl<T> RawMatrixElem<T>
 where
-    T: DataPartialIO,
+    T: DataPartialIO + Clone,
 {
     pub fn dtype(&self) -> DataType { self.inner.dtype.clone() }
 
@@ -56,20 +56,31 @@ where
         Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
     }
 
+    pub fn read_rows(&self, idx: &[usize]) -> T {
+        match &self.inner.element {
+            Some(data) => data.get_rows(idx),
+            None => ReadRows::read_rows(&self.inner.container, idx),
+        }
+    }
+
+    pub fn read_columns(&self, idx: &[usize]) -> T {
+        match &self.inner.element {
+            Some(data) => data.get_columns(idx),
+            None => ReadCols::read_columns(&self.inner.container, idx),
+        }
+    }
+
+    pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> T {
+        match &self.inner.element {
+            Some(data) => data.subset(ridx, cidx),
+            None => ReadPartial::read_partial(&self.inner.container, ridx, cidx),
+        }
+    }
+
     pub fn read_elem(&self) -> T {
-        match self.obs_indices.as_ref() {
-            None => match self.var_indices.as_ref() {
-                None => ReadData::read(&self.inner.container).unwrap(),
-                Some(cidx) => ReadCols::read_columns(
-                    &self.inner.container, cidx
-                ),
-            },
-            Some(ridx) => match self.var_indices.as_ref() {
-                None => ReadRows::read_rows(&self.inner.container, ridx),
-                Some(cidx) => ReadPartial::read_partial(
-                    &self.inner.container, ridx, cidx,
-                ),
-            }
+        match &self.inner.element {
+            Some(data) => *data.clone(),
+            None => ReadData::read(&self.inner.container).unwrap(),
         }
     }
 
@@ -81,56 +92,52 @@ where
         Ok(())
     }
 
-    // TODO: fix subsetting
-    pub fn subset_rows(&self, idx: &[usize]) -> Self {
+    pub fn subset_rows(&mut self, idx: &[usize]) {
         for i in idx {
             if *i >= self.nrows {
                 panic!("index out of bound")
             }
         }
-
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: Some(idx.iter().map(|x| *x).collect()),
-            var_indices: self.var_indices.clone(),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+        let data = self.read_rows(idx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(Box::new(data));
         }
+        self.nrows = idx.len();
     }
 
-    pub fn subset_cols(&self, idx: &[usize]) -> Self {
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: self.obs_indices.clone(),
-            var_indices: Some(idx.iter().map(|x| *x).collect()),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+    pub fn subset_cols(&mut self, idx: &[usize]) {
+        for i in idx {
+            if *i >= self.ncols {
+                panic!("index out of bound")
+            }
         }
+        let data = self.read_columns(idx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(Box::new(data));
+        }
+        self.ncols = idx.len();
     }
 
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: Some(ridx.iter().map(|x| *x).collect()),
-            var_indices: Some(cidx.iter().map(|x| *x).collect()),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) {
+        for i in ridx {
+            if *i >= self.nrows {
+                panic!("row index out of bound")
+            }
         }
+        for j in cidx {
+            if *j >= self.ncols {
+                panic!("column index out of bound")
+            }
+        }
+        let data = self.read_partial(ridx, cidx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(Box::new(data));
+        }
+        self.nrows = ridx.len();
+        self.ncols = cidx.len();
     }
 }
 
@@ -163,14 +170,22 @@ impl RawMatrixElem<dyn DataPartialIO>
         Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
     }
 
+    pub fn read_rows(&self, idx: &[usize]) -> Box<dyn DataPartialIO> {
+        read_dyn_data_subset(&self.inner.container, Some(idx), None).unwrap()
+    }
+
+    pub fn read_columns(&self, idx: &[usize]) -> Box<dyn DataPartialIO> {
+        read_dyn_data_subset(&self.inner.container, None, Some(idx)).unwrap()
+    }
+
+    pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> Box<dyn DataPartialIO> {
+        read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx)).unwrap()
+    }
+
     pub fn read_elem(&self) -> Box<dyn DataPartialIO> {
         match &self.inner.element {
             Some(data) => dyn_clone::clone_box(data.as_ref()),
-            None => read_dyn_data_subset(
-                &self.inner.container,
-                self.obs_indices.as_ref().map(Vec::as_slice),
-                self.var_indices.as_ref().map(Vec::as_slice),
-            ).unwrap(),
+            None => read_dyn_data_subset(&self.inner.container, None, None).unwrap(),
         }
     }
 
@@ -182,55 +197,51 @@ impl RawMatrixElem<dyn DataPartialIO>
         Ok(())
     }
 
-    // TODO: fix subsetting
-    pub fn subset_rows(&self, idx: &[usize]) -> Self {
+    pub fn subset_rows(&mut self, idx: &[usize]) {
         for i in idx {
             if *i >= self.nrows {
                 panic!("index out of bound")
             }
         }
-
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: Some(idx.iter().map(|x| *x).collect()),
-            var_indices: self.var_indices.clone(),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+        let data = self.read_rows(idx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(data);
         }
+        self.nrows = idx.len();
     }
 
-    pub fn subset_cols(&self, idx: &[usize]) -> Self {
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: self.obs_indices.clone(),
-            var_indices: Some(idx.iter().map(|x| *x).collect()),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+    pub fn subset_cols(&mut self, idx: &[usize]) {
+        for i in idx {
+            if *i >= self.ncols {
+                panic!("index out of bound")
+            }
         }
+        let data = self.read_columns(idx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(data);
+        }
+        self.ncols = idx.len();
     }
 
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
-        let inner = RawElem {
-            dtype: self.inner.dtype.clone(),
-            container: self.inner.container.clone(),
-            element: None,
-        };
-        Self {
-            obs_indices: Some(ridx.iter().map(|x| *x).collect()),
-            var_indices: Some(cidx.iter().map(|x| *x).collect()),
-            nrows: self.nrows,
-            ncols: self.ncols,
-            inner,
+    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) {
+        for i in ridx {
+            if *i >= self.nrows {
+                panic!("row index out of bound")
+            }
         }
+        for j in cidx {
+            if *j >= self.ncols {
+                panic!("column index out of bound")
+            }
+        }
+        let data = self.read_partial(ridx, cidx);
+        self.inner.container = data.update(&self.inner.container).unwrap();
+        if self.inner.element.is_some() {
+            self.inner.element = Some(data);
+        }
+        self.nrows = ridx.len();
+        self.ncols = cidx.len();
     }
 }

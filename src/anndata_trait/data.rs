@@ -145,6 +145,33 @@ pub trait WriteData {
     fn get_dtype(&self) -> DataType;
 
     fn dtype() -> DataType where Self: Sized;
+
+    fn update(&self, container: &DataContainer) -> Result<DataContainer> {
+        match container {
+            DataContainer::H5Group(grp) => {
+                let file = grp.file()?;
+                let name = grp.name();
+                let (path, obj) = name.as_str().rsplit_once("/")
+                    .unwrap_or(("", name.as_str()));
+                if path.is_empty() {
+                    file.unlink(obj)?;
+                    self.write(&file, obj)
+                } else {
+                    let g = file.group(path)?;
+                    g.unlink(obj)?;
+                    self.write(&g, obj)
+                }
+            },
+            DataContainer::H5Dataset(data) => {
+                let file = data.file()?;
+                let name = data.name();
+                let (path, obj) = name.as_str().rsplit_once("/").unwrap();
+                let g = file.group(path)?;
+                g.unlink(obj)?;
+                self.write(&g, obj)
+            },
+        }
+    }
 }
 
 pub trait ReadData {

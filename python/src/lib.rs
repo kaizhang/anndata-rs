@@ -43,6 +43,7 @@ fn to_rust_array<'py>(
 
 #[pyclass]
 #[repr(transparent)]
+#[derive(Clone)]
 pub struct PyAnnData(AnnData);
 
 #[pymethods]
@@ -125,8 +126,9 @@ impl PyAnnData {
         Ok(varm)
     }
 
-    fn subset_rows(&self, idx: Vec<usize>) -> PyResult<PyAnnData> {
-        Ok(PyAnnData(self.0.subset_obs(idx.as_slice())))
+    fn subset_rows(&mut self, idx: Vec<usize>) -> PyResult<()> {
+        self.0.subset_obs(idx.as_slice());
+        Ok(())
     }
 
     fn write(&self, filename: &str) -> PyResult<()> {

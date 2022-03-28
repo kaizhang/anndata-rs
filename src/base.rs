@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use hdf5::{File, Result, Group}; 
 use polars::frame::DataFrame;
 
+#[derive(Clone)]
 pub struct AnnData {
     file: File,
     pub n_obs: usize,
@@ -182,46 +183,31 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn subset_obs(&self, idx: &[usize]) -> Self
+    pub fn subset_obs(&mut self, idx: &[usize])
     {
-        Self {
-            file: self.file.clone(),
-            n_obs: idx.len(),
-            n_vars: self.n_vars,
-            x: self.x.as_ref().map(|x| x.subset_rows(idx)),
-            obs: self.obs.as_ref().map(|x| x.subset_rows(idx)),
-            obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(idx))).collect(),
-            var: self.var.clone(),
-            varm: self.varm.clone(),
-        }
+        self.n_obs = idx.len();
+        self.x.as_mut().map(|x| x.subset_rows(idx));
+        self.obs.as_mut().map(|x| x.subset_rows(idx));
+        self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(idx));
     }
 
-    pub fn subset_var(&self, idx: &[usize]) -> Self
+    pub fn subset_var(&mut self, idx: &[usize])
     {
-        Self {
-            file: self.file.clone(),
-            n_obs: self.n_obs,
-            n_vars: idx.len(),
-            x: self.x.as_ref().map(|x| x.subset_cols(idx)),
-            obs: self.obs.clone(),
-            obsm: self.obsm.clone(),
-            var: self.var.as_ref().map(|x| x.subset_cols(idx)),
-            varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(idx))).collect(),
-        }
+        self.n_vars = idx.len();
+        self.x.as_mut().map(|x| x.subset_cols(idx));
+        self.var.as_mut().map(|x| x.subset_cols(idx));
+        self.varm.values_mut().for_each(|varm| varm.subset_cols(idx));
     }
 
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self
+    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize])
     {
-        Self {
-            file: self.file.clone(),
-            n_obs: ridx.len(),
-            n_vars: cidx.len(),
-            x: self.x.as_ref().map(|x| x.subset(ridx, cidx)),
-            obs: self.obs.as_ref().map(|x| x.subset_rows(ridx)),
-            obsm: self.obsm.iter().map(|(k, v)| (k.clone(), v.subset_rows(ridx))).collect(),
-            var: self.var.as_ref().map(|x| x.subset_cols(cidx)),
-            varm: self.varm.iter().map(|(k, v)| (k.clone(), v.subset_cols(cidx))).collect(),
-        }
+        self.n_obs = ridx.len();
+        self.n_vars = cidx.len();
+        self.x.as_mut().map(|x| x.subset(ridx, cidx));
+        self.obs.as_mut().map(|x| x.subset_rows(ridx));
+        self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(ridx));
+        self.var.as_mut().map(|x| x.subset_cols(cidx));
+        self.varm.values_mut().for_each(|varm| varm.subset_cols(cidx));
     }
 }
 

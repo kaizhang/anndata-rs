@@ -24,16 +24,16 @@ impl MatrixElem {
 
     pub fn ncols(&self) -> usize { self.0.ncols }
 
-    pub fn subset_rows(&self, idx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset_rows(idx)))
+    pub fn subset_rows(&mut self, idx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset_rows(idx);
     }
 
-    pub fn subset_cols(&self, idx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset_cols(idx)))
+    pub fn subset_cols(&mut self, idx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset_cols(idx);
     }
 
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset(ridx, cidx)))
+    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset(ridx, cidx);
     }
 }
 
@@ -54,15 +54,15 @@ impl DataFrameElem {
 
     pub fn ncols(&self) -> usize { self.0.ncols }
 
-    pub fn subset_rows(&self, idx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset_rows(idx)))
+    pub fn subset_rows(&mut self, idx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset_rows(idx);
     }
 
-    pub fn subset_cols(&self, idx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset_cols(idx)))
+    pub fn subset_cols(&mut self, idx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset_cols(idx);
     }
 
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
-        Self(Arc::new(self.0.subset(ridx, cidx)))
+    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) {
+        Arc::get_mut(&mut self.0).unwrap().subset(ridx, cidx);
     }
 }

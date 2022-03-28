@@ -25,8 +25,12 @@ class AnnData:
             if obsm is not None: self.obsm = obsm
         else:
             self._anndata = pyanndata
-        self.n_obs = self._anndata.n_obs
-        self.n_vars = self._anndata.n_vars
+
+    @property
+    def n_obs(self): return self._anndata.n_obs
+
+    @property
+    def n_vars(self): return self._anndata.n_vars
 
     @property
     def X(self): return Elem2dView(self._anndata.get_x())
@@ -77,19 +81,19 @@ class AnnData:
         for k in varm: varm[k] = Elem2dView(varm[k])
         return varm
 
-    def __getitem__(self, index):
-        ifnone = lambda a, b: b if a is None else a
-        if index == ...:
-            return self
-        elif isinstance(index, slice):
-            if index.stop is None:
-                pass
-                # do something with itertools.count()
+    def subset(self, obs_indices = None, var_indices = None):
+        def to_indices(x):
+            ifnone = lambda a, b: b if a is None else a
+            if isinstance(x, slice):
+                if x.stop is None:
+                    pass
+                    # do something with itertools.count()
+                else:
+                    return list(range(ifnone(x.start, 0), x.stop, ifnone(x.step, 1)))
             else:
-                idx = list(range(ifnone(index.start, 0), index.stop, ifnone(index.step, 1)))
-                return AnnData(pyanndata=self._anndata.subset_rows(idx))
-        else:
-            return AnnData(pyanndata=self._anndata.subset_rows(list(index)))
+                return x
+ 
+        self._anndata.subset_rows(to_indices(obs_indices))
 
     def __repr__(self) -> str:
         descr = f"AnnData object with n_obs x n_vars = {self.n_obs} x {self.n_vars}"
