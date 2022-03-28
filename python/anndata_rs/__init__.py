@@ -1,5 +1,7 @@
 import anndata_rs._anndata as internal
 from scipy.sparse import spmatrix
+import pandas as pd
+import polars
 
 class AnnData:
     def __init__(
@@ -18,6 +20,8 @@ class AnnData:
             if X is not None: (n_obs, n_vars) = X.shape
             self._anndata = internal.PyAnnData(filename, n_obs, n_vars)
             if X is not None: self.X = X
+            if obs is not None: self.obs = obs
+            if var is not None: self.var = var
             if obsm is not None: self.obsm = obsm
         else:
             self._anndata = pyanndata
@@ -39,9 +43,25 @@ class AnnData:
     def obs(self): 
         return Elem2dView(self._anndata.get_obs())
 
+    @obs.setter
+    def obs(self, df):
+        if isinstance(df, pd.DataFrame):
+            df = polars.from_pandas(df)
+        elif isinstance(df, dict):
+            df = polars.from_dict(df)
+        self._anndata.set_obs(df)
+
     @property
     def var(self):
         return Elem2dView(self._anndata.get_var())
+
+    @var.setter
+    def var(self, df):
+        if isinstance(df, pd.DataFrame):
+            df = polars.from_pandas(df)
+        elif isinstance(df, dict):
+            df = polars.from_dict(df)
+        self._anndata.set_var(df)
 
     @property
     def obsm(self):
@@ -104,6 +124,28 @@ class Elem2dView:
     def __new__(cls, elem, *args, **kwargs):
         if elem is not None:
             return(super(Elem2dView, cls).__new__(cls, *args, **kwargs))
+        else:
+            return None
+
+    def __init__(self, elem, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._elem = elem
+
+    def __getitem__(self, subscript):
+        if subscript == ...:
+            return self._elem.get_data()
+        elif isinstance(subscript, slice):
+            raise NotImplementedError("slice")
+            # do your handling for a slice object:
+            #print(subscript.start, subscript.stop, subscript.step)
+            # Do your handling for a plain index
+        else:
+            print(subscript)
+
+class DataFrameElem:
+    def __new__(cls, elem, *args, **kwargs):
+        if elem is not None:
+            return(super(DataFrameElem, cls).__new__(cls, *args, **kwargs))
         else:
             return None
 

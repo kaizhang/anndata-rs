@@ -48,7 +48,15 @@ where
 {
     pub fn dtype(&self) -> DataType { self.inner.dtype.clone() }
 
-    pub fn read_data(&self) -> T {
+    pub fn new_elem(container: DataContainer) -> Result<Self> {
+        let dtype = container.get_encoding_type().unwrap();
+        let nrows = get_nrows(&container);
+        let ncols = get_ncols(&container);
+        let inner = RawElem { dtype, element: None, container };
+        Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
+    }
+
+    pub fn read_elem(&self) -> T {
         match self.obs_indices.as_ref() {
             None => match self.var_indices.as_ref() {
                 None => ReadData::read(&self.inner.container).unwrap(),
@@ -62,6 +70,66 @@ where
                     &self.inner.container, ridx, cidx,
                 ),
             }
+        }
+    }
+
+    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
+        match &self.inner.element {
+            Some(data) => data.write(location, name)?,
+            None => self.read_elem().write(location, name)?,
+        };
+        Ok(())
+    }
+
+    // TODO: fix subsetting
+    pub fn subset_rows(&self, idx: &[usize]) -> Self {
+        for i in idx {
+            if *i >= self.nrows {
+                panic!("index out of bound")
+            }
+        }
+
+        let inner = RawElem {
+            dtype: self.inner.dtype.clone(),
+            container: self.inner.container.clone(),
+            element: None,
+        };
+        Self {
+            obs_indices: Some(idx.iter().map(|x| *x).collect()),
+            var_indices: self.var_indices.clone(),
+            nrows: self.nrows,
+            ncols: self.ncols,
+            inner,
+        }
+    }
+
+    pub fn subset_cols(&self, idx: &[usize]) -> Self {
+        let inner = RawElem {
+            dtype: self.inner.dtype.clone(),
+            container: self.inner.container.clone(),
+            element: None,
+        };
+        Self {
+            obs_indices: self.obs_indices.clone(),
+            var_indices: Some(idx.iter().map(|x| *x).collect()),
+            nrows: self.nrows,
+            ncols: self.ncols,
+            inner,
+        }
+    }
+
+    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
+        let inner = RawElem {
+            dtype: self.inner.dtype.clone(),
+            container: self.inner.container.clone(),
+            element: None,
+        };
+        Self {
+            obs_indices: Some(ridx.iter().map(|x| *x).collect()),
+            var_indices: Some(cidx.iter().map(|x| *x).collect()),
+            nrows: self.nrows,
+            ncols: self.ncols,
+            inner,
         }
     }
 }
@@ -95,25 +163,21 @@ impl RawMatrixElem<dyn DataPartialIO>
         Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
     }
 
-    pub fn read_elem(&self) -> Result<Box<dyn DataPartialIO>> {
+    pub fn read_elem(&self) -> Box<dyn DataPartialIO> {
         match &self.inner.element {
-            Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
+            Some(data) => dyn_clone::clone_box(data.as_ref()),
             None => read_dyn_data_subset(
                 &self.inner.container,
                 self.obs_indices.as_ref().map(Vec::as_slice),
                 self.var_indices.as_ref().map(Vec::as_slice),
-            ),
+            ).unwrap(),
         }
     }
 
     pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
         match &self.inner.element {
-            Some(data) => data.as_ref().write(location, name)?,
-            None => read_dyn_data_subset(
-                &self.inner.container,
-                self.obs_indices.as_ref().map(Vec::as_slice),
-                self.var_indices.as_ref().map(Vec::as_slice),
-            )?.as_ref().write(location, name)?,
+            Some(data) => data.write(location, name)?,
+            None => self.read_elem().write(location, name)?,
         };
         Ok(())
     }

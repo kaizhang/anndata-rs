@@ -1,5 +1,5 @@
 mod utils;
-use utils::df_to_py;
+use utils::{to_py_df, to_rust_df};
 
 use pyo3::{
     prelude::*,
@@ -17,7 +17,7 @@ use polars::frame::DataFrame;
 
 use anndata_rs::{
     base::AnnData,
-    element::MatrixElem,
+    element::{MatrixElem, DataFrameElem},
     anndata_trait::{DataType, WritePartialData, DataPartialIO},
 };
 
@@ -73,8 +73,15 @@ impl PyAnnData {
         Ok(self.0.x.clone().map(PyElem2dView))
     }
 
-    fn get_obs(&self) -> PyResult<Option<PyElem2dView>> {
-        Ok(self.0.obs.clone().map(PyElem2dView))
+    fn get_obs(&self) -> PyResult<Option<PyDataFrameElem>> {
+        Ok(self.0.obs.clone().map(PyDataFrameElem))
+    }
+
+    fn set_obs(&mut self, df: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.set_obs(&to_rust_df(df.as_ref(py))?).unwrap();
+            Ok(())
+        })
     }
 
     fn get_obsm(&self, key: &str) -> PyResult<PyElem2dView> {
@@ -100,8 +107,15 @@ impl PyAnnData {
         })
     }
 
-    fn get_var(&self) -> PyResult<Option<PyElem2dView>> {
-        Ok(self.0.var.clone().map(PyElem2dView))
+    fn get_var(&self) -> PyResult<Option<PyDataFrameElem>> {
+        Ok(self.0.var.clone().map(PyDataFrameElem))
+    }
+
+    fn set_var(&mut self, df: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.set_var(&to_rust_df(df.as_ref(py))?).unwrap();
+            Ok(())
+        })
     }
 
     fn get_varm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
@@ -128,7 +142,18 @@ pub struct PyElem2dView(MatrixElem);
 #[pymethods]
 impl PyElem2dView {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| data_to_py(py, self.0.0.read_elem().unwrap()))
+        Python::with_gil(|py| data_to_py(py, self.0.0.read_elem()))
+    }
+}
+
+#[pyclass]
+#[repr(transparent)]
+pub struct PyDataFrameElem(DataFrameElem);
+
+#[pymethods]
+impl PyDataFrameElem {
+    fn get_data(&self) -> PyResult<PyObject> {
+        to_py_df(self.0.0.read_elem())
     }
 }
 
@@ -166,7 +191,7 @@ fn data_to_py<'py>(
         ).to_object(py)),
 
         DataType::DataFrame =>
-            df_to_py(*data.into_any().downcast::<DataFrame>().unwrap()),
+            to_py_df(*data.into_any().downcast::<DataFrame>().unwrap()),
 
         _ => todo!(),
     }

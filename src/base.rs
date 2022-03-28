@@ -1,17 +1,18 @@
 use crate::anndata_trait::*;
-use crate::element::MatrixElem;
+use crate::element::{MatrixElem, DataFrameElem};
 
 use std::collections::HashMap;
 use hdf5::{File, Result, Group}; 
+use polars::frame::DataFrame;
 
 pub struct AnnData {
     file: File,
     pub n_obs: usize,
     pub n_vars: usize,
     pub x: Option<MatrixElem>,
-    pub obs: Option<MatrixElem>,
+    pub obs: Option<DataFrameElem>,
     pub obsm: HashMap<String, MatrixElem>,
-    pub var: Option<MatrixElem>,
+    pub var: Option<DataFrameElem>,
     pub varm: HashMap<String, MatrixElem>,
 }
 
@@ -30,6 +31,19 @@ impl AnnData {
         if self.x.is_some() { self.file.unlink("X")?; }
         let container = data.write(&self.file, "X")?;
         self.x = Some(MatrixElem::new(container)?);
+        Ok(())
+    }
+
+    pub fn set_obs(&mut self, obs: &DataFrame) -> Result<()> {
+        assert!(
+            self.n_obs == obs.nrows(),
+            "Number of observations mismatched, expecting {}, but found {}",
+            self.n_obs, obs.nrows(),
+        );
+
+        if self.file.group("obs").is_ok() { self.file.unlink("obs")?; }
+        let container = obs.write(&self.file, "obs")?;
+        self.obs = Some(DataFrameElem::new(container)?);
         Ok(())
     }
 
@@ -59,6 +73,19 @@ impl AnnData {
         Ok(())
     }
 
+    pub fn set_var(&mut self, var: &DataFrame) -> Result<()> {
+        assert!(
+            self.n_vars == var.nrows(),
+            "Number of variables mismatched, expecting {}, but found {}",
+            self.n_vars, var.nrows(),
+        );
+
+        if self.file.group("var").is_ok() { self.file.unlink("var")?; }
+        let container = var.write(&self.file, "var")?;
+        self.var = Some(DataFrameElem::new(container)?);
+        Ok(())
+    }
+
     pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = hdf5::File::create_excl(filename)?;
         Ok(Self { file, n_obs, n_vars, x: None, obs: None,
@@ -83,7 +110,7 @@ impl AnnData {
 
         // Read obs
         let obs = if file.link_exists("obs") {
-            let obs = MatrixElem::new(DataContainer::open(&file, "obs")?)?;
+            let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
             if n_obs.is_none() { n_obs = Some(obs.nrows()); }
             assert!(n_obs.unwrap() == obs.nrows(),
                 "Inconsistent number of observations: {} (X) != {} (obs)",
@@ -107,7 +134,7 @@ impl AnnData {
 
         // Read var
         let var = if file.link_exists("var") {
-            let var = MatrixElem::new(DataContainer::open(&file, "var")?)?;
+            let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
             if n_vars.is_none() { n_vars = Some(var.ncols()); }
             assert!(n_vars.unwrap() == var.ncols(),
                 "Inconsistent number of variables: {} (X) != {} (var)",
