@@ -1,4 +1,4 @@
-import anndata_rs._anndata as internal
+import anndata_rs.pyanndata as internal
 from scipy.sparse import spmatrix
 import pandas as pd
 import polars

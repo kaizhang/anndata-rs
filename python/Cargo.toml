@@ -1,5 +1,5 @@
 [package]
-name = "anndata-python"
+name = "pyanndata"
 version = "0.1.0"
 edition = "2021"
 authors = ["Kai Zhang <kai@kzhang.org>"]
@@ -25,5 +25,4 @@ version = "0.16.2"
 features = ["extension-module"]
 
 [lib]
-name = "_anndata"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]

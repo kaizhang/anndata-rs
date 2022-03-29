@@ -1,6 +1,6 @@
 mod raw;
 
-use raw::{RawMatrixElem, RawElem};
+pub use raw::{RawMatrixElem, RawElem};
 use crate::anndata_trait::*;
 use polars::frame::DataFrame;
 

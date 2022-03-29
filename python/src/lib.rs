@@ -23,7 +23,7 @@ use anndata_rs::{
 #[pyclass]
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct PyAnnData(AnnData);
+pub struct PyAnnData(pub AnnData);
 
 #[pymethods]
 impl PyAnnData {
@@ -166,7 +166,7 @@ pub struct PyElem(Elem);
 impl PyElem {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
-            let data = self.0.0.read_elem();
+            let data = self.0.0.read_dyn_elem();
             let ty = data.as_ref().get_dtype();
             data_to_py(py, ty, data.into_any())
         })
@@ -181,7 +181,7 @@ pub struct PyElem2dView(MatrixElem);
 impl PyElem2dView {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
         Python::with_gil(|py| {
-            let data = self.0.0.read_elem();
+            let data = self.0.0.read_dyn_elem();
             let ty = data.as_ref().get_dtype();
             data_to_py(py, ty, data.into_any())
         })
@@ -270,7 +270,7 @@ where T: numpy::Element
 }
 
 #[pymodule]
-fn _anndata(_py: Python, m: &PyModule) -> PyResult<()> {
+fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyAnnData>().unwrap();
     m.add_class::<PyElem2dView>().unwrap();
 

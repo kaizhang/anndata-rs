@@ -40,7 +40,7 @@ impl RawElem<dyn DataIO>
         Ok(Self { dtype, element: None, container })
     }
 
-    pub fn read_elem(&self) -> Box<dyn DataIO> {
+    pub fn read_dyn_elem(&self) -> Box<dyn DataIO> {
         match &self.element {
             Some(data) => dyn_clone::clone_box(data.as_ref()),
             None => read_dyn_data(&self.container).unwrap(),
@@ -50,7 +50,7 @@ impl RawElem<dyn DataIO>
     pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
         match &self.element {
             Some(data) => data.write(location, name)?,
-            None => self.read_elem().write(location, name)?,
+            None => self.read_dyn_elem().write(location, name)?,
         };
         Ok(())
     }
@@ -202,7 +202,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx)).unwrap()
     }
 
-    pub fn read_elem(&self) -> Box<dyn DataPartialIO> {
+    pub fn read_dyn_elem(&self) -> Box<dyn DataPartialIO> {
         match &self.inner.element {
             Some(data) => dyn_clone::clone_box(data.as_ref()),
             None => read_dyn_data_subset(&self.inner.container, None, None).unwrap(),
@@ -212,7 +212,7 @@ impl RawMatrixElem<dyn DataPartialIO>
     pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
         match &self.inner.element {
             Some(data) => data.write(location, name)?,
-            None => self.read_elem().write(location, name)?,
+            None => self.read_dyn_elem().write(location, name)?,
         };
         Ok(())
     }
