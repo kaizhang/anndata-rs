@@ -7,7 +7,7 @@ use polars::frame::DataFrame;
 
 #[derive(Clone)]
 pub struct AnnData {
-    file: File,
+    pub(crate) file: File,
     pub n_obs: usize,
     pub n_vars: usize,
     pub x: Option<MatrixElem>,
@@ -262,6 +262,19 @@ impl AnnData {
         self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(ridx));
         self.var.as_mut().map(|x| x.subset_cols(cidx));
         self.varm.values_mut().for_each(|varm| varm.subset_cols(cidx));
+    }
+
+    fn check_sizes(&self) {
+        if let Some(x) = &self.x {
+            assert_eq!(self.n_obs, x.nrows());
+            assert_eq!(self.n_vars, x.ncols());
+        }
+        if let Some(obs) = &self.obs {
+            assert_eq!(self.n_obs, obs.nrows());
+        }
+        if let Some(var) = &self.var {
+            assert_eq!(self.n_vars, var.ncols());
+        }
     }
 }
 
