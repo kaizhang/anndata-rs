@@ -1,5 +1,5 @@
 use crate::anndata_trait::*;
-use crate::element::{MatrixElem, DataFrameElem};
+use crate::element::{Elem, MatrixElem, DataFrameElem};
 
 use std::collections::HashMap;
 use hdf5::{File, Result, Group}; 
@@ -15,6 +15,7 @@ pub struct AnnData {
     pub obsm: HashMap<String, MatrixElem>,
     pub var: Option<DataFrameElem>,
     pub varm: HashMap<String, MatrixElem>,
+    pub uns: HashMap<String, Elem>,
 }
 
 impl AnnData {
@@ -87,10 +88,56 @@ impl AnnData {
         Ok(())
     }
 
+    pub fn set_varm(&mut self, varm: &HashMap<String, Box<dyn WritePartialData>>) -> Result<()> {
+        if self.file.group("varm").is_ok() { self.file.unlink("varm")?; }
+        for (key, data) in varm.iter() {
+            self.add_varm(key.as_str(), data)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_varm(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
+        assert!(
+            self.n_vars == data.ncols(),
+            "Number of variables mismatched, expecting {}, but found {}",
+            self.n_vars, data.ncols(),
+        );
+        let varm = match self.file.group("varm") {
+            Ok(x) => x,
+            _ => self.file.create_group("varm").unwrap(),
+        };
+        if self.varm.contains_key(key) { varm.unlink(key)?; } 
+        let container = data.write(&varm, key)?;
+        let elem = MatrixElem::new(container)?;
+        self.varm.insert(key.to_string(), elem);
+        Ok(())
+    }
+
+    pub fn set_uns(&mut self, uns: &HashMap<String, Box<dyn WriteData>>) -> Result<()> {
+        if self.file.group("uns").is_ok() { self.file.unlink("uns")?; }
+        for (key, data) in uns.iter() {
+            self.add_uns(key.as_str(), data)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_uns(&mut self, key: &str, data: &Box<dyn WriteData>) -> Result<()> {
+        let uns = match self.file.group("uns") {
+            Ok(x) => x,
+            _ => self.file.create_group("uns").unwrap(),
+        };
+        if self.uns.contains_key(key) { uns.unlink(key)?; } 
+        let container = data.write(&uns, key)?;
+        let elem = Elem::new(container)?;
+        self.uns.insert(key.to_string(), elem);
+        Ok(())
+    }
+
     pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = hdf5::File::create_excl(filename)?;
         Ok(Self { file, n_obs, n_vars, x: None, obs: None,
             obsm: HashMap::new(), var: None, varm: HashMap::new(),
+            uns: HashMap::new(),
         })
     }
 
@@ -123,8 +170,9 @@ impl AnnData {
         };
 
         // Read obsm
-        let obsm = file.group("obsm").as_ref().map_or(Ok(HashMap::new()), |group|
-            get_all_data(group))?;
+        let obsm = file.group("obsm").as_ref().map_or(HashMap::new(), |group|
+            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        );
         for (k, v) in obsm.iter() {
             if n_obs.is_none() { n_obs = Some(v.nrows()); }
             assert!(n_obs.unwrap() == v.nrows(), 
@@ -147,8 +195,9 @@ impl AnnData {
         };
 
         // Read varm
-        let varm = file.group("varm").as_ref().map_or(Ok(HashMap::new()), |group|
-            get_all_data(group))?;
+        let varm = file.group("varm").as_ref().map_or(HashMap::new(), |group|
+            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        );
         for (k, v) in varm.iter() {
             if n_vars.is_none() { n_vars = Some(v.ncols()); }
             assert!(n_vars.unwrap() == v.ncols(), 
@@ -157,11 +206,16 @@ impl AnnData {
             );
         }
 
+        // Read uns
+        let uns = file.group("uns").as_ref().map_or(HashMap::new(), |group|
+            get_all_data(group).map(|(k, v)| (k, Elem::new(v).unwrap())).collect()
+        );
+
         Ok(Self {
             file,
             n_obs: n_obs.unwrap_or(0),
             n_vars: n_vars.unwrap_or(0),
-            x, obs, obsm, var, varm
+            x, obs, obsm, var, varm, uns,
         })
     }
 
@@ -211,12 +265,12 @@ impl AnnData {
     }
 }
 
-fn get_all_data(group: &Group) -> Result<HashMap<String, MatrixElem>> {
+fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
     let get_name = |x: String| std::path::Path::new(&x).file_name()
         .unwrap().to_str().unwrap().to_string();
-    Ok(group.groups()?.into_iter().map(|x|
-        (get_name(x.name()), MatrixElem::new(DataContainer::H5Group(x)).unwrap())
-    ).chain(group.datasets()?.into_iter().map(|x|
-        (get_name(x.name()), MatrixElem::new(DataContainer::H5Dataset(x)).unwrap())
-    )).collect())
+    group.groups().unwrap().into_iter().map(move |x|
+        (get_name(x.name()), DataContainer::H5Group(x))
+    ).chain(group.datasets().unwrap().into_iter().map(move |x|
+        (get_name(x.name()), DataContainer::H5Dataset(x))
+    ))
 }

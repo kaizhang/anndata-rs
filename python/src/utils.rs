@@ -1,3 +1,4 @@
+pub mod py_to_rust;
 mod error;
 use error::PyPolarsErr;
 

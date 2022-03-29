@@ -64,6 +64,7 @@ pub enum DataType {
     Categorical,
     DataFrame,
     StringVector,
+    Scalar,
     Unknown,
 }
 
@@ -95,6 +96,7 @@ impl DataContainer {
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
+            "scalar" => Ok(DataType::Scalar),
             "dataframe" => Ok(DataType::DataFrame),
             "categorical" => Ok(DataType::Categorical),
             "array" | "string-array" => {
@@ -167,6 +169,26 @@ pub trait WriteData {
 pub trait ReadData {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
 }
+
+/*
+impl<T> WriteData for T
+where
+    T: H5Type,
+{
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(self).create(name)?;
+
+        create_str_attr(&*dataset, "encoding-type", "scalar")?;
+        create_str_attr(&*dataset, "encoding-version", self.version())?;
+        Ok(DataContainer::H5Dataset(dataset))
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Scalar }
+    fn dtype() -> DataType { DataType::Scalar }
+    fn version(&self) -> &str { "0.2.0" }
+}
+*/
 
 impl WriteData for CategoricalArray {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {

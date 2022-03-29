@@ -1,11 +1,26 @@
 mod raw;
 
-use raw::RawMatrixElem;
+use raw::{RawMatrixElem, RawElem};
 use crate::anndata_trait::*;
 use polars::frame::DataFrame;
 
 use hdf5::{Result, Group}; 
 use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct Elem(pub Arc<RawElem<dyn DataIO>>);
+
+impl Elem {
+    pub fn new(container: DataContainer) -> Result<Self> {
+        let elem = RawElem::new(container)?;
+        Ok(Self(Arc::new(elem)))
+    }
+
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
+        self.0.write_elem(location, name)
+    }
+}
+
 
 #[derive(Clone)]
 pub struct MatrixElem(pub Arc<RawMatrixElem<dyn DataPartialIO>>);

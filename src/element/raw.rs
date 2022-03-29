@@ -13,7 +13,7 @@ impl<T> RawElem<T>
 where
     T: DataIO,
 {
-    pub fn read_data(&self) -> T { ReadData::read(&self.container).unwrap() }
+    pub fn read_elem(&self) -> T { ReadData::read(&self.container).unwrap() }
 }
 
 impl<T> AsRef<RawElem<T>> for RawElem<dyn DataIO>
@@ -33,6 +33,28 @@ where
     }
 }
 
+impl RawElem<dyn DataIO>
+{
+    pub fn new(container: DataContainer) -> Result<Self> {
+        let dtype = container.get_encoding_type().unwrap();
+        Ok(Self { dtype, element: None, container })
+    }
+
+    pub fn read_elem(&self) -> Box<dyn DataIO> {
+        match &self.element {
+            Some(data) => dyn_clone::clone_box(data.as_ref()),
+            None => read_dyn_data(&self.container).unwrap(),
+        }
+    }
+
+    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
+        match &self.element {
+            Some(data) => data.write(location, name)?,
+            None => self.read_elem().write(location, name)?,
+        };
+        Ok(())
+    }
+}
 
 pub struct RawMatrixElem<T: ?Sized> {
     pub nrows: usize,

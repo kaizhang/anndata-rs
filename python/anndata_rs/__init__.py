@@ -81,6 +81,14 @@ class AnnData:
         for k in varm: varm[k] = Elem2dView(varm[k])
         return varm
 
+    @property
+    def uns(self):
+        return UNS(self._anndata)
+
+    @uns.setter
+    def uns(self, uns):
+        self._anndata.set_uns(uns)
+
     def subset(self, obs_indices = None, var_indices = None):
         def to_indices(x):
             ifnone = lambda a, b: b if a is None else a
@@ -102,6 +110,7 @@ class AnnData:
         for attr in [
             "obsm",
             "varm",
+            "uns",
         ]:
             keys = getattr(self, attr).keys()
             if len(keys) > 0:
@@ -124,6 +133,41 @@ class OBSM:
     def keys(self):
         return self._anndata.list_obsm()
 
+    def __repr__(self) -> str:
+        return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 
+
+class VARM:
+    def __init__(self, anndata):
+        self._anndata = anndata
+
+    def __getitem__(self, key):
+        return Elem2dView(self._anndata.get_varm(key))
+
+    def __setitem__(self, key, data):
+        self._anndata.add_varm(key, data)
+
+    def keys(self):
+        return self._anndata.list_varm()
+
+    def __repr__(self) -> str:
+        return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 
+
+class UNS:
+    def __init__(self, anndata):
+        self._anndata = anndata
+
+    def __getitem__(self, key):
+        return Elem(self._anndata.get_uns(key))
+
+    def __setitem__(self, key, data):
+        self._anndata.add_uns(key, data)
+
+    def keys(self):
+        return self._anndata.list_uns()
+
+    def __repr__(self) -> str:
+        return f"Dict with keys:\n{self.keys()[1:-1]}" 
+
 class Elem2dView:
     def __new__(cls, elem, *args, **kwargs):
         if elem is not None:
@@ -145,6 +189,24 @@ class Elem2dView:
             # Do your handling for a plain index
         else:
             print(subscript)
+
+class Elem:
+    def __new__(cls, elem, *args, **kwargs):
+        if elem is not None:
+            return(super(Elem, cls).__new__(cls, *args, **kwargs))
+        else:
+            return None
+
+    def __init__(self, elem, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._elem = elem
+
+    def __getitem__(self, subscript):
+        if subscript == ...:
+            return self._elem.get_data()
+        else:
+            raise NameError("Please use '...' to retrieve value")
+
 
 class DataFrameElem:
     def __new__(cls, elem, *args, **kwargs):
