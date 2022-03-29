@@ -35,8 +35,6 @@ where
 
 
 pub struct RawMatrixElem<T: ?Sized> {
-    pub obs_indices: Option<Vec<usize>>,
-    pub var_indices: Option<Vec<usize>>,
     pub nrows: usize,
     pub ncols: usize,
     pub inner: RawElem<T>,
@@ -53,7 +51,7 @@ where
         let nrows = get_nrows(&container);
         let ncols = get_ncols(&container);
         let inner = RawElem { dtype, element: None, container };
-        Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
+        Ok(Self { nrows, ncols, inner })
     }
 
     pub fn read_rows(&self, idx: &[usize]) -> T {
@@ -167,7 +165,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         let nrows = get_nrows(&container);
         let ncols = get_ncols(&container);
         let inner = RawElem { dtype, element: None, container };
-        Ok(Self { obs_indices: None, var_indices: None, nrows, ncols, inner })
+        Ok(Self { nrows, ncols, inner })
     }
 
     pub fn read_rows(&self, idx: &[usize]) -> Box<dyn DataPartialIO> {

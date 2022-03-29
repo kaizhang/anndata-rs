@@ -185,6 +185,18 @@ fn data_to_py<'py>(
         DataType::CsrMatrix(Float(FloatSize::U8)) =>
             csr_to_scipy::<f64>(py, *data.into_any().downcast().unwrap()),
 
+        DataType::Array(Unsigned(IntSize::U4)) => Ok((
+            &*data.into_any().downcast::<ArrayD<u32>>().unwrap().into_pyarray(py)
+        ).to_object(py)),
+        DataType::Array(Unsigned(IntSize::U8)) => Ok((
+            &*data.into_any().downcast::<ArrayD<u64>>().unwrap().into_pyarray(py)
+        ).to_object(py)),
+        DataType::Array(Integer(IntSize::U4)) => Ok((
+            &*data.into_any().downcast::<ArrayD<i32>>().unwrap().into_pyarray(py)
+        ).to_object(py)),
+        DataType::Array(Integer(IntSize::U8)) => Ok((
+            &*data.into_any().downcast::<ArrayD<i64>>().unwrap().into_pyarray(py)
+        ).to_object(py)),
         DataType::Array(Float(FloatSize::U4)) => Ok((
             &*data.into_any().downcast::<ArrayD<f32>>().unwrap().into_pyarray(py)
         ).to_object(py)),
@@ -195,7 +207,7 @@ fn data_to_py<'py>(
         DataType::DataFrame =>
             to_py_df(*data.into_any().downcast::<DataFrame>().unwrap()),
 
-        _ => todo!(),
+        ty => panic!("Cannot convert Rust element \"{:?}\" to Python object", ty)
     }
 }
 
