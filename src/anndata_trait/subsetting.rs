@@ -50,7 +50,7 @@ where
 
     fn container_nrows(container: &DataContainer) -> usize {
         container.get_group_ref().unwrap().attr("shape").unwrap()
-            .read_raw().unwrap()[0]
+            .read_1d().unwrap().to_vec()[0]
     }
 
     fn get_rows(&self, idx: &[usize]) -> Self {
@@ -119,7 +119,7 @@ where
 
     fn container_ncols(container: &DataContainer) -> usize {
         container.get_group_ref().unwrap().attr("shape").unwrap()
-            .read_raw().unwrap()[1]
+            .read_1d().unwrap().to_vec()[1]
     }
 
     fn get_columns(&self, idx: &[usize]) -> Self {

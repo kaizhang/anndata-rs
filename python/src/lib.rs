@@ -152,6 +152,16 @@ impl PyAnnData {
         Ok(())
     }
 
+    fn subset_cols(&mut self, idx: Vec<usize>) -> PyResult<()> {
+        self.0.subset_var(idx.as_slice());
+        Ok(())
+    }
+
+    fn subset(&mut self, ridx: Vec<usize>, cidx: Vec<usize>) -> PyResult<()> {
+        self.0.subset(ridx.as_slice(), cidx.as_slice());
+        Ok(())
+    }
+
     fn write(&self, filename: &str) -> PyResult<()> {
         self.0.write(filename).unwrap();
         Ok(())

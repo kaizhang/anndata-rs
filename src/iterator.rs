@@ -196,7 +196,7 @@ where
                 let data = container.dataset("data").unwrap();
                 let indices = container.dataset("indices").unwrap();
                 let indptr: Vec<usize> = container.dataset("indptr").unwrap()
-                    .read_raw().unwrap();
+                    .read_1d().unwrap().to_vec();
                 CsrRowIterator::Disk((data, indices, indptr, 0))
             },
         }

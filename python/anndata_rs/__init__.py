@@ -2,6 +2,7 @@ import anndata_rs.pyanndata as internal
 from scipy.sparse import spmatrix
 import pandas as pd
 import polars
+import numpy as np
 
 class AnnData:
     def __init__(
@@ -45,7 +46,7 @@ class AnnData:
 
     @property
     def obs(self): 
-        return Elem2dView(self._anndata.get_obs())
+        return DataFrameElem(self._anndata.get_obs())
 
     @obs.setter
     def obs(self, df):
@@ -57,7 +58,7 @@ class AnnData:
 
     @property
     def var(self):
-        return Elem2dView(self._anndata.get_var())
+        return DataFrameElem(self._anndata.get_var())
 
     @var.setter
     def var(self, df):
@@ -90,7 +91,7 @@ class AnnData:
         self._anndata.set_uns(uns)
 
     def subset(self, obs_indices = None, var_indices = None):
-        def to_indices(x):
+        def to_indices(x, n):
             ifnone = lambda a, b: b if a is None else a
             if isinstance(x, slice):
                 if x.stop is None:
@@ -98,10 +99,25 @@ class AnnData:
                     # do something with itertools.count()
                 else:
                     return list(range(ifnone(x.start, 0), x.stop, ifnone(x.step, 1)))
-            else:
+            elif isinstance(x, np.ndarray) and x.ndim == 1 and x.size == n and x.dtype == bool:
+                return list(x.nonzero()[0])
+            elif isinstance(x, list):
                 return x
- 
-        self._anndata.subset_rows(to_indices(obs_indices))
+            else:
+                raise NameError(str(type(x)))
+
+        i = to_indices(obs_indices, self.n_obs)
+        j = to_indices(var_indices, self.n_vars)
+        if i is None:
+            if j is None:
+                raise NameError("obs_indices and var_indices cannot be both None")
+            else:
+                self._anndata.subset_cols(j)
+        else:
+            if j is None:
+                self._anndata.subset_rows(i)
+            else:
+                self._anndata.subset(i, j)
 
     def __repr__(self) -> str:
         descr = f"AnnData object with n_obs x n_vars = {self.n_obs} x {self.n_vars}"
@@ -116,6 +132,9 @@ class AnnData:
             if len(keys) > 0:
                 descr += f"\n    {attr}: {str(list(keys))[1:-1]}"
         return descr
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     def write(self, filename: str):
         self._anndata.write(filename)
@@ -222,13 +241,8 @@ class DataFrameElem:
     def __getitem__(self, subscript):
         if subscript == ...:
             return self._elem.get_data()
-        elif isinstance(subscript, slice):
-            raise NotImplementedError("slice")
-            # do your handling for a slice object:
-            #print(subscript.start, subscript.stop, subscript.step)
-            # Do your handling for a plain index
         else:
-            print(subscript)
+            return self._elem.get_data().__getitem__(subscript)
 
-def read_h5ad(filename: str, mode: str = "r") -> AnnData:
+def read_h5ad(filename: str, mode: str = "r+") -> AnnData:
     return AnnData(pyanndata=internal.read_anndata(filename, mode))

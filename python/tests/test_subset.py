@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import uuid
 from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_matrix, issparse, random
 
 from anndata_rs import AnnData
 
@@ -26,3 +26,26 @@ def test_subset():
     adata.subset([0, 1])
 
     np.testing.assert_array_equal(adata.obsm["X_pca"][...], np.array([[1, 2], [3, 4]]))
+
+    X = random(5000, 50, 0.1, format="csr")
+    adata = AnnData(
+        X=X,
+        obsm=dict(X_pca=X),
+        filename=h5ad(),
+    )
+    idx = np.random.randint(0, 5000, 1000)
+    adata.subset(idx)
+    np.testing.assert_array_equal(adata.X[...].todense(), X[idx,:].todense())
+    np.testing.assert_array_equal(adata.obsm["X_pca"][...].todense(), X[idx,:].todense())
+
+    X = random(5000, 50, 0.1, format="csr")
+    adata = AnnData(
+        X=X,
+        obsm=dict(X_pca=X),
+        filename=h5ad(),
+    )
+    idx = np.random.choice([True, False], size=5000, p=[0.5, 0.5])
+    adata.subset(idx)
+    np.testing.assert_array_equal(adata.X[...].todense(), X[idx,:].todense())
+    np.testing.assert_array_equal(adata.obsm["X_pca"][...].todense(), X[idx,:].todense())
+

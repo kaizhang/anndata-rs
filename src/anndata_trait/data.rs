@@ -213,7 +213,7 @@ impl ReadData for CategoricalArray {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let group : &Group = container.get_group_ref()?;
         let categories: Vec<String> = read_str_vec(&group.dataset("categories")?)?;
-        let codes: Vec<u32> = group.dataset("codes")?.read_raw()?;
+        let codes: Vec<u32> = group.dataset("codes")?.read_1d()?.to_vec();
 
         Ok(CategoricalArray { categories, codes })
     }
@@ -234,16 +234,23 @@ where
         group.new_dataset_builder().deflate(COMPRESSION)
             .with_data(self.values()).create("data")?;
 
-        // TODO: fix index type
-        let indices: Array1<i32> = self.col_indices().iter()
-            .map(|x| *x as i32).collect(); // scipy compatibility
-        group.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(&indices).create("indices")?;
+        let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
+            .map(|x| (*x).try_into().ok()).collect();
+        match try_convert_indptr {
+            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION)
+                .with_data(vec.as_slice()).create("indptr")?,
+            _ => group.new_dataset_builder().deflate(COMPRESSION)
+                .with_data(self.row_offsets()).create("indptr")?,
+        };
 
-        let indptr: Array1<i32> = self.row_offsets().iter()
-            .map(|x| *x as i32).collect();  // scipy compatibility
-        group.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(&indptr).create("indptr")?;
+        let try_convert_indices: Option<Vec<i32>> = self.col_indices().iter()
+            .map(|x| (*x).try_into().ok()).collect();
+        match try_convert_indices {
+            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION)
+                .with_data(vec.as_slice()).create("indices")?,
+            _ => group.new_dataset_builder().deflate(COMPRESSION)
+                .with_data(self.col_indices()).create("indices")?,
+        };
 
         Ok(DataContainer::H5Group(group))
     }
@@ -259,10 +266,10 @@ where
 {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let dataset: &Group = container.get_group_ref()?;
-        let shape: Vec<usize> = dataset.attr("shape")?.read_raw()?;
-        let data = dataset.dataset("data")?.read_raw()?;
-        let indices: Vec<usize> = dataset.dataset("indices")?.read_raw()?;
-        let indptr: Vec<usize> = dataset.dataset("indptr")?.read_raw()?;
+        let shape: Vec<usize> = dataset.attr("shape")?.read_1d()?.to_vec();
+        let data = dataset.dataset("data")?.read_1d()?.to_vec();
+        let indices: Vec<usize> = dataset.dataset("indices")?.read_1d()?.to_vec();
+        let indptr: Vec<usize> = dataset.dataset("indptr")?.read_1d()?.to_vec();
 
         match container._encoding_type()?.as_str() {
             "csr_matrix" => Ok(CsrMatrix::try_from_csr_data(
