@@ -74,6 +74,16 @@ pub trait ReadRows: DataSubsetRow {
         let x: Self = ReadData::read(container).unwrap();
         x.get_rows(idx)
     }
+
+    fn read_row_slice(
+        container: &DataContainer,
+        slice: std::ops::Range<usize>,
+    ) -> Self
+    where Self: Sized + ReadData,
+    {
+        let idx: Vec<usize> = slice.collect();
+        Self::read_rows(container, idx.as_slice())
+    }
 }
 
 impl<T> ReadRows for ArrayD<T> where T: H5Type + Clone + Send + Sync {}

@@ -1,21 +1,79 @@
-pub mod py_to_rust;
-mod error;
-use error::PyPolarsErr;
+mod py_to_rust;
+mod rust_to_py;
+pub use py_to_rust::{to_rust_data1, to_rust_data2};
+pub use rust_to_py::{to_py_data1, to_py_data2};
 
 use polars::{
     prelude::ArrowField,
+    prelude::PolarsError,
     frame::DataFrame,
 };
 use polars_core::{
     prelude::*,
+    error::ArrowError,
     frame::ArrowChunk,
     utils::arrow::{array::ArrayRef, ffi},
     utils::accumulate_dataframes_vertical,
 };
 use pyo3::{
+    create_exception,
+    exceptions::{PyIOError, PyValueError, PyException, PyRuntimeError},
     ffi::Py_uintptr_t,
     prelude::*,
 };
+use std::fmt::{Debug, Formatter};
+use thiserror::Error;
+
+#[derive(Error)]
+enum PyPolarsErr {
+    #[error(transparent)]
+    Polars(#[from] PolarsError),
+    #[error("{0}")]
+    Other(String),
+    #[error(transparent)]
+    Arrow(#[from] ArrowError),
+}
+
+impl std::convert::From<PyPolarsErr> for PyErr {
+    fn from(err: PyPolarsErr) -> PyErr {
+        let default = || PyRuntimeError::new_err(format!("{:?}", &err));
+
+        use PyPolarsErr::*;
+        match &err {
+            Polars(err) => match err {
+                PolarsError::NotFound(name) => NotFoundError::new_err(name.clone()),
+                PolarsError::ComputeError(err) => ComputeError::new_err(err.to_string()),
+                PolarsError::NoData(err) => NoDataError::new_err(err.to_string()),
+                PolarsError::ShapeMisMatch(err) => ShapeError::new_err(err.to_string()),
+                PolarsError::SchemaMisMatch(err) => SchemaError::new_err(err.to_string()),
+                PolarsError::Io(err) => PyIOError::new_err(err.to_string()),
+                PolarsError::InvalidOperation(err) => PyValueError::new_err(err.to_string()),
+                PolarsError::ArrowError(err) => ArrowErrorException::new_err(format!("{:?}", err)),
+                _ => default(),
+            },
+            Arrow(err) => ArrowErrorException::new_err(format!("{:?}", err)),
+            _ => default(),
+        }
+    }
+}
+
+impl Debug for PyPolarsErr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use PyPolarsErr::*;
+        match self {
+            Polars(err) => write!(f, "{:?}", err),
+            Other(err) => write!(f, "BindingsError: {:?}", err),
+            Arrow(err) => write!(f, "{:?}", err),
+        }
+    }
+}
+
+create_exception!(exceptions, NotFoundError, PyException);
+create_exception!(exceptions, ComputeError, PyException);
+create_exception!(exceptions, NoDataError, PyException);
+create_exception!(exceptions, ArrowErrorException, PyException);
+create_exception!(exceptions, ShapeError, PyException);
+create_exception!(exceptions, SchemaError, PyException);
 
 /// Arrow array to Python.
 fn to_py_array(array: ArrayRef, py: Python, pyarrow: &PyModule) -> PyResult<PyObject> {
@@ -67,7 +125,7 @@ fn to_py_rb(
     Ok(record.to_object(py))
 }
 
-pub(crate) fn to_py_df(mut df: DataFrame) -> PyResult<PyObject> {
+pub fn to_py_df(mut df: DataFrame) -> PyResult<PyObject> {
     df.rechunk();
     let gil = Python::acquire_gil();
     let py = gil.python();
@@ -87,7 +145,7 @@ pub(crate) fn to_py_df(mut df: DataFrame) -> PyResult<PyObject> {
     Ok(df.to_object(py))
 }
 
-pub fn array_to_rust(obj: &PyAny) -> PyResult<ArrayRef> {
+fn array_to_rust(obj: &PyAny) -> PyResult<ArrayRef> {
     // prepare a pointer to receive the Array struct
     let array = Box::new(ffi::ArrowArray::empty());
     let schema = Box::new(ffi::ArrowSchema::empty());
@@ -109,7 +167,7 @@ pub fn array_to_rust(obj: &PyAny) -> PyResult<ArrayRef> {
     }
 }
 
-pub(crate) fn to_rust_df(pydf: &PyAny) -> PyResult<DataFrame> {
+pub fn to_rust_df(pydf: &PyAny) -> PyResult<DataFrame> {
     let rb: Vec<&PyAny> = pydf.call_method0("to_arrow")?
         .call_method0("to_batches")?.extract()?;
     let schema = rb

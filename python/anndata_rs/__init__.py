@@ -34,7 +34,7 @@ class AnnData:
     def n_vars(self): return self._anndata.n_vars
 
     @property
-    def X(self): return Elem2dView(self._anndata.get_x())
+    def X(self): return MatrixElem(self._anndata.get_x())
 
     @X.setter
     def X(self, X):
@@ -79,7 +79,7 @@ class AnnData:
     @property
     def varm(self):
         varm = self._anndata.get_varm()
-        for k in varm: varm[k] = Elem2dView(varm[k])
+        for k in varm: varm[k] = MatrixElem(varm[k])
         return varm
 
     @property
@@ -103,8 +103,10 @@ class AnnData:
                 return list(x.nonzero()[0])
             elif isinstance(x, list):
                 return x
+            elif isinstance(x, np.ndarray):
+                return list(x)
             else:
-                raise NameError(str(type(x)))
+                return None
 
         i = to_indices(obs_indices, self.n_obs)
         j = to_indices(var_indices, self.n_vars)
@@ -144,7 +146,7 @@ class OBSM:
         self._anndata = anndata
 
     def __getitem__(self, key):
-        return Elem2dView(self._anndata.get_obsm(key))
+        return MatrixElem(self._anndata.get_obsm(key))
 
     def __setitem__(self, key, data):
         self._anndata.add_obsm(key, data)
@@ -160,7 +162,7 @@ class VARM:
         self._anndata = anndata
 
     def __getitem__(self, key):
-        return Elem2dView(self._anndata.get_varm(key))
+        return MatrixElem(self._anndata.get_varm(key))
 
     def __setitem__(self, key, data):
         self._anndata.add_varm(key, data)
@@ -187,10 +189,10 @@ class UNS:
     def __repr__(self) -> str:
         return f"Dict with keys:\n{self.keys()[1:-1]}" 
 
-class Elem2dView:
+class MatrixElem:
     def __new__(cls, elem, *args, **kwargs):
         if elem is not None:
-            return(super(Elem2dView, cls).__new__(cls, *args, **kwargs))
+            return(super(MatrixElem, cls).__new__(cls, *args, **kwargs))
         else:
             return None
 
@@ -208,6 +210,9 @@ class Elem2dView:
             # Do your handling for a plain index
         else:
             print(subscript)
+
+    def chunked(self, chunk_size):
+        return self._elem.chunked(chunk_size)
 
 class Elem:
     def __new__(cls, elem, *args, **kwargs):

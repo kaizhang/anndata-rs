@@ -1,23 +1,23 @@
-mod utils;
-use utils::{to_py_df, to_rust_df, py_to_rust::{to_rust_data1, to_rust_data2}};
+pub mod iterator;
+pub mod utils;
+
+use iterator::ChunkedMatrix;
+
+use utils::conversion::{
+    to_py_df, to_rust_df,
+    to_rust_data1, to_rust_data2,
+    to_py_data1, to_py_data2,
+};
 
 use pyo3::{
     prelude::*,
     pymodule, types::PyModule, PyResult, Python,
 };
-use numpy::{PyReadonlyArrayDyn, IntoPyArray};
-use nalgebra_sparse::csr::CsrMatrix;
-use hdf5::types::TypeDescriptor::*;
-use hdf5::types::IntSize;
-use hdf5::types::FloatSize;
 use std::collections::HashMap;
-use ndarray::ArrayD;
-use polars::frame::DataFrame;
 
 use anndata_rs::{
     base::AnnData,
     element::{Elem, MatrixElem, DataFrameElem},
-    anndata_trait::{DataType, WritePartialData},
 };
 
 #[pyclass]
@@ -49,8 +49,8 @@ impl PyAnnData {
         })
     }
 
-    fn get_x(&self) -> PyResult<Option<PyElem2dView>> {
-        Ok(self.0.x.clone().map(PyElem2dView))
+    fn get_x(&self) -> PyResult<Option<PyMatrixElem>> {
+        Ok(self.0.x.clone().map(PyMatrixElem))
     }
 
     fn get_obs(&self) -> PyResult<Option<PyDataFrameElem>> {
@@ -64,8 +64,8 @@ impl PyAnnData {
         })
     }
 
-    fn get_obsm(&self, key: &str) -> PyResult<PyElem2dView> {
-        Ok(PyElem2dView(self.0.obsm.get(key).unwrap().clone()))
+    fn get_obsm(&self, key: &str) -> PyResult<PyMatrixElem> {
+        Ok(PyMatrixElem(self.0.obsm.get(key).unwrap().clone()))
     }
 
     fn set_obsm(&mut self, mut obsm: HashMap<String, PyObject>) -> PyResult<()> {
@@ -98,9 +98,9 @@ impl PyAnnData {
         })
     }
 
-    fn get_varm(&self) -> PyResult<HashMap<String, PyElem2dView>> {
+    fn get_varm(&self) -> PyResult<HashMap<String, PyMatrixElem>> {
         let varm = self.0.varm.iter()
-            .map(|(k, x)| (k.clone(), PyElem2dView(x.clone())))
+            .map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
             .collect();
         Ok(varm)
     }
@@ -175,26 +175,27 @@ pub struct PyElem(Elem);
 #[pymethods]
 impl PyElem {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| {
-            let data = self.0.0.read_dyn_elem();
-            let ty = data.as_ref().get_dtype();
-            data_to_py(py, ty, data.into_any())
-        })
+        Python::with_gil(|py| to_py_data1(py, self.0.0.read_dyn_elem()))
     }
 }
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyElem2dView(MatrixElem);
+pub struct PyMatrixElem(MatrixElem);
 
 #[pymethods]
-impl PyElem2dView {
+impl PyMatrixElem {
     fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| {
-            let data = self.0.0.read_dyn_elem();
-            let ty = data.as_ref().get_dtype();
-            data_to_py(py, ty, data.into_any())
-        })
+        Python::with_gil(|py| to_py_data2(py, self.0.0.read_dyn_elem()))
+    }
+
+    fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+        ChunkedMatrix {
+            elem: self.0.clone(),
+            chunk_size,
+            size: self.0.nrows(),
+            current_index: 0,
+        }
     }
 }
 
@@ -220,69 +221,10 @@ fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
     Ok(PyAnnData(anndata))
 }
 
-fn data_to_py<'py>(
-    py: Python<'py>,
-    ty: DataType,
-    data: Box<dyn std::any::Any>,
-) -> PyResult<PyObject>
-{
-    match ty {
-        DataType::CsrMatrix(Unsigned(IntSize::U4)) =>
-            csr_to_scipy::<u32>(py, *data.downcast().unwrap()),
-        DataType::CsrMatrix(Unsigned(IntSize::U8)) =>
-            csr_to_scipy::<u64>(py, *data.downcast().unwrap()),
-        DataType::CsrMatrix(Float(FloatSize::U4)) =>
-            csr_to_scipy::<f32>(py, *data.downcast().unwrap()),
-        DataType::CsrMatrix(Float(FloatSize::U8)) =>
-            csr_to_scipy::<f64>(py, *data.downcast().unwrap()),
-
-        DataType::Array(Unsigned(IntSize::U4)) => Ok((
-            &*data.downcast::<ArrayD<u32>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-        DataType::Array(Unsigned(IntSize::U8)) => Ok((
-            &*data.downcast::<ArrayD<u64>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-        DataType::Array(Integer(IntSize::U4)) => Ok((
-            &*data.downcast::<ArrayD<i32>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-        DataType::Array(Integer(IntSize::U8)) => Ok((
-            &*data.downcast::<ArrayD<i64>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-        DataType::Array(Float(FloatSize::U4)) => Ok((
-            &*data.downcast::<ArrayD<f32>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-        DataType::Array(Float(FloatSize::U8)) => Ok((
-            &*data.downcast::<ArrayD<f64>>().unwrap().into_pyarray(py)
-        ).to_object(py)),
-
-        DataType::DataFrame =>
-            to_py_df(*data.downcast::<DataFrame>().unwrap()),
-
-        ty => panic!("Cannot convert Rust element \"{:?}\" to Python object", ty)
-    }
-}
-
-fn csr_to_scipy<'py, T>(
-    py: Python<'py>,
-    mat: CsrMatrix<T>
-) -> PyResult<PyObject>
-where T: numpy::Element
-{
-    let n = mat.nrows();
-    let m = mat.ncols();
-    let (intptr, indices, data) = mat.disassemble();
-
-    let scipy = PyModule::import(py, "scipy.sparse")?;
-    Ok(scipy.getattr("csr_matrix")?.call1((
-        (data.into_pyarray(py), indices.into_pyarray(py), intptr.into_pyarray(py)),
-        (n, m),
-    ))?.to_object(py))
-}
-
 #[pymodule]
 fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyAnnData>().unwrap();
-    m.add_class::<PyElem2dView>().unwrap();
+    m.add_class::<PyMatrixElem>().unwrap();
 
     m.add_function(wrap_pyfunction!(read_anndata, m)?)?;
 

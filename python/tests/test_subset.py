@@ -49,3 +49,14 @@ def test_subset():
     np.testing.assert_array_equal(adata.X[...].todense(), X[idx,:].todense())
     np.testing.assert_array_equal(adata.obsm["X_pca"][...].todense(), X[idx,:].todense())
 
+def test_chunk():
+    X = random(5000, 50, 0.1, format="csr", dtype=np.int64)
+    adata = AnnData(
+        X=X,
+        filename=h5ad(),
+    )
+    s = X.sum(axis = 0)
+    s_ = np.zeros_like(s)
+    for m in adata.X.chunked(50):
+        s_ += m.sum(axis = 0)
+    np.testing.assert_array_equal(s, s_)

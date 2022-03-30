@@ -90,6 +90,16 @@ pub fn read_dyn_data_subset(
     dyn_data_reader!(container.get_encoding_type()?, read_data_subset(container, ridx, cidx))
 }
 
+pub fn read_dyn_row_slice(
+    container: &DataContainer,
+    slice: std::ops::Range<usize>,
+) -> Result<Box<dyn DataPartialIO>> {
+    dyn_data_reader!(
+        container.get_encoding_type()?,
+        ReadRows::read_row_slice(container, slice)
+    )
+}
+
 macro_rules! size_reader {
     ($container:expr, $ty:ident, $size:ident) => {
         match $container.get_encoding_type().unwrap() {

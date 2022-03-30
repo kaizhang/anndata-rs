@@ -194,6 +194,10 @@ impl RawMatrixElem<dyn DataPartialIO>
         read_dyn_data_subset(&self.inner.container, Some(idx), None).unwrap()
     }
 
+    pub fn read_dyn_row_slice(&self, slice: std::ops::Range<usize>) -> Box<dyn DataPartialIO> {
+        read_dyn_row_slice(&self.inner.container, slice).unwrap()
+    }
+
     pub fn read_columns(&self, idx: &[usize]) -> Box<dyn DataPartialIO> {
         read_dyn_data_subset(&self.inner.container, None, Some(idx)).unwrap()
     }
