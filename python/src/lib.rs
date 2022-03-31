@@ -87,6 +87,29 @@ impl PyAnnData {
         })
     }
 
+    fn get_obsp(&self, key: &str) -> PyResult<PyMatrixElem> {
+        Ok(PyMatrixElem(self.0.obsp.get(key).unwrap().clone()))
+    }
+
+    fn set_obsp(&mut self, mut obsp: HashMap<String, PyObject>) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let obsp_ = obsp.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
+            self.0.set_obsp(&obsp_).unwrap();
+            Ok(())
+        })
+    }
+    
+    fn list_obsp(&self) -> PyResult<Vec<String>> {
+        Ok(self.0.obsp.keys().map(|x| x.to_string()).collect())
+    }
+
+    fn add_obsp(&mut self, key: &str, data: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.add_obsp(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
+            Ok(())
+        })
+    }
+
     fn get_var(&self) -> PyResult<Option<PyDataFrameElem>> {
         Ok(self.0.var.clone().map(PyDataFrameElem))
     }
@@ -120,6 +143,32 @@ impl PyAnnData {
     fn add_varm(&mut self, key: &str, data: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
             self.0.add_varm(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
+            Ok(())
+        })
+    }
+
+    fn get_varp(&self) -> PyResult<HashMap<String, PyMatrixElem>> {
+        let varp = self.0.varp.iter()
+            .map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
+            .collect();
+        Ok(varp)
+    }
+
+    fn set_varp(&mut self, mut varp: HashMap<String, PyObject>) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let varp_ = varp.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
+            self.0.set_varp(&varp_).unwrap();
+            Ok(())
+        })
+    }
+    
+    fn list_varp(&self) -> PyResult<Vec<String>> {
+        Ok(self.0.varp.keys().map(|x| x.to_string()).collect())
+    }
+
+    fn add_varp(&mut self, key: &str, data: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.0.add_varp(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
             Ok(())
         })
     }

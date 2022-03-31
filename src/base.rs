@@ -13,8 +13,10 @@ pub struct AnnData {
     pub x: Option<MatrixElem>,
     pub obs: Option<DataFrameElem>,
     pub obsm: HashMap<String, MatrixElem>,
+    pub obsp: HashMap<String, MatrixElem>,
     pub var: Option<DataFrameElem>,
     pub varm: HashMap<String, MatrixElem>,
+    pub varp: HashMap<String, MatrixElem>,
     pub uns: HashMap<String, Elem>,
 }
 
@@ -75,6 +77,37 @@ impl AnnData {
         Ok(())
     }
 
+    pub fn set_obsp(&mut self, obsp: &HashMap<String, Box<dyn WritePartialData>>) -> Result<()> {
+        if self.file.group("obsp").is_ok() { self.file.unlink("obsp")?; }
+        for (key, data) in obsp.iter() {
+            self.add_obsp(key.as_str(), data)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_obsp(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
+        assert!(
+            self.n_obs == data.nrows(),
+            "Number of observations mismatched, expecting {}, but found {}",
+            self.n_obs, data.nrows(),
+        );
+        assert!(
+            data.ncols() == data.nrows(),
+            "Not a square matrix, nrows: {}, ncols: {}",
+            data.nrows(), data.ncols(),
+        );
+
+        let obsp = match self.file.group("obsp") {
+            Ok(x) => x,
+            _ => self.file.create_group("obsp").unwrap(),
+        };
+        if self.obsp.contains_key(key) { obsp.unlink(key)?; } 
+        let container = data.write(&obsp, key)?;
+        let elem = MatrixElem::new(container)?;
+        self.obsp.insert(key.to_string(), elem);
+        Ok(())
+    }
+
     pub fn set_var(&mut self, var: &DataFrame) -> Result<()> {
         assert!(
             self.n_vars == var.nrows(),
@@ -113,6 +146,37 @@ impl AnnData {
         Ok(())
     }
 
+    pub fn set_varp(&mut self, varp: &HashMap<String, Box<dyn WritePartialData>>) -> Result<()> {
+        if self.file.group("varp").is_ok() { self.file.unlink("varp")?; }
+        for (key, data) in varp.iter() {
+            self.add_varp(key.as_str(), data)?;
+        }
+        Ok(())
+    }
+
+    pub fn add_varp(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
+        assert!(
+            self.n_vars == data.ncols(),
+            "Number of variables mismatched, expecting {}, but found {}",
+            self.n_vars, data.ncols(),
+        );
+        assert!(
+            data.ncols() == data.nrows(),
+            "Not a square matrix, nrows: {}, ncols: {}",
+            data.nrows(), data.ncols(),
+        );
+
+        let varp = match self.file.group("varp") {
+            Ok(x) => x,
+            _ => self.file.create_group("varp").unwrap(),
+        };
+        if self.varp.contains_key(key) { varp.unlink(key)?; } 
+        let container = data.write(&varp, key)?;
+        let elem = MatrixElem::new(container)?;
+        self.varp.insert(key.to_string(), elem);
+        Ok(())
+    }
+
     pub fn set_uns(&mut self, uns: &HashMap<String, Box<dyn WriteData>>) -> Result<()> {
         if self.file.group("uns").is_ok() { self.file.unlink("uns")?; }
         for (key, data) in uns.iter() {
@@ -135,8 +199,9 @@ impl AnnData {
 
     pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = hdf5::File::create_excl(filename)?;
-        Ok(Self { file, n_obs, n_vars, x: None, obs: None,
-            obsm: HashMap::new(), var: None, varm: HashMap::new(),
+        Ok(Self { file, n_obs, n_vars, x: None,
+            obs: None, obsm: HashMap::new(), obsp: HashMap::new(),
+            var: None, varm: HashMap::new(), varp: HashMap::new(),
             uns: HashMap::new(),
         })
     }
@@ -181,6 +246,21 @@ impl AnnData {
             );
         }
 
+        // Read obsp
+        let obsp = file.group("obsp").as_ref().map_or(HashMap::new(), |group|
+            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        );
+        for (k, v) in obsp.iter() {
+            if n_obs.is_none() { n_obs = Some(v.nrows()); }
+            assert!(n_obs.unwrap() == v.nrows(), 
+                "Inconsistent number of observations: {} (X) != {} ({})",
+                n_obs.unwrap(), v.nrows(), k,
+            );
+            assert!(v.ncols() == v.nrows(), 
+                "Not a square matrix: {}", k
+            );
+        }
+
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
@@ -206,6 +286,21 @@ impl AnnData {
             );
         }
 
+        // Read varp
+        let varp = file.group("varp").as_ref().map_or(HashMap::new(), |group|
+            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        );
+        for (k, v) in varp.iter() {
+            if n_vars.is_none() { n_vars = Some(v.ncols()); }
+            assert!(n_vars.unwrap() == v.ncols(), 
+                "Inconsistent number of variables: {} (X) != {} ({})",
+                n_vars.unwrap(), v.ncols(), k,
+            );
+            assert!(v.ncols() == v.nrows(), 
+                "Not a square matrix: {}", k
+            );
+        }
+
         // Read uns
         let uns = file.group("uns").as_ref().map_or(HashMap::new(), |group|
             get_all_data(group).map(|(k, v)| (k, Elem::new(v).unwrap())).collect()
@@ -215,7 +310,7 @@ impl AnnData {
             file,
             n_obs: n_obs.unwrap_or(0),
             n_vars: n_vars.unwrap_or(0),
-            x, obs, obsm, var, varm, uns,
+            x, obs, obsm, obsp, var, varm, varp, uns,
         })
     }
 
@@ -243,6 +338,7 @@ impl AnnData {
         self.x.as_mut().map(|x| x.subset_rows(idx));
         self.obs.as_mut().map(|x| x.subset_rows(idx));
         self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(idx));
+        self.obsp.values_mut().for_each(|obsp| obsp.subset(idx, idx));
     }
 
     pub fn subset_var(&mut self, idx: &[usize])
@@ -251,6 +347,7 @@ impl AnnData {
         self.x.as_mut().map(|x| x.subset_cols(idx));
         self.var.as_mut().map(|x| x.subset_cols(idx));
         self.varm.values_mut().for_each(|varm| varm.subset_cols(idx));
+        self.varp.values_mut().for_each(|varp| varp.subset(idx, idx));
     }
 
     pub fn subset(&mut self, ridx: &[usize], cidx: &[usize])
@@ -260,21 +357,10 @@ impl AnnData {
         self.x.as_mut().map(|x| x.subset(ridx, cidx));
         self.obs.as_mut().map(|x| x.subset_rows(ridx));
         self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(ridx));
+        self.obsp.values_mut().for_each(|obsp| obsp.subset(ridx, ridx));
         self.var.as_mut().map(|x| x.subset_cols(cidx));
         self.varm.values_mut().for_each(|varm| varm.subset_cols(cidx));
-    }
-
-    fn check_sizes(&self) {
-        if let Some(x) = &self.x {
-            assert_eq!(self.n_obs, x.nrows());
-            assert_eq!(self.n_vars, x.ncols());
-        }
-        if let Some(obs) = &self.obs {
-            assert_eq!(self.n_obs, obs.nrows());
-        }
-        if let Some(var) = &self.var {
-            assert_eq!(self.n_vars, var.ncols());
-        }
+        self.varp.values_mut().for_each(|varp| varp.subset(cidx, cidx));
     }
 }
 

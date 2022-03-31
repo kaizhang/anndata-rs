@@ -87,10 +87,28 @@ class AnnData:
         self._anndata.set_obsm(obsm)
 
     @property
+    def obsp(self):
+        return OBSP(self._anndata)
+
+    @obsp.setter
+    def obsp(self, obsp):
+        self._anndata.set_obsp(obsp)
+
+    @property
     def varm(self):
-        varm = self._anndata.get_varm()
-        for k in varm: varm[k] = MatrixElem(varm[k])
-        return varm
+        return VARM(self._anndata)
+
+    @varm.setter
+    def varm(self, varm):
+        self._anndata.set_varm(varm)
+
+    @property
+    def varp(self):
+        return VARP(self._anndata)
+
+    @varp.setter
+    def varp(self, varp):
+        self._anndata.set_varp(varp)
 
     @property
     def uns(self):
@@ -137,7 +155,9 @@ class AnnData:
         if self.var is not None: descr += f"\n    var: {str(self.var[...].columns)[1:-1]}"
         for attr in [
             "obsm",
+            "obsp",
             "varm",
+            "varp",
             "uns",
         ]:
             keys = getattr(self, attr).keys()
@@ -167,6 +187,22 @@ class OBSM:
     def __repr__(self) -> str:
         return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 
 
+class OBSP:
+    def __init__(self, anndata):
+        self._anndata = anndata
+
+    def __getitem__(self, key):
+        return MatrixElem(self._anndata.get_obsp(key))
+
+    def __setitem__(self, key, data):
+        self._anndata.add_obsp(key, data)
+
+    def keys(self):
+        return self._anndata.list_obsp()
+
+    def __repr__(self) -> str:
+        return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 
+
 class VARM:
     def __init__(self, anndata):
         self._anndata = anndata
@@ -179,6 +215,22 @@ class VARM:
 
     def keys(self):
         return self._anndata.list_varm()
+
+    def __repr__(self) -> str:
+        return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 
+
+class VARP:
+    def __init__(self, anndata):
+        self._anndata = anndata
+
+    def __getitem__(self, key):
+        return MatrixElem(self._anndata.get_varp(key))
+
+    def __setitem__(self, key, data):
+        self._anndata.add_varp(key, data)
+
+    def keys(self):
+        return self._anndata.list_varp()
 
     def __repr__(self) -> str:
         return f"AxisArrays with keys:\n{self.keys()[1:-1]}" 

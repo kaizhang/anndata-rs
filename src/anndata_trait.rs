@@ -7,6 +7,8 @@ pub use subsetting::*;
 use ndarray::ArrayD;
 use hdf5::Result;
 use hdf5::types::TypeDescriptor::*;
+use hdf5::types::IntSize;
+use hdf5::types::FloatSize;
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 use dyn_clone::DynClone;
@@ -26,27 +28,83 @@ impl<T> WritePartialData for T where T: DataSubset2D + WriteData {}
 macro_rules! dyn_data_reader {
     ($get_type:expr, $reader:expr) => {
         match $get_type {
-            DataType::CsrMatrix(Integer(_)) => {
+            DataType::CsrMatrix(Integer(IntSize::U1)) => {
+                let mat: CsrMatrix<i8> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Integer(IntSize::U2)) => {
+                let mat: CsrMatrix<i16> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Integer(IntSize::U4)) => {
+                let mat: CsrMatrix<i32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Integer(IntSize::U8)) => {
                 let mat: CsrMatrix<i64> = $reader;
                 Ok(Box::new(mat))
             },
-            DataType::CsrMatrix(Unsigned(_)) => {
+            DataType::CsrMatrix(Unsigned(IntSize::U1)) => {
+                let mat: CsrMatrix<u8> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Unsigned(IntSize::U2)) => {
+                let mat: CsrMatrix<u16> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Unsigned(IntSize::U4)) => {
+                let mat: CsrMatrix<u32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Unsigned(IntSize::U8)) => {
                 let mat: CsrMatrix<u64> = $reader;
                 Ok(Box::new(mat))
             },
-            DataType::CsrMatrix(Float(_)) => {
+            DataType::CsrMatrix(Float(FloatSize::U4)) => {
+                let mat: CsrMatrix<f32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::CsrMatrix(Float(FloatSize::U8)) => {
                 let mat: CsrMatrix<f64> = $reader;
                 Ok(Box::new(mat))
             },
-            DataType::Array(Integer(_)) => {
+            DataType::Array(Integer(IntSize::U1)) => {
+                let mat: ArrayD<i8> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Integer(IntSize::U2)) => {
+                let mat: ArrayD<i16> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Integer(IntSize::U4)) => {
+                let mat: ArrayD<i32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Integer(IntSize::U8)) => {
                 let mat: ArrayD<i64> = $reader;
                 Ok(Box::new(mat))
             },
-            DataType::Array(Unsigned(_)) => {
+            DataType::Array(Unsigned(IntSize::U1)) => {
+                let mat: ArrayD<u8> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Unsigned(IntSize::U2)) => {
+                let mat: ArrayD<u16> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Unsigned(IntSize::U4)) => {
+                let mat: ArrayD<u32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Unsigned(IntSize::U8)) => {
                 let mat: ArrayD<u64> = $reader;
                 Ok(Box::new(mat))
             },
-            DataType::Array(Float(_)) => {
+            DataType::Array(Float(FloatSize::U4)) => {
+                let mat: ArrayD<f32> = $reader;
+                Ok(Box::new(mat))
+            },
+            DataType::Array(Float(FloatSize::U8)) => {
                 let mat: ArrayD<f64> = $reader;
                 Ok(Box::new(mat))
             },
