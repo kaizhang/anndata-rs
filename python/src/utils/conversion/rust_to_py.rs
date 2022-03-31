@@ -2,7 +2,7 @@ use crate::to_py_df;
 
 use pyo3::{
     prelude::*,
-    pymodule, types::PyModule, PyResult, Python,
+    types::PyModule, PyResult, Python,
 };
 use numpy::IntoPyArray;
 use nalgebra_sparse::csr::CsrMatrix;

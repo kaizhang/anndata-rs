@@ -3,6 +3,7 @@ from scipy.sparse import spmatrix
 import pandas as pd
 import polars
 import numpy as np
+from typing import Optional, Union
 
 class AnnData:
     def __init__(
@@ -32,6 +33,15 @@ class AnnData:
 
     @property
     def n_vars(self): return self._anndata.n_vars
+
+    @property
+    def var_names(self): return self.var[:, 0].to_numpy()
+
+    @property
+    def obs_names(self): return self.obs[:, 0].to_numpy()
+
+    @property
+    def shape(self): return (self.n_obs, self.n_vars)
 
     @property
     def X(self): return MatrixElem(self._anndata.get_x())
@@ -200,19 +210,24 @@ class MatrixElem:
         super().__init__(*args, **kwargs)
         self._elem = elem
 
+    # TODO: efficient partial data reading
     def __getitem__(self, subscript):
         if subscript == ...:
             return self._elem.get_data()
-        elif isinstance(subscript, slice):
-            raise NotImplementedError("slice")
-            # do your handling for a slice object:
-            #print(subscript.start, subscript.stop, subscript.step)
-            # Do your handling for a plain index
         else:
-            print(subscript)
+            return self._elem.get_data().__getitem__(subscript)
 
     def chunked(self, chunk_size):
         return self._elem.chunked(chunk_size)
+
+    def chunk(
+        self,
+        chunk_size: Union[int, np.ndarray],
+        replace: bool = True,
+    ):
+        if isinstance(chunk_size, int):
+            chunk_size = np.random.choice(self._elem.nrows(), size=chunk_size, replace=replace)
+        return self[chunk_size, :]
 
 class Elem:
     def __new__(cls, elem, *args, **kwargs):
@@ -243,11 +258,19 @@ class DataFrameElem:
         super().__init__(*args, **kwargs)
         self._elem = elem
 
+    def __contains__(self, key):
+        return key in self._elem.get_data()
+
     def __getitem__(self, subscript):
         if subscript == ...:
             return self._elem.get_data()
         else:
             return self._elem.get_data().__getitem__(subscript)
+
+    def __setitem__(self, key, data):
+        df = self._elem.get_data()
+        df.__setitem__(key, data)
+        self._elem.update(df)
 
 def read_h5ad(filename: str, mode: str = "r+") -> AnnData:
     return AnnData(pyanndata=internal.read_anndata(filename, mode))

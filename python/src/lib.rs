@@ -189,6 +189,10 @@ impl PyMatrixElem {
         Python::with_gil(|py| to_py_data2(py, self.0.0.read_dyn_elem()))
     }
 
+    fn nrows(&self) -> usize { self.0.nrows() }
+
+    fn ncols(&self) -> usize { self.0.ncols() }
+
     fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
         ChunkedMatrix {
             elem: self.0.clone(),
@@ -206,7 +210,13 @@ pub struct PyDataFrameElem(DataFrameElem);
 #[pymethods]
 impl PyDataFrameElem {
     fn get_data(&self) -> PyResult<PyObject> {
-        to_py_df(self.0.0.read_elem())
+        to_py_df(self.0.0.lock().unwrap().read_elem())
+    }
+
+    fn update(&mut self, data: PyObject) {
+        Python::with_gil(|py| 
+            self.0.update(&to_rust_df(data.as_ref(py)).unwrap())
+        )
     }
 }
 

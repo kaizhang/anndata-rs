@@ -57,6 +57,11 @@ def test_chunk():
     )
     s = X.sum(axis = 0)
     s_ = np.zeros_like(s)
-    for m in adata.X.chunked(50):
+    for m in adata.X.chunked(47):
+        s_ += m.sum(axis = 0)
+    np.testing.assert_array_equal(s, s_)
+
+    s_ = np.zeros_like(s)
+    for m in adata.X.chunked(500000):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)

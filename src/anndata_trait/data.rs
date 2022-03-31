@@ -1,3 +1,4 @@
+use crate::anndata_trait::DataIO;
 use crate::utils::{
     create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION};
 
@@ -22,11 +23,16 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct StrVector(Vec<String>);
 
+#[derive(Debug, Clone, Copy)]
+pub struct Scalar<T>(pub T);
+
 #[derive(Debug, Clone)]
 pub struct CategoricalArray {
     codes: Vec<u32>,
     categories: Vec<String>,
 }
+
+pub struct Collection(pub HashMap<String, Box<dyn DataIO>>);
 
 impl<'a> FromIterator<&'a str> for CategoricalArray {
     fn from_iter<T>(iter: T) -> Self
@@ -170,17 +176,15 @@ pub trait ReadData {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
 }
 
-/*
-impl<T> WriteData for T
+impl<T> WriteData for Scalar<T>
 where
-    T: H5Type,
+    T: H5Type + Copy,
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(self).create(name)?;
-
+        let dataset = location.new_dataset::<T>().deflate(COMPRESSION).create(name)?;
         create_str_attr(&*dataset, "encoding-type", "scalar")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
+        dataset.write_scalar(&self.0)?;
         Ok(DataContainer::H5Dataset(dataset))
     }
 
@@ -188,7 +192,6 @@ where
     fn dtype() -> DataType { DataType::Scalar }
     fn version(&self) -> &str { "0.2.0" }
 }
-*/
 
 impl WriteData for CategoricalArray {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
@@ -216,6 +219,16 @@ impl ReadData for CategoricalArray {
         let codes: Vec<u32> = group.dataset("codes")?.read_1d()?.to_vec();
 
         Ok(CategoricalArray { categories, codes })
+    }
+}
+
+impl<T> ReadData for Scalar<T>
+where
+    T: H5Type + Copy,
+{
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset = container.get_dataset_ref()?;
+        Ok(Scalar(dataset.read_scalar()?))
     }
 }
 
@@ -291,7 +304,7 @@ where
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
         let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(self).create(name)?;
+            .with_data(&self.as_standard_layout()).create(name)?;
 
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
@@ -340,6 +353,12 @@ where
         let dataset: &Dataset = container.get_dataset_ref()?;
         let arr: Array1<_> = dataset.read()?;
         Ok(arr.into_raw_vec())
+    }
+}
+
+impl ReadData for Collection {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        todo!();
     }
 }
 
@@ -402,6 +421,8 @@ impl WriteData for DataFrame {
                     series.f32().unwrap().to_ndarray().unwrap().write(&group, name),
                 polars::datatypes::DataType::Float64 => 
                     series.f64().unwrap().to_ndarray().unwrap().write(&group, name),
+                polars::datatypes::DataType::Boolean => 
+                    series.bool().unwrap().into_iter().flatten().collect::<Vec<_>>().write(&group, name),
                 polars::datatypes::DataType::Utf8 => {
                     let vec: Vec<VarLenUnicode> = series.utf8().unwrap()
                         .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
@@ -443,17 +464,19 @@ impl ReadData for DataFrame {
             let data = DataContainer::open(group, name)?;
             match data.get_encoding_type()? {
                 DataType::Array(Unsigned(IntSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<u32>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<u32>::read(&data)?)),
                 DataType::Array(Unsigned(IntSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<u64>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<u64>::read(&data)?)),
                 DataType::Array(Integer(IntSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<i32>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<i32>::read(&data)?)),
                 DataType::Array(Integer(IntSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<i64>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<i64>::read(&data)?)),
                 DataType::Array(Float(FloatSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<f32>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<f32>::read(&data)?)),
                 DataType::Array(Float(FloatSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<f64>::read(&data).unwrap())),
+                    Ok(Series::from_vec(name, Vec::<f64>::read(&data)?)),
+                DataType::Array(Boolean) =>
+                    Ok(Series::new(name, Vec::<bool>::read(&data)?.as_slice())),
                 DataType::Array(VarLenUnicode) =>
                     Ok(Series::new(name, read_str_vec(data.get_dataset_ref()?)?.as_slice())),
                 DataType::Categorical => {

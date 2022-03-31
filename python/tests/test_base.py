@@ -34,6 +34,9 @@ def test_creation():
         obsm=dict(X_pca=np.array([[1, 2], [3, 4]])),
         filename=h5ad(),
     )
+
+    adata.var["Count"] = [1,2,3]
+    assert list(adata.var["Count"]) == [1,2,3]
     '''
     with pytest.raises(ValueError):
         AnnData(X = np.array([[1, 2], [3, 4]]), obsm = dict(TooLong=[1, 2, 3, 4]))

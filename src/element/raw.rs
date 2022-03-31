@@ -159,6 +159,12 @@ where
         self.nrows = ridx.len();
         self.ncols = cidx.len();
     }
+
+    pub fn update(&mut self, data: &T) {
+        self.nrows = data.nrows();
+        self.ncols = data.ncols();
+        self.inner.container = data.update(&self.inner.container).unwrap();
+    }
 }
 
 // NOTE: this requires `element` is the last field, as trait object contains a vtable
