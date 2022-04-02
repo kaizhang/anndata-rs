@@ -1,7 +1,7 @@
 pub mod iterator;
 pub mod utils;
 
-use iterator::ChunkedMatrix;
+use iterator::{MatrixElemLike, ChunkedMatrix};
 use utils::conversion::{
     to_py_df, to_rust_df,
     to_rust_data1, to_rust_data2,
@@ -10,7 +10,7 @@ use utils::conversion::{
 
 use anndata_rs::{
     base::AnnData,
-    element::{Elem, MatrixElem, DataFrameElem},
+    element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem},
 };
 use pyo3::{
     prelude::*,
@@ -34,14 +34,10 @@ impl PyAnnData {
     }
 
     #[getter]
-    fn n_obs(&self) -> PyResult<usize> {
-        Ok(self.0.n_obs)
-    }
+    fn n_obs(&self) -> PyResult<usize> { Ok(self.0.n_obs()) }
 
     #[getter]
-    fn n_vars(&self) -> PyResult<usize> {
-        Ok(self.0.n_vars)
-    }
+    fn n_vars(&self) -> PyResult<usize> { Ok(self.0.n_vars()) }
 
     fn set_x(&mut self, data: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
@@ -50,12 +46,20 @@ impl PyAnnData {
         })
     }
 
-    fn get_x(&self) -> PyResult<Option<PyMatrixElem>> {
-        Ok(self.0.x.clone().map(PyMatrixElem))
+    fn get_x(&self) -> Option<PyMatrixElemOptional> {
+        if self.0.x.is_empty() {
+            None
+        } else {
+            Some(PyMatrixElemOptional(self.0.x.clone()))
+        }
     }
 
-    fn get_obs(&self) -> PyResult<Option<PyDataFrameElem>> {
-        Ok(self.0.obs.clone().map(PyDataFrameElem))
+    fn get_obs(&self) -> Option<PyDataFrameElem> {
+        if self.0.obs.is_empty() {
+            None
+        } else {
+            Some(PyDataFrameElem(self.0.obs.clone()))
+        }
     }
 
     fn set_obs(&mut self, df: PyObject) -> PyResult<()> {
@@ -111,8 +115,12 @@ impl PyAnnData {
         })
     }
 
-    fn get_var(&self) -> PyResult<Option<PyDataFrameElem>> {
-        Ok(self.0.var.clone().map(PyDataFrameElem))
+    fn get_var(&self) -> Option<PyDataFrameElem> {
+        if self.0.var.is_empty() {
+            None
+        } else {
+            Some(PyDataFrameElem(self.0.var.clone()))
+        }
     }
 
     fn set_var(&mut self, df: PyObject) -> PyResult<()> {
@@ -291,7 +299,7 @@ impl PyMatrixElem {
 
     fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
         ChunkedMatrix {
-            elem: self.0.clone(),
+            elem: MatrixElemLike::M1(self.0.clone()),
             chunk_size,
             size: self.0.nrows(),
             current_index: 0,
@@ -305,6 +313,70 @@ impl PyMatrixElem {
 
 #[pyclass]
 #[repr(transparent)]
+pub struct PyMatrixElemOptional(MatrixElemOptional);
+
+#[pymethods]
+impl PyMatrixElemOptional {
+    fn enable_cache(&mut self) { self.0.enable_cache() }
+
+    fn disable_cache(&mut self) { self.0.disable_cache() }
+
+    #[getter]
+    fn shape(&self) -> (usize, usize) {
+        (self.0.nrows().unwrap_or(0), self.0.ncols().unwrap_or(0))
+    }
+
+    // TODO: efficient partial data reading
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if subscript.eq(py.eval("...", None, None)?)? ||
+            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
+            to_py_data2(py, self.0.read().unwrap().unwrap())
+        } else {
+            let data = to_py_data2(py, self.0.read().unwrap().unwrap())?;
+            data.call_method1(py, "__getitem__", (subscript,))
+        }
+    }
+ 
+    #[args(
+        replace = true,
+        seed = 2022,
+    )]
+    fn chunk<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        replace: bool,
+        seed: u64,
+    ) -> PyResult<PyObject> {
+        let length = self.0.nrows().unwrap_or(0);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let idx: Vec<usize> = if replace {
+            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
+        } else {
+            rand::seq::index::sample(&mut rng, length, size).into_vec()
+        };
+        to_py_data2(py, self.0.0.lock().unwrap().as_ref().unwrap().read_rows(idx.as_slice()).unwrap())
+    }
+
+    fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+        ChunkedMatrix {
+            elem: MatrixElemLike::M2(self.0.clone()),
+            chunk_size,
+            size: self.0.nrows().unwrap_or(0),
+            current_index: 0,
+        }
+    }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
+}
+
+
+
+
+#[pyclass]
+#[repr(transparent)]
 pub struct PyDataFrameElem(DataFrameElem);
 
 #[pymethods]
@@ -313,13 +385,21 @@ impl PyDataFrameElem {
 
     fn disable_cache(&mut self) { self.0.disable_cache() }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Option<Py<PyAny>>> {
         if subscript.eq(py.eval("...", None, None)?)? ||
             subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-            to_py_df(self.0.read().unwrap())
+            match self.0.read() {
+                None => Ok(None),
+                Some(x) => Ok(Some(to_py_df(x.unwrap())?)),
+            }
         } else {
-            let data = to_py_df(self.0.read().unwrap())?;
-            data.call_method1(py, "__getitem__", (subscript,))
+            match self.0.read() {
+                None => Ok(None),
+                Some(x) => {
+                    let data = to_py_df(x.unwrap())?;
+                    Ok(Some(data.call_method1(py, "__getitem__", (subscript,))?))
+                },
+            }
         }
     }
 
@@ -329,14 +409,21 @@ impl PyDataFrameElem {
         key: &'py PyAny,
         data: &'py PyAny,
     ) -> PyResult<()> {
-        let df = to_py_df(self.0.read().unwrap())?;
-        df.call_method1(py, "__setitem__", (key, data))?;
-        self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
-        Ok(())
+        match self.0.read() {
+            None => Err(PyTypeError::new_err(
+                "Cannot set a empty dataframe"
+            )),
+            Some(value) => {
+                let df = to_py_df(value.unwrap())?;
+                df.call_method1(py, "__setitem__", (key, data))?;
+                self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
+                Ok(())
+            },
+        }
     }
  
     fn __contains__(&self, key: &str) -> bool {
-        self.0.read().unwrap().find_idx_by_name(key).is_some()
+        self.0.read().map_or(false, |x| x.unwrap().find_idx_by_name(key).is_some())
     }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }

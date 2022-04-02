@@ -223,6 +223,7 @@ where
         self.nrows = data.nrows();
         self.ncols = data.ncols();
         self.inner.container = data.update(&self.inner.container)?;
+        self.inner.element = None;
         Ok(())
     }
 }
@@ -298,6 +299,14 @@ impl RawMatrixElem<dyn DataPartialIO>
             None => read_dyn_data_subset(&self.inner.container, None, None)?
                 .write(location, name)?,
         };
+        Ok(())
+    }
+
+    pub fn update(&mut self, data: &Box<dyn DataPartialIO>) -> Result<()> {
+        self.nrows = data.nrows();
+        self.ncols = data.ncols();
+        self.inner.container = data.update(&self.inner.container)?;
+        self.inner.element = None;
         Ok(())
     }
 

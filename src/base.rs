@@ -1,57 +1,72 @@
 use crate::anndata_trait::*;
-use crate::element::{Elem, MatrixElem, DataFrameElem};
+use crate::element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem};
+use std::sync::{Arc, Mutex};
 
 use std::collections::HashMap;
 use hdf5::{File, Result, Group}; 
 use polars::frame::DataFrame;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 #[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
-    pub n_obs: usize,
-    pub n_vars: usize,
-    pub x: Option<MatrixElem>,
-    pub obs: Option<DataFrameElem>,
+    pub n_obs: Arc<Mutex<usize>>,
+    pub n_vars: Arc<Mutex<usize>>,
+    pub x: MatrixElemOptional,
+    pub obs: DataFrameElem,
     pub obsm: HashMap<String, MatrixElem>,
     pub obsp: HashMap<String, MatrixElem>,
-    pub var: Option<DataFrameElem>,
+    pub var: DataFrameElem,
     pub varm: HashMap<String, MatrixElem>,
     pub varp: HashMap<String, MatrixElem>,
     pub uns: HashMap<String, Elem>,
 }
 
 impl AnnData {
+    pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
+
+    pub fn set_n_obs(&self, n: usize) {
+        *self.n_obs.lock().unwrap().deref_mut() = n;
+    }
+
+    pub fn n_vars(&self) -> usize { *self.n_vars.lock().unwrap().deref() }
+
+    pub fn set_n_vars(&self, n: usize) {
+        *self.n_vars.lock().unwrap().deref_mut() = n;
+    }
+
     pub fn filename(&self) -> String { self.file.filename() }
 
     pub fn close(self) -> Result<()> { self.file.close() }
 
-    pub fn set_x(&mut self, data: &Box<dyn WritePartialData>) -> Result<()> {
+    pub fn set_x(&self, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
-            self.n_obs == data.nrows(),
+            self.n_obs() == data.nrows(),
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, data.nrows(),
+            self.n_obs(), data.nrows(),
         );
         assert!(
-            self.n_vars == data.ncols(),
+            self.n_vars() == data.ncols(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars, data.ncols(),
+            self.n_vars(), data.ncols(),
         );
-        if self.x.is_some() { self.file.unlink("X")?; }
-        let container = data.write(&self.file, "X")?;
-        self.x = Some(MatrixElem::new(container)?);
+        if !self.x.is_empty() { self.file.unlink("X")?; }
+        self.x.insert(data.write(&self.file, "X")?)?;
         Ok(())
     }
 
-    pub fn set_obs(&mut self, obs: &DataFrame) -> Result<()> {
+    pub fn set_obs(&self, obs: &DataFrame) -> Result<()> {
         assert!(
-            self.n_obs == obs.nrows(),
+            self.n_obs() == obs.nrows(),
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, obs.nrows(),
+            self.n_obs(), obs.nrows(),
         );
-
-        if self.file.group("obs").is_ok() { self.file.unlink("obs")?; }
-        let container = obs.write(&self.file, "obs")?;
-        self.obs = Some(DataFrameElem::new(container)?);
+        if self.obs.is_empty() {
+            self.obs.insert(obs.write(&self.file, "obs")?)?;
+        } else {
+            self.obs.update(obs);
+        }
         Ok(())
     }
 
@@ -65,9 +80,9 @@ impl AnnData {
 
     pub fn add_obsm(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
-            self.n_obs == data.nrows(),
+            self.n_obs() == data.nrows(),
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, data.nrows(),
+            self.n_obs(), data.nrows(),
         );
 
         let obsm = match self.file.group("obsm") {
@@ -91,9 +106,9 @@ impl AnnData {
 
     pub fn add_obsp(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
-            self.n_obs == data.nrows(),
+            self.n_obs() == data.nrows(),
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, data.nrows(),
+            self.n_obs(), data.nrows(),
         );
         assert!(
             data.ncols() == data.nrows(),
@@ -112,16 +127,17 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn set_var(&mut self, var: &DataFrame) -> Result<()> {
+    pub fn set_var(&self, var: &DataFrame) -> Result<()> {
         assert!(
-            self.n_vars == var.nrows(),
+            self.n_vars() == var.nrows(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars, var.nrows(),
+            self.n_vars(), var.nrows(),
         );
-
-        if self.file.group("var").is_ok() { self.file.unlink("var")?; }
-        let container = var.write(&self.file, "var")?;
-        self.var = Some(DataFrameElem::new(container)?);
+        if self.var.is_empty() {
+            self.var.insert(var.write(&self.file, "var")?)?;
+        } else {
+            self.var.update(var);
+        }
         Ok(())
     }
 
@@ -135,9 +151,9 @@ impl AnnData {
 
     pub fn add_varm(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
-            self.n_vars == data.ncols(),
+            self.n_vars() == data.ncols(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars, data.ncols(),
+            self.n_vars(), data.ncols(),
         );
         let varm = match self.file.group("varm") {
             Ok(x) => x,
@@ -160,9 +176,9 @@ impl AnnData {
 
     pub fn add_varp(&mut self, key: &str, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
-            self.n_vars == data.ncols(),
+            self.n_vars() == data.ncols(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars, data.ncols(),
+            self.n_vars(), data.ncols(),
         );
         assert!(
             data.ncols() == data.nrows(),
@@ -203,9 +219,11 @@ impl AnnData {
 
     pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = hdf5::File::create(filename)?;
-        Ok(Self { file, n_obs, n_vars, x: None,
-            obs: None, obsm: HashMap::new(), obsp: HashMap::new(),
-            var: None, varm: HashMap::new(), varp: HashMap::new(),
+        Ok(Self { file,
+            n_obs: Arc::new(Mutex::new(n_obs)), n_vars: Arc::new(Mutex::new(n_vars)),
+            x: MatrixElemOptional::empty(),
+            obs: DataFrameElem::empty(), obsm: HashMap::new(), obsp: HashMap::new(),
+            var: DataFrameElem::empty(), varm: HashMap::new(), varp: HashMap::new(),
             uns: HashMap::new(),
         })
     }
@@ -217,25 +235,25 @@ impl AnnData {
 
         // Read X
         let x = if file.link_exists("X") {
-            let x = MatrixElem::new(DataContainer::open(&file, "X")?)?;
-            n_obs = Some(x.nrows());
-            n_vars = Some(x.ncols());
-            Some(x)
+            let x = MatrixElemOptional::new(DataContainer::open(&file, "X")?)?;
+            n_obs = x.nrows();
+            n_vars = x.ncols();
+            x
         } else {
-            None
+            MatrixElemOptional::empty()
         };
 
         // Read obs
         let obs = if file.link_exists("obs") {
             let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
-            if n_obs.is_none() { n_obs = Some(obs.nrows()); }
-            assert!(n_obs.unwrap() == obs.nrows(),
+            if n_obs.is_none() { n_obs = obs.nrows(); }
+            assert!(n_obs == obs.nrows(),
                 "Inconsistent number of observations: {} (X) != {} (obs)",
-                n_obs.unwrap(), obs.nrows(),
+                n_obs.unwrap(), obs.nrows().unwrap(),
             );
-            Some(obs)
+            obs
         } else {
-            None
+            DataFrameElem::empty()
         };
 
         // Read obsm
@@ -268,14 +286,14 @@ impl AnnData {
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
-            if n_vars.is_none() { n_vars = Some(var.ncols()); }
-            assert!(n_vars.unwrap() == var.ncols(),
+            if n_vars.is_none() { n_vars = var.ncols(); }
+            assert!(n_vars == var.ncols(),
                 "Inconsistent number of variables: {} (X) != {} (var)",
-                n_vars.unwrap(), var.ncols(),
+                n_vars.unwrap(), var.ncols().unwrap(),
             );
-            Some(var)
+            var
         } else {
-            None
+            DataFrameElem::empty()
         };
 
         // Read varm
@@ -312,8 +330,8 @@ impl AnnData {
 
         Ok(Self {
             file,
-            n_obs: n_obs.unwrap_or(0),
-            n_vars: n_vars.unwrap_or(0),
+            n_obs: Arc::new(Mutex::new(n_obs.unwrap_or(0))),
+            n_vars: Arc::new(Mutex::new(n_vars.unwrap_or(0))),
             x, obs, obsm, obsp, var, varm, varp, uns,
         })
     }
@@ -322,9 +340,9 @@ impl AnnData {
     {
         let file = File::create(filename)?;
 
-        if let Some(x) = &self.x { x.write(&file, "X")?; }
-        if let Some(obs) = &self.obs { obs.write(&file, "obs")?; }
-        if let Some(var) = &self.var { var.write(&file, "var")?; }
+        self.x.write(&file, "X")?;
+        self.obs.write(&file, "obs")?;
+        self.var.write(&file, "var")?;
         let obsm = file.create_group("obsm")?;
         for (key, val) in self.obsm.iter() {
             val.write(&obsm, key)?;
@@ -338,31 +356,31 @@ impl AnnData {
 
     pub fn subset_obs(&mut self, idx: &[usize])
     {
-        self.n_obs = idx.len();
-        self.x.as_mut().map(|x| x.subset_rows(idx));
-        self.obs.as_mut().map(|x| x.subset_rows(idx));
+        self.set_n_obs(idx.len());
+        self.x.subset_rows(idx);
+        self.obs.subset_rows(idx);
         self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(idx));
         self.obsp.values_mut().for_each(|obsp| obsp.subset(idx, idx));
     }
 
     pub fn subset_var(&mut self, idx: &[usize])
     {
-        self.n_vars = idx.len();
-        self.x.as_mut().map(|x| x.subset_cols(idx));
-        self.var.as_mut().map(|x| x.subset_cols(idx));
+        self.set_n_vars(idx.len());
+        self.x.subset_cols(idx);
+        self.var.subset_cols(idx);
         self.varm.values_mut().for_each(|varm| varm.subset_cols(idx));
         self.varp.values_mut().for_each(|varp| varp.subset(idx, idx));
     }
 
     pub fn subset(&mut self, ridx: &[usize], cidx: &[usize])
     {
-        self.n_obs = ridx.len();
-        self.n_vars = cidx.len();
-        self.x.as_mut().map(|x| x.subset(ridx, cidx));
-        self.obs.as_mut().map(|x| x.subset_rows(ridx));
+        self.set_n_obs(ridx.len());
+        self.set_n_vars(cidx.len());
+        self.x.subset(ridx, cidx);
+        self.obs.subset_rows(ridx);
         self.obsm.values_mut().for_each(|obsm| obsm.subset_rows(ridx));
         self.obsp.values_mut().for_each(|obsp| obsp.subset(ridx, ridx));
-        self.var.as_mut().map(|x| x.subset_cols(cidx));
+        self.var.subset_cols(cidx);
         self.varm.values_mut().for_each(|varm| varm.subset_cols(cidx));
         self.varp.values_mut().for_each(|varp| varp.subset(cidx, cidx));
     }

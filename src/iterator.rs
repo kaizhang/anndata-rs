@@ -129,26 +129,26 @@ where
 }
 
 impl AnnData {
-    pub fn set_x_from_row_iter<I>(&mut self, data: I) -> Result<()>
+    pub fn set_x_from_row_iter<I>(&self, data: I) -> Result<()>
     where
         I: RowIterator,
     {
-        if self.n_vars == 0 { self.n_vars = data.ncols(); }
+        if self.n_vars() == 0 { self.set_n_vars(data.ncols()); }
         assert!(
-            self.n_vars == data.ncols(),
+            self.n_vars() == data.ncols(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars, data.ncols(),
+            self.n_vars(), data.ncols(),
         );
 
-        if self.x.is_some() { self.file.unlink("X")?; }
+        if !self.x.is_empty() { self.file.unlink("X")?; }
         let (container, nrows) = data.write(&self.file, "X")?;
-        if self.n_obs == 0 { self.n_obs = nrows; }
+        if self.n_obs() == 0 { self.set_n_obs(nrows); }
         assert!(
-            self.n_obs == nrows,
+            self.n_obs() == nrows,
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, nrows,
+            self.n_obs(), nrows,
         );
-        self.x = Some(MatrixElem::new(container)?);
+        self.x.insert(container)?;
         Ok(())
     }
 
@@ -162,12 +162,12 @@ impl AnnData {
         };
         if self.obsm.contains_key(key) { obsm.unlink(key)?; } 
         let (container, nrows) = data.write(&obsm, key)?;
-        if self.n_obs == 0 { self.n_obs = nrows; }
+        if self.n_obs() == 0 { self.set_n_obs(nrows); }
 
         assert!(
-            self.n_obs == nrows,
+            self.n_obs() == nrows,
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs, nrows,
+            self.n_obs(), nrows,
         );
  
         let elem = MatrixElem::new(container)?;

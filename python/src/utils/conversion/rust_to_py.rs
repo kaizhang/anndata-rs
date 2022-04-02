@@ -20,6 +20,10 @@ use anndata_rs::{
 macro_rules! to_py_data_macro {
     ($py:expr, $data:expr) => {
         match $data.as_ref().get_dtype() {
+            DataType::CsrMatrix(Unsigned(IntSize::U1)) =>
+                csr_to_scipy::<u8>($py, *$data.into_any().downcast().unwrap()),
+            DataType::CsrMatrix(Unsigned(IntSize::U2)) =>
+                csr_to_scipy::<u16>($py, *$data.into_any().downcast().unwrap()),
             DataType::CsrMatrix(Unsigned(IntSize::U4)) =>
                 csr_to_scipy::<u32>($py, *$data.into_any().downcast().unwrap()),
             DataType::CsrMatrix(Unsigned(IntSize::U8)) =>
