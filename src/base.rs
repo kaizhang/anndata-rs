@@ -21,6 +21,10 @@ pub struct AnnData {
 }
 
 impl AnnData {
+    pub fn filename(&self) -> String { self.file.filename() }
+
+    pub fn close(self) -> Result<()> { self.file.close() }
+
     pub fn set_x(&mut self, data: &Box<dyn WritePartialData>) -> Result<()> {
         assert!(
             self.n_obs == data.nrows(),
@@ -198,7 +202,7 @@ impl AnnData {
     }
 
     pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
-        let file = hdf5::File::create_excl(filename)?;
+        let file = hdf5::File::create(filename)?;
         Ok(Self { file, n_obs, n_vars, x: None,
             obs: None, obsm: HashMap::new(), obsp: HashMap::new(),
             var: None, varm: HashMap::new(), varp: HashMap::new(),

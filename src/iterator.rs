@@ -4,7 +4,7 @@ use crate::base::AnnData;
 use crate::element::{MatrixElem, RawMatrixElem};
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
-use ndarray::{arr1, Array, Array1};
+use ndarray::{s, arr1, Array, Array1};
 use hdf5::{Dataset, Group, H5Type, Result};
 use itertools::Itertools;
 
@@ -176,71 +176,74 @@ impl AnnData {
     }
 }
 
-pub trait IntoRowIterator {
-    type Row;
-    type IntoRowIter: Iterator<Item = Self::Row>;
-    fn into_row_iter(self) -> Self::IntoRowIter;
+pub trait IntoRowsIterator {
+    type Rows;
+    type IntoRowsIter: Iterator<Item = Self::Rows>;
+    fn into_row_iter(self, chunk_size: usize) -> Self::IntoRowsIter;
 }
 
-impl<'a, T> IntoRowIterator for &'a RawMatrixElem<CsrMatrix<T>>
+impl<'a, T> IntoRowsIterator for &'a RawMatrixElem<CsrMatrix<T>>
 where
     T: H5Type + Copy,
 {
-    type Row = Vec<(usize, T)>;
-    type IntoRowIter = CsrRowIterator<'a, T>;
-    fn into_row_iter(self) -> Self::IntoRowIter {
+    type Rows = Vec<Vec<(usize, T)>>;
+    type IntoRowsIter = CsrRowsIterator<'a, T>;
+    fn into_row_iter(self, chunk_size: usize) -> Self::IntoRowsIter {
         match &self.inner.element {
-            Some(csr) => CsrRowIterator::Memory(csr.row_iter()),
+            Some(csr) => CsrRowsIterator::Memory((csr.row_iter(), chunk_size)),
             None => { 
                 let container = self.inner.container.get_group_ref().unwrap();
                 let data = container.dataset("data").unwrap();
                 let indices = container.dataset("indices").unwrap();
                 let indptr: Vec<usize> = container.dataset("indptr").unwrap()
                     .read_1d().unwrap().to_vec();
-                CsrRowIterator::Disk((data, indices, indptr, 0))
+                CsrRowsIterator::Disk((data, indices, indptr, 0, chunk_size))
             },
         }
     }
 }
 
-        /*
-impl<T> AnnDataElement<csr::CsrMatrix<T>, Group> {
-    pub fn row_iter(&self) -> SparseRowIter<T> {
-        match &self.data_memory {
-            Some(csr) => SparseRowIter::Memory(csr.row_iter()),
-            None => {
-            },
-        }
-    }
-
-*/
-
-
-pub enum CsrRowIterator<'a, T> {
-    Memory(CsrRowIter<'a, T>),
-    Disk((Dataset, Dataset, Vec<usize>, usize)),
+pub enum CsrRowsIterator<'a, T> {
+    Memory((CsrRowIter<'a, T>, usize)),
+    Disk((Dataset, Dataset, Vec<usize>, usize, usize)),
 }
 
-impl<'a, T> Iterator for CsrRowIterator<'a, T>
+impl<'a, T> Iterator for CsrRowsIterator<'a, T>
 where
     T: H5Type + Copy,
 {
-    type Item = Vec<(usize, T)>;
+    type Item = Vec<Vec<(usize, T)>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            CsrRowIterator::Memory(iter) => iter.next().map(|r| r.col_indices().iter()
-                .zip(r.values()).map(|(i, v)| (*i, *v)).collect()),
-            CsrRowIterator::Disk((data, indices, indptr, current_row)) => {
+            CsrRowsIterator::Memory((iter, chunk_size)) => {
+                let vec: Vec<_> = iter.take(*chunk_size).map(|r| r.col_indices().iter()
+                    .zip(r.values()).map(|(i, v)| (*i, *v)).collect()
+                ).collect();
+                if vec.is_empty() {
+                    None
+                } else {
+                    Some(vec)
+                }
+            },
+            CsrRowsIterator::Disk((data_, indices_, indptr, current_row, chunk_size)) => {
                 if *current_row >= indptr.len() - 1 {
                     None
                 } else {
-                    let i = indptr[*current_row];
-                    let j = indptr[*current_row + 1];
-                    let data: Array1<T> = data.read_slice_1d(i..j).unwrap();
-                    let indices: Array1<usize> = indices.read_slice_1d(i..j).unwrap();
-                    let result = indices.into_iter().zip(data).collect();
-                    *current_row += 1;
+                    let i = *current_row;
+                    let j = (i + *chunk_size).min(indptr.len() - 1);
+                    let lo = indptr[i];
+                    let hi = indptr[j];
+                    let data: Array1<T> = data_.read_slice_1d(lo..hi).unwrap();
+                    let indices: Array1<usize> = indices_.read_slice_1d(lo..hi).unwrap();
+                    let result = (i..j).map(|idx| {
+                        let a = indptr[idx] - lo;
+                        let b = indptr[idx+1] - lo;
+                        indices.slice(s![a..b]).into_iter().zip(
+                            data.slice(s![a..b])
+                        ).map(|(i, v)| (*i, *v)).collect()
+                    }).collect();
+                    *current_row = j;
                     Some(result)
                 }
             },

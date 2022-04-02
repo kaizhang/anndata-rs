@@ -27,8 +27,10 @@ macro_rules! to_rust_arr_macro {
     ($obj:expr) => {
         Ok(match $obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
             "float64" => Box::new($obj.extract::<PyReadonlyArrayDyn<f64>>()?.to_owned_array()),
+            "float32" => Box::new($obj.extract::<PyReadonlyArrayDyn<f32>>()?.to_owned_array()),
             "int64" => Box::new($obj.extract::<PyReadonlyArrayDyn<i64>>()?.to_owned_array()),
-            dtype => panic!("{}", dtype),
+            "int32" => Box::new($obj.extract::<PyReadonlyArrayDyn<i32>>()?.to_owned_array()),
+            dtype => panic!("Converting array type {} is not implemented", dtype),
         })
     }
 }
@@ -49,12 +51,22 @@ macro_rules! to_rust_csr_macro {
                     .extract::<PyReadonlyArrayDyn<f64>>()?.to_vec().unwrap();
                 Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
             },
+            "float32" => {
+                let data = $obj.getattr("data")?
+                    .extract::<PyReadonlyArrayDyn<f32>>()?.to_vec().unwrap();
+                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+            },
             "int64" => {
                 let data = $obj.getattr("data")?
                     .extract::<PyReadonlyArrayDyn<i64>>()?.to_vec().unwrap();
                 Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
             },
-            dtype => panic!("{}", dtype),
+            "int32" => {
+                let data = $obj.getattr("data")?
+                    .extract::<PyReadonlyArrayDyn<i32>>()?.to_vec().unwrap();
+                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+            },
+            dtype => panic!("Converting csr type {} is not supported", dtype),
         })
     }};
 }

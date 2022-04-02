@@ -23,18 +23,9 @@ impl ChunkedMatrix {
             let i = slf.current_index;
             let j = std::cmp::min(slf.size, slf.current_index + slf.chunk_size);
             slf.current_index = j;
-            Python::with_gil(|py|
-                Some(to_py_data2(py, slf.elem.0.read_dyn_row_slice(i .. j)).unwrap())
-            )
+            Python::with_gil(|py| Some(to_py_data2(
+                py, slf.elem.0.lock().unwrap().read_dyn_row_slice(i..j).unwrap()
+            ).unwrap()))
         }
     }
 }
-
-/*
-pub fn xxx<'py, 'a>(
-    py: Python<'py>,
-    elem: &'a RawMatrixElem<CsrMatrix<f64>>
-) -> RowIterator {
-    RowIterator { iter: Box::new(iter_row(elem).map(|x| x.into_py(py))) }
-}
-*/

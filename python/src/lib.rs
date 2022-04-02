@@ -2,23 +2,24 @@ pub mod iterator;
 pub mod utils;
 
 use iterator::ChunkedMatrix;
-
 use utils::conversion::{
     to_py_df, to_rust_df,
     to_rust_data1, to_rust_data2,
     to_py_data1, to_py_data2,
 };
 
-use pyo3::{
-    prelude::*,
-    pymodule, types::PyModule, PyResult, Python,
-};
-use std::collections::HashMap;
-
 use anndata_rs::{
     base::AnnData,
     element::{Elem, MatrixElem, DataFrameElem},
 };
+use pyo3::{
+    prelude::*,
+    exceptions::PyTypeError,
+    pymodule, types::PyModule, PyResult, Python,
+};
+use std::collections::HashMap;
+use rand::SeedableRng;
+use rand::Rng;
 
 #[pyclass]
 #[repr(transparent)]
@@ -223,9 +224,24 @@ pub struct PyElem(Elem);
 
 #[pymethods]
 impl PyElem {
-    fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| to_py_data1(py, self.0.0.read_dyn_elem()))
+    fn enable_cache(&self) { self.0.enable_cache() }
+
+    fn disable_cache(&self) { self.0.disable_cache() }
+
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if subscript.eq(py.eval("...", None, None)?)? ||
+            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
+            to_py_data1(py, self.0.read().unwrap())
+        } else {
+            Err(PyTypeError::new_err(
+                "Please use '...' or ':' to retrieve value"
+            ))
+        }
     }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
 }
 
 #[pyclass]
@@ -234,13 +250,44 @@ pub struct PyMatrixElem(MatrixElem);
 
 #[pymethods]
 impl PyMatrixElem {
-    fn get_data(&self) -> PyResult<Py<PyAny>> {
-        Python::with_gil(|py| to_py_data2(py, self.0.0.read_dyn_elem()))
+    fn enable_cache(&mut self) { self.0.enable_cache() }
+
+    fn disable_cache(&mut self) { self.0.disable_cache() }
+
+    #[getter]
+    fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
+
+    // TODO: efficient partial data reading
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if subscript.eq(py.eval("...", None, None)?)? ||
+            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
+            to_py_data2(py, self.0.read().unwrap())
+        } else {
+            let data = to_py_data2(py, self.0.read().unwrap())?;
+            data.call_method1(py, "__getitem__", (subscript,))
+        }
     }
-
-    fn nrows(&self) -> usize { self.0.nrows() }
-
-    fn ncols(&self) -> usize { self.0.ncols() }
+ 
+    #[args(
+        replace = true,
+        seed = 2022,
+    )]
+    fn chunk<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        replace: bool,
+        seed: u64,
+    ) -> PyResult<PyObject> {
+        let length = self.0.nrows();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let idx: Vec<usize> = if replace {
+            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
+        } else {
+            rand::seq::index::sample(&mut rng, length, size).into_vec()
+        };
+        to_py_data2(py, self.0.0.lock().unwrap().read_rows(idx.as_slice()).unwrap())
+    }
 
     fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
         ChunkedMatrix {
@@ -250,6 +297,10 @@ impl PyMatrixElem {
             current_index: 0,
         }
     }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
 }
 
 #[pyclass]
@@ -258,19 +309,43 @@ pub struct PyDataFrameElem(DataFrameElem);
 
 #[pymethods]
 impl PyDataFrameElem {
-    fn get_data(&self) -> PyResult<PyObject> {
-        to_py_df(self.0.0.lock().unwrap().read_elem())
+    fn enable_cache(&mut self) { self.0.enable_cache() }
+
+    fn disable_cache(&mut self) { self.0.disable_cache() }
+
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if subscript.eq(py.eval("...", None, None)?)? ||
+            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
+            to_py_df(self.0.read().unwrap())
+        } else {
+            let data = to_py_df(self.0.read().unwrap())?;
+            data.call_method1(py, "__getitem__", (subscript,))
+        }
     }
 
-    fn update(&mut self, data: PyObject) {
-        Python::with_gil(|py| 
-            self.0.update(&to_rust_df(data.as_ref(py)).unwrap())
-        )
+    fn __setitem__<'py>(
+        &self,
+        py: Python<'py>,
+        key: &'py PyAny,
+        data: &'py PyAny,
+    ) -> PyResult<()> {
+        let df = to_py_df(self.0.read().unwrap())?;
+        df.call_method1(py, "__setitem__", (key, data))?;
+        self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
+        Ok(())
     }
+ 
+    fn __contains__(&self, key: &str) -> bool {
+        self.0.read().unwrap().find_idx_by_name(key).is_some()
+    }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
 }
 
 #[pyfunction]
-fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
+pub fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
     let file = match mode {
         "r" => hdf5::File::open(filename).unwrap(),
         "r+" => hdf5::File::open_rw(filename).unwrap(),
@@ -281,10 +356,11 @@ fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
 }
 
 #[pymodule]
-fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyAnnData>().unwrap();
+    m.add_class::<PyElem>().unwrap();
     m.add_class::<PyMatrixElem>().unwrap();
-
+    m.add_class::<PyDataFrameElem>().unwrap();
     m.add_function(wrap_pyfunction!(read_anndata, m)?)?;
 
     Ok(())

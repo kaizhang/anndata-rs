@@ -194,3 +194,9 @@ pub fn to_rust_df(pydf: &PyAny) -> PyResult<DataFrame> {
 
     Ok(accumulate_dataframes_vertical(dfs).map_err(PyPolarsErr::from)?)
 }
+
+/*
+pub fn is_ellipsis<'py>(obj: &'py PyAny) -> PyResult<bool> {
+    obj.is_instance(pyo3::ffi::PyEllipsis_Type)
+}
+*/

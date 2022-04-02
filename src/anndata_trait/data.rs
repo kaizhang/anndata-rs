@@ -2,6 +2,7 @@ use crate::anndata_trait::DataIO;
 use crate::utils::{
     create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION};
 
+use std::fmt;
 use ndarray::{Array1, ArrayD, ArrayView, Dimension};
 use hdf5::{
     H5Type, Result, Group, Dataset,
@@ -70,8 +71,15 @@ pub enum DataType {
     Categorical,
     DataFrame,
     StringVector,
-    Scalar,
+    Scalar(TypeDescriptor),
+    String,
     Unknown,
+}
+
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +110,11 @@ impl DataContainer {
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
-            "scalar" => Ok(DataType::Scalar),
+            "scalar" => {
+                let dataset = self.get_dataset_ref()?;
+                let ty = dataset.dtype()?.to_descriptor()?;
+                Ok(DataType::Scalar(ty))
+            },
             "dataframe" => Ok(DataType::DataFrame),
             "categorical" => Ok(DataType::Categorical),
             "array" | "string-array" => {
@@ -183,14 +195,45 @@ where
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = location.new_dataset::<T>().deflate(COMPRESSION).create(name)?;
         create_str_attr(&*dataset, "encoding-type", "scalar")?;
-        create_str_attr(&*dataset, "encoding-version", self.version())?;
         dataset.write_scalar(&self.0)?;
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Scalar }
-    fn dtype() -> DataType { DataType::Scalar }
+    fn get_dtype(&self) -> DataType { DataType::Scalar(T::type_descriptor()) }
+    fn dtype() -> DataType { DataType::Scalar(T::type_descriptor()) }
     fn version(&self) -> &str { "0.2.0" }
+}
+
+impl<T> ReadData for Scalar<T>
+where
+    T: H5Type + Copy,
+{
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset = container.get_dataset_ref()?;
+        Ok(Scalar(dataset.read_scalar()?))
+    }
+}
+
+impl WriteData for String {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let dataset = location.new_dataset::<VarLenUnicode>().deflate(COMPRESSION).create(name)?;
+        create_str_attr(&*dataset, "encoding-type", "scalar")?;
+        let value: VarLenUnicode = self.parse().unwrap();
+        dataset.write_scalar(&value)?;
+        Ok(DataContainer::H5Dataset(dataset))
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::String }
+    fn dtype() -> DataType { DataType::String }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl ReadData for String {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let dataset = container.get_dataset_ref()?;
+        let result: VarLenUnicode = dataset.read_scalar()?;
+        Ok(result.parse().unwrap())
+    }
 }
 
 impl WriteData for CategoricalArray {
@@ -219,16 +262,6 @@ impl ReadData for CategoricalArray {
         let codes: Vec<u32> = group.dataset("codes")?.read_1d()?.to_vec();
 
         Ok(CategoricalArray { categories, codes })
-    }
-}
-
-impl<T> ReadData for Scalar<T>
-where
-    T: H5Type + Copy,
-{
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        let dataset = container.get_dataset_ref()?;
-        Ok(Scalar(dataset.read_scalar()?))
     }
 }
 
@@ -353,12 +386,6 @@ where
         let dataset: &Dataset = container.get_dataset_ref()?;
         let arr: Array1<_> = dataset.read()?;
         Ok(arr.into_raw_vec())
-    }
-}
-
-impl ReadData for Collection {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        todo!();
     }
 }
 
