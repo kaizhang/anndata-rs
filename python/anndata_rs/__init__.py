@@ -150,7 +150,7 @@ class AnnData:
                 self._anndata.subset(i, j)
 
     def __repr__(self) -> str:
-        descr = f"AnnData object with n_obs x n_vars = {self.n_obs} x {self.n_vars}"
+        descr = f"AnnData object with n_obs x n_vars = {self.n_obs} x {self.n_vars} backed at {self.filename}"
         if self.obs is not None: descr += f"\n    obs: {str(self.obs[...].columns)[1:-1]}"
         if self.var is not None: descr += f"\n    var: {str(self.var[...].columns)[1:-1]}"
         for attr in [
@@ -164,6 +164,9 @@ class AnnData:
             if len(keys) > 0:
                 descr += f"\n    {attr}: {str(list(keys))[1:-1]}"
         return descr
+
+    @property
+    def filename(self): return self._anndata.filename()
 
     def __str__(self) -> str:
         return self.__repr__()

@@ -23,7 +23,7 @@ use rand::Rng;
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyAnnData(AnnData);
+pub struct PyAnnData(pub AnnData);
 
 #[pymethods]
 impl PyAnnData {
@@ -33,10 +33,10 @@ impl PyAnnData {
     }
 
     #[getter]
-    fn n_obs(&self) -> PyResult<usize> { Ok(self.0.n_obs()) }
+    fn n_obs(&self) -> usize { self.0.n_obs() }
 
     #[getter]
-    fn n_vars(&self) -> PyResult<usize> { Ok(self.0.n_vars()) }
+    fn n_vars(&self) -> usize { self.0.n_vars() }
 
     fn set_x<'py>(&self, py: Python<'py>, data: &'py PyAny) -> PyResult<()> {
             self.0.set_x(&to_rust_data2(py, data)?).unwrap();
@@ -59,57 +59,45 @@ impl PyAnnData {
         }
     }
 
-    fn set_obs(&self, df: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.set_obs(&to_rust_df(df.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn set_obs<'py>(&self, df: &'py PyAny) -> PyResult<()> {
+        self.0.set_obs(&to_rust_df(df)?).unwrap();
+        Ok(())
     }
 
-    fn get_obsm(&self, key: &str) -> PyResult<PyMatrixElem> {
-        Ok(PyMatrixElem(self.0.obsm.get(key).unwrap().clone()))
+    fn get_obsm(&self, key: &str) -> PyMatrixElem {
+        PyMatrixElem(self.0.obsm.get(key).unwrap().clone())
     }
 
-    fn set_obsm(&mut self, mut obsm: HashMap<String, PyObject>) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let obsm_ = obsm.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
-            self.0.set_obsm(&obsm_).unwrap();
-            Ok(())
-        })
+    fn set_obsm<'py>(&mut self, py: Python<'py>, mut obsm: HashMap<String, &'py PyAny>) {
+        let obsm_ = obsm.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
+        self.0.set_obsm(&obsm_).unwrap();
     }
     
-    fn list_obsm(&self) -> PyResult<Vec<String>> {
-        Ok(self.0.obsm.keys().map(|x| x.to_string()).collect())
+    fn list_obsm(&self) -> Vec<String> {
+        self.0.obsm.keys().map(|x| x.to_string()).collect()
     }
 
-    fn add_obsm(&mut self, key: &str, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.add_obsm(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn add_obsm<'py>(&mut self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
+        self.0.add_obsm(key, &to_rust_data2(py, data)?).unwrap();
+        Ok(())
     }
 
-    fn get_obsp(&self, key: &str) -> PyResult<PyMatrixElem> {
-        Ok(PyMatrixElem(self.0.obsp.get(key).unwrap().clone()))
+    fn get_obsp(&self, key: &str) -> PyMatrixElem {
+        PyMatrixElem(self.0.obsp.get(key).unwrap().clone())
     }
 
-    fn set_obsp(&mut self, mut obsp: HashMap<String, PyObject>) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let obsp_ = obsp.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
-            self.0.set_obsp(&obsp_).unwrap();
-            Ok(())
-        })
+    fn set_obsp<'py>(&mut self, py: Python<'py>, mut obsp: HashMap<String, &'py PyAny>) {
+        let obsp_ = obsp.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
+        self.0.set_obsp(&obsp_).unwrap();
     }
     
-    fn list_obsp(&self) -> PyResult<Vec<String>> {
-        Ok(self.0.obsp.keys().map(|x| x.to_string()).collect())
+    fn list_obsp(&self) -> Vec<String> {
+        self.0.obsp.keys().map(|x| x.to_string()).collect()
     }
 
-    fn add_obsp(&mut self, key: &str, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.add_obsp(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn add_obsp<'py>(&mut self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
+        self.0.add_obsp(key, &to_rust_data2(py, data)?).unwrap();
+        Ok(())
     }
 
     fn get_var(&self) -> Option<PyDataFrameElem> {
@@ -120,106 +108,93 @@ impl PyAnnData {
         }
     }
 
-    fn set_var(&mut self, df: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.set_var(&to_rust_df(df.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn set_var<'py>(&mut self, df: &'py PyAny) -> PyResult<()> {
+        self.0.set_var(&to_rust_df(df)?).unwrap();
+        Ok(())
     }
 
-    fn get_varm(&self) -> PyResult<HashMap<String, PyMatrixElem>> {
-        let varm = self.0.varm.iter()
-            .map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
-            .collect();
-        Ok(varm)
+    fn get_varm(&self) -> HashMap<String, PyMatrixElem> {
+        self.0.varm.iter().map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
+            .collect()
     }
 
-    fn set_varm(&mut self, mut varm: HashMap<String, PyObject>) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let varm_ = varm.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
-            self.0.set_varm(&varm_).unwrap();
-            Ok(())
-        })
+    fn set_varm<'py>(&mut self, py: Python<'py>, mut varm: HashMap<String, &'py PyAny>) {
+        let varm_ = varm.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
+        self.0.set_varm(&varm_).unwrap();
     }
     
-    fn list_varm(&self) -> PyResult<Vec<String>> {
-        Ok(self.0.varm.keys().map(|x| x.to_string()).collect())
+    fn list_varm(&self) -> Vec<String> {
+        self.0.varm.keys().map(|x| x.to_string()).collect()
     }
 
-    fn add_varm(&mut self, key: &str, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.add_varm(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn add_varm<'py>(&mut self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
+        self.0.add_varm(key, &to_rust_data2(py, data)?).unwrap();
+        Ok(())
     }
 
-    fn get_varp(&self) -> PyResult<HashMap<String, PyMatrixElem>> {
-        let varp = self.0.varp.iter()
-            .map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
-            .collect();
-        Ok(varp)
+    fn get_varp(&self) -> HashMap<String, PyMatrixElem> {
+        self.0.varp.iter().map(|(k, x)| (k.clone(), PyMatrixElem(x.clone())))
+            .collect()
     }
 
-    fn set_varp(&mut self, mut varp: HashMap<String, PyObject>) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let varp_ = varp.drain().map(|(k, v)| (k, to_rust_data2(py, v.as_ref(py)).unwrap())).collect();
-            self.0.set_varp(&varp_).unwrap();
-            Ok(())
-        })
+    fn set_varp<'py>(
+        &mut self,
+        py: Python<'py>,
+        mut varp: HashMap<String, &'py PyAny>
+    )
+    {
+        let varp_ = varp.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
+        self.0.set_varp(&varp_).unwrap();
     }
     
-    fn list_varp(&self) -> PyResult<Vec<String>> {
-        Ok(self.0.varp.keys().map(|x| x.to_string()).collect())
+    fn list_varp(&self) -> Vec<String> {
+        self.0.varp.keys().map(|x| x.to_string()).collect()
     }
 
-    fn add_varp(&mut self, key: &str, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.add_varp(key, &to_rust_data2(py, data.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn add_varp<'py>(&mut self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
+        self.0.add_varp(key, &to_rust_data2(py, data)?).unwrap();
+        Ok(())
     }
 
-    fn get_uns(&self, key: &str) -> PyResult<PyElem> {
-        Ok(PyElem(self.0.uns.get(key).unwrap().clone()))
+    fn get_uns(&self, key: &str) -> PyElem {
+        PyElem(self.0.uns.get(key).unwrap().clone())
     }
 
-    fn set_uns(&mut self, mut uns: HashMap<String, PyObject>) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let uns_ = uns.drain().map(|(k, v)| (k, to_rust_data1(py, v.as_ref(py)).unwrap())).collect();
-            self.0.set_uns(&uns_).unwrap();
-            Ok(())
-        })
+    fn set_uns<'py>(
+        &mut self,
+        py: Python<'py>,
+        mut uns: HashMap<String, &'py PyAny>,
+    )
+    {
+        let uns_ = uns.drain().map(|(k, v)| (k, to_rust_data1(py, v).unwrap())).collect();
+        self.0.set_uns(&uns_).unwrap();
     }
     
-    fn list_uns(&self) -> PyResult<Vec<String>> {
-        Ok(self.0.uns.keys().map(|x| x.to_string()).collect())
+    fn list_uns(&self) -> Vec<String> {
+        self.0.uns.keys().map(|x| x.to_string()).collect()
     }
 
-    fn add_uns(&mut self, key: &str, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.add_uns(key, &to_rust_data1(py, data.as_ref(py))?).unwrap();
-            Ok(())
-        })
+    fn add_uns<'py>(&mut self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
+        self.0.add_uns(key, &to_rust_data1(py, data)?).unwrap();
+        Ok(())
     }
 
-    fn subset_rows(&mut self, idx: Vec<usize>) -> PyResult<()> {
+    fn subset_rows(&mut self, idx: Vec<usize>) {
         self.0.subset_obs(idx.as_slice());
-        Ok(())
     }
 
-    fn subset_cols(&mut self, idx: Vec<usize>) -> PyResult<()> {
+    fn subset_cols(&mut self, idx: Vec<usize>) {
         self.0.subset_var(idx.as_slice());
-        Ok(())
     }
 
-    fn subset(&mut self, ridx: Vec<usize>, cidx: Vec<usize>) -> PyResult<()> {
+    fn subset(&mut self, ridx: Vec<usize>, cidx: Vec<usize>) {
         self.0.subset(ridx.as_slice(), cidx.as_slice());
-        Ok(())
     }
 
-    fn write(&self, filename: &str) -> PyResult<()> {
+    fn filename(&self) -> String { self.0.filename() }
+
+    fn write(&self, filename: &str) {
         self.0.write(filename).unwrap();
-        Ok(())
     }
 }
 

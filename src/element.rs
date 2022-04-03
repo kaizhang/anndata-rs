@@ -160,15 +160,16 @@ impl MatrixElemOptional {
 
 impl std::fmt::Display for MatrixElemOptional {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.lock().unwrap().as_ref().map_or(write!(f, "empty MatrixElem"), |elem|
-            write!(f, "{} x {} MatrixElem with {}, cache_enabled: {}, cached: {}",
+        match self.0.lock().unwrap().as_ref() {
+            None => write!(f, "empty MatrixElem"),
+            Some(elem) => write!(f, "{} x {} MatrixElem with {}, cache_enabled: {}, cached: {}",
                 elem.nrows,
                 elem.ncols,
                 elem.inner.dtype,
                 if elem.inner.cache_enabled { "yes" } else { "no" },
                 if elem.inner.element.is_some() { "yes" } else { "no" },
-            )
-        )
+            ),
+        }
     }
 }
 

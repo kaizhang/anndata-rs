@@ -307,4 +307,19 @@ impl RawMatrixElem<dyn DataPartialIO>
         self.ncols = cidx.len();
         Ok(())
     }
+
+    pub fn downcast<T>(&self) -> &RawMatrixElem<T>
+    where
+        T: DataPartialIO,
+    {
+        if self.inner.dtype == T::dtype() {
+            unsafe { &*(self as *const RawMatrixElem<dyn DataPartialIO> as *const RawMatrixElem<T>) }
+        } else {
+            panic!(
+                "implementation error, cannot convert {:?} to {:?}",
+                self.inner.dtype,
+                T::dtype(),
+            )
+        }
+    }
 }

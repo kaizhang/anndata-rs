@@ -241,6 +241,8 @@ impl WriteData for CategoricalArray {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "categorical")?;
         create_str_attr(&group, "encoding-version", self.version())?;
+        group.new_attr::<bool>().create("ordered")?.write_scalar(&false)?;
+
         group.new_dataset_builder().deflate(COMPRESSION)
             .with_data(self.codes.as_slice()).create("codes")?;
         let cat: Vec<VarLenUnicode> = self.categories.iter()
