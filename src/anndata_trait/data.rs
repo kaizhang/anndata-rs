@@ -522,26 +522,6 @@ impl ReadData for DataFrame {
     }
 }
 
-/*
-pub fn downcast_anndata<T>(val: Box<dyn DataIO>) -> Box<T>
-where
-    T: DataIO,
-{
-    let ptr = Box::into_raw(val);
-    let type_expected = T::dtype();
-    let type_actual = unsafe { ptr.as_ref().unwrap().get_dtype() };
-    if type_expected == type_actual {
-        unsafe { Box::from_raw(ptr as *mut T) }
-    } else {
-        panic!(
-            "implementation error, cannot read {:?} from {:?}",
-            type_expected,
-            type_actual,
-        )
-    }
-}
-*/
-
 impl<'a, T, D> WriteData for ArrayView<'a, T, D>
 where
     D: Dimension,

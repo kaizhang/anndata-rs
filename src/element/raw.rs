@@ -45,40 +45,6 @@ where
     }
 }
 
-impl<T> AsRef<RawElem<T>> for RawElem<dyn DataIO>
-where
-    T: DataIO,
-{
-    fn as_ref(&self) -> &RawElem<T> {
-        if self.dtype == T::dtype() {
-            unsafe { &*(self as *const RawElem<dyn DataIO> as *const RawElem<T>) }
-        } else {
-            panic!(
-                "implementation error, cannot convert {:?} to {:?}",
-                self.dtype,
-                T::dtype(),
-            )
-        }
-    }
-}
-
-impl<T> AsMut<RawElem<T>> for RawElem<dyn DataIO>
-where
-    T: DataIO,
-{
-    fn as_mut(&mut self) -> &mut RawElem<T> {
-        if self.dtype == T::dtype() {
-            unsafe { &mut *(self as *mut RawElem<dyn DataIO> as *mut RawElem<T>) }
-        } else {
-            panic!(
-                "implementation error, cannot convert {:?} to {:?}",
-                self.dtype,
-                T::dtype(),
-            )
-        }
-    }
-}
-
 impl RawElem<dyn DataIO>
 {
     pub fn new(container: DataContainer) -> Result<Self> {
@@ -225,25 +191,6 @@ where
         self.inner.container = data.update(&self.inner.container)?;
         self.inner.element = None;
         Ok(())
-    }
-}
-
-// NOTE: this requires `element` is the last field, as trait object contains a vtable
-// at the end: https://docs.rs/vptr/latest/vptr/index.html.
-impl<T> AsRef<RawMatrixElem<T>> for RawMatrixElem<dyn DataPartialIO>
-where
-    T: DataPartialIO,
-{
-    fn as_ref(&self) -> &RawMatrixElem<T> {
-        if self.inner.dtype == T::dtype() {
-            unsafe { &*(self as *const RawMatrixElem<dyn DataPartialIO> as *const RawMatrixElem<T>) }
-        } else {
-            panic!(
-                "implementation error, cannot convert {:?} to {:?}",
-                self.inner.dtype,
-                T::dtype(),
-            )
-        }
     }
 }
 
