@@ -25,6 +25,7 @@ impl<T> DataPartialIO for T where T: DataIO + DataSubset2D + ReadPartial {}
 pub trait WritePartialData: DataSubset2D + WriteData {}
 impl<T> WritePartialData for T where T: DataSubset2D + WriteData {}
 
+
 macro_rules! dyn_data_reader {
     ($get_type:expr, $reader:expr) => {
         match $get_type {
@@ -120,7 +121,26 @@ macro_rules! dyn_data_reader {
 }
 
 pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
-    dyn_data_reader!(container.get_encoding_type()?, ReadData::read(container)?)
+    let dtype = container.get_encoding_type()?;
+    match dtype {
+        DataType::Scalar(Integer(IntSize::U1)) => Ok(Box::new(Scalar::<i8>::read(container)?)),
+        DataType::Scalar(Integer(IntSize::U2)) => Ok(Box::new(Scalar::<i16>::read(container)?)),
+        DataType::Scalar(Integer(IntSize::U4)) => Ok(Box::new(Scalar::<i32>::read(container)?)),
+        DataType::Scalar(Integer(IntSize::U8)) => Ok(Box::new(Scalar::<i64>::read(container)?)),
+
+        DataType::Scalar(Unsigned(IntSize::U1)) => Ok(Box::new(Scalar::<u8>::read(container)?)),
+        DataType::Scalar(Unsigned(IntSize::U2)) => Ok(Box::new(Scalar::<u16>::read(container)?)),
+        DataType::Scalar(Unsigned(IntSize::U4)) => Ok(Box::new(Scalar::<u32>::read(container)?)),
+        DataType::Scalar(Unsigned(IntSize::U8)) => Ok(Box::new(Scalar::<u64>::read(container)?)),
+
+        DataType::Scalar(Float(FloatSize::U4)) => Ok(Box::new(Scalar::<f32>::read(container)?)),
+        DataType::Scalar(Float(FloatSize::U8)) => Ok(Box::new(Scalar::<f64>::read(container)?)),
+
+        DataType::Scalar(VarLenUnicode) => Ok(Box::new(String::read(container)?)),
+        DataType::Scalar(Boolean) => Ok(Box::new(Scalar::<bool>::read(container)?)),
+
+        _ => dyn_data_reader!(dtype, ReadData::read(container)?),
+    }
 }
 
 pub fn read_dyn_data_subset(

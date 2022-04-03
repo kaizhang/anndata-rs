@@ -10,6 +10,7 @@ use utils::conversion::{
 
 use anndata_rs::{
     base::AnnData,
+    anndata_trait::DataType,
     element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem},
 };
 use pyo3::{
@@ -207,6 +208,13 @@ impl PyElem {
     fn enable_cache(&self) { self.0.enable_cache() }
 
     fn disable_cache(&self) { self.0.disable_cache() }
+
+    fn is_scalar(&self) -> bool {
+        match self.0.0.lock().unwrap().dtype {
+            DataType::Scalar(_) => true,
+            _ => false,
+        }
+    }
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if subscript.eq(py.eval("...", None, None)?)? ||

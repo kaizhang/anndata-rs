@@ -7,7 +7,7 @@ use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
 
 use anndata_rs::{
-    anndata_trait::{WriteData, WritePartialData},
+    anndata_trait::{WriteData, WritePartialData, Scalar},
 };
 
 fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
@@ -88,7 +88,21 @@ pub fn to_rust_data1<'py>(
     obj: &'py PyAny,
 ) -> PyResult<Box<dyn WriteData>>
 {
-    to_rust_data_macro!(py, obj)
+    if isinstance_of_arr(py, obj)? {
+        to_rust_arr_macro!(obj)
+    } else if isinstance_of_csr(py, obj)? {
+        to_rust_csr_macro!(obj)
+    } else if obj.is_instance_of::<pyo3::types::PyString>()? {
+        Ok(Box::new(obj.extract::<String>()?))
+    } else if obj.is_instance_of::<pyo3::types::PyBool>()? {
+        Ok(Box::new(Scalar(obj.extract::<bool>()?)))
+    } else if obj.is_instance_of::<pyo3::types::PyInt>()? {
+        Ok(Box::new(Scalar(obj.extract::<i64>()?)))
+    } else if obj.is_instance_of::<pyo3::types::PyFloat>()? {
+        Ok(Box::new(Scalar(obj.extract::<f64>()?)))
+    } else {
+        panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
+    }
 }
 
 pub fn to_rust_data2<'py>(

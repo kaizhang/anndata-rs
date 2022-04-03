@@ -109,7 +109,7 @@ impl DataContainer {
     }
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
-        match self._encoding_type().unwrap_or("array".to_string()).as_ref() {
+        match self._encoding_type().unwrap_or("mapping".to_string()).as_ref() {
             "scalar" => {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
