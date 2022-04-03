@@ -23,8 +23,7 @@ use rand::Rng;
 
 #[pyclass]
 #[repr(transparent)]
-#[derive(Clone)]
-pub struct PyAnnData(pub AnnData);
+pub struct PyAnnData(AnnData);
 
 #[pymethods]
 impl PyAnnData {
@@ -39,11 +38,9 @@ impl PyAnnData {
     #[getter]
     fn n_vars(&self) -> PyResult<usize> { Ok(self.0.n_vars()) }
 
-    fn set_x(&mut self, data: PyObject) -> PyResult<()> {
-        Python::with_gil(|py| {
-            self.0.set_x(&to_rust_data2(py, data.as_ref(py))?).unwrap();
+    fn set_x<'py>(&self, py: Python<'py>, data: &'py PyAny) -> PyResult<()> {
+            self.0.set_x(&to_rust_data2(py, data)?).unwrap();
             Ok(())
-        })
     }
 
     fn get_x(&self) -> Option<PyMatrixElemOptional> {
@@ -62,7 +59,7 @@ impl PyAnnData {
         }
     }
 
-    fn set_obs(&mut self, df: PyObject) -> PyResult<()> {
+    fn set_obs(&self, df: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
             self.0.set_obs(&to_rust_df(df.as_ref(py))?).unwrap();
             Ok(())

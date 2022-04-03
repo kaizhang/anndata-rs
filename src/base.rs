@@ -8,7 +8,6 @@ use polars::frame::DataFrame;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-#[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
     pub n_obs: Arc<Mutex<usize>>,
