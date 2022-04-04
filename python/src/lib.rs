@@ -1,7 +1,8 @@
+pub mod dataset;
 pub mod iterator;
 pub mod utils;
 
-use iterator::{MatrixElemLike, ChunkedMatrix};
+use iterator::PyChunkedMatrix;
 use utils::conversion::{
     to_py_df, to_rust_df,
     to_rust_data1, to_rust_data2,
@@ -24,6 +25,7 @@ use rand::Rng;
 
 #[pyclass]
 #[repr(transparent)]
+#[derive(Clone)]
 pub struct PyAnnData(pub AnnData);
 
 #[pymethods]
@@ -277,13 +279,8 @@ impl PyMatrixElem {
         to_py_data2(py, self.0.0.lock().unwrap().read_rows(idx.as_slice()).unwrap())
     }
 
-    fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix {
-            elem: MatrixElemLike::M1(self.0.clone()),
-            chunk_size,
-            size: self.0.nrows(),
-            current_index: 0,
-        }
+    fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
+        PyChunkedMatrix(self.0.chunked(chunk_size))
     }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
@@ -338,13 +335,8 @@ impl PyMatrixElemOptional {
         to_py_data2(py, self.0.0.lock().unwrap().as_ref().unwrap().read_rows(idx.as_slice()).unwrap())
     }
 
-    fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix {
-            elem: MatrixElemLike::M2(self.0.clone()),
-            chunk_size,
-            size: self.0.nrows().unwrap_or(0),
-            current_index: 0,
-        }
+    fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
+        PyChunkedMatrix(self.0.chunked(chunk_size))
     }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }

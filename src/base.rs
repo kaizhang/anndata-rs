@@ -1,13 +1,18 @@
-use crate::anndata_trait::*;
-use crate::element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem};
-use std::sync::{Arc, Mutex};
+use crate::{
+    anndata_trait::*,
+    element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem},
+    iterator::StackedChunkedMatrix,
+};
 
+use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use hdf5::{File, Result, Group}; 
 use polars::frame::DataFrame;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+#[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
     pub n_obs: Arc<Mutex<usize>>,
@@ -393,4 +398,57 @@ fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
     ).chain(group.datasets().unwrap().into_iter().map(move |x|
         (get_name(x.name()), DataContainer::H5Dataset(x))
     ))
+}
+
+
+pub struct AnnDataSet {
+    pub anndatas: HashMap<String, AnnData>,
+    pub n_obs: Arc<Mutex<usize>>,
+    pub n_vars: Arc<Mutex<usize>>,
+    pub obs: HashSet<String>,
+    pub obsm: HashSet<String>,
+    pub var: DataFrame,
+}
+
+impl AnnDataSet {
+    pub fn new(anndatas: HashMap<String, AnnData>) -> Result<Self> {
+        //if !anndatas.values().map(|x| x.var.read().unwrap().unwrap()[0]).all_equal() {
+        //    panic!("var not equal");
+        //}
+        let var = DataFrame::new(vec![
+            anndatas.values().next().unwrap().var.read().unwrap().unwrap()[0].clone()
+        ]).unwrap();
+        let n_vars = Arc::new(Mutex::new(var.height()));
+        let n_obs = Arc::new(Mutex::new(anndatas.values().map(|x| x.n_obs()).sum()));
+        let obs = intersections(anndatas.values().map(|x|
+                x.obs.read().unwrap().unwrap().get_column_names().into_iter()
+                .map(|s| s.to_string()).collect()).collect());
+        let obsm = intersections(anndatas.values().map(
+                |x| x.obsm.keys().map(Clone::clone).collect()).collect());
+
+        Ok(Self { anndatas, n_vars, n_obs, obs, obsm, var })
+    }
+
+    pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
+
+    pub fn n_vars(&self) -> usize { *self.n_vars.lock().unwrap().deref() }
+
+    pub fn chunked_x(&self, chunk_size: usize) -> StackedChunkedMatrix {
+        StackedChunkedMatrix {
+            matrices: self.anndatas.values().map(|x| x.x.chunked(chunk_size)).collect(),
+            current_matrix_index: 0,
+            n_mat: self.anndatas.len(),
+        }
+    }
+}
+
+fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
+    {
+        let (intersection, others) = sets.split_at_mut(1);
+        let intersection = &mut intersection[0];
+        for other in others {
+            intersection.retain(|e| other.contains(e));
+        }
+    }
+    sets[0].clone()
 }

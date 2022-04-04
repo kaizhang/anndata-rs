@@ -1,7 +1,9 @@
-use crate::utils::{ResizableVectorData, COMPRESSION, create_str_attr};
-use crate::anndata_trait::{DataType, DataContainer};
-use crate::base::AnnData;
-use crate::element::{MatrixElem, RawMatrixElem};
+use crate::{
+    base::AnnData,
+    anndata_trait::{DataType, DataContainer, DataPartialIO},
+    utils::{ResizableVectorData, COMPRESSION, create_str_attr},
+    element::{MatrixElem, RawMatrixElem, MatrixElemOptional},
+};
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
 use ndarray::{s, arr1, Array, Array1};
@@ -247,6 +249,83 @@ where
                     Some(result)
                 }
             },
+        }
+    }
+}
+
+impl MatrixElem {
+    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+        ChunkedMatrix {
+            elem: MatrixElemLike::M1(self.clone()),
+            chunk_size,
+            size: self.nrows(),
+            current_index: 0,
+        }
+    }
+}
+
+impl MatrixElemOptional {
+    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+        ChunkedMatrix {
+            elem: MatrixElemLike::M2(self.clone()),
+            chunk_size,
+            size: self.nrows().unwrap_or(0),
+            current_index: 0,
+        }
+    }
+}
+
+pub enum MatrixElemLike {
+    M1(MatrixElem),
+    M2(MatrixElemOptional),
+}
+
+pub struct ChunkedMatrix {
+    pub(crate) elem: MatrixElemLike,
+    pub(crate) chunk_size: usize,
+    pub(crate) size: usize,
+    pub(crate) current_index: usize,
+}
+
+impl Iterator for ChunkedMatrix {
+    type Item = Box<dyn DataPartialIO>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index >= self.size {
+            None
+        } else {
+            let i = self.current_index;
+            let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
+            self.current_index = j;
+            let data = match &self.elem {
+                MatrixElemLike::M1(m) => m.0.lock().unwrap().read_dyn_row_slice(i..j).unwrap(),
+                MatrixElemLike::M2(m) => m.0.lock().unwrap().as_ref().unwrap()
+                    .read_dyn_row_slice(i..j).unwrap(),
+            };
+            Some(data)
+        }
+    }
+}
+
+pub struct StackedChunkedMatrix {
+    pub(crate) matrices: Vec<ChunkedMatrix>,
+    pub(crate) current_matrix_index: usize,
+    pub(crate) n_mat: usize,
+}
+
+impl Iterator for StackedChunkedMatrix {
+    type Item = Box<dyn DataPartialIO>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let i = self.current_matrix_index;
+        match self.matrices[i].next() {
+            None => if i >= self.n_mat {
+                None
+            } else {
+                self.current_matrix_index += 1;
+                self.next()
+            },
+            r => r,
         }
     }
 }
