@@ -1,11 +1,13 @@
-use crate::anndata_trait::data::{DataContainer, ReadData};
+use crate::{
+    anndata_trait::data::{DataContainer, ReadData},
+    utils::hdf5::read_str_attr,
+};
 
 use ndarray::{Axis, ArrayD};
 use hdf5::H5Type;
 use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
 use polars::frame::DataFrame;
-use crate::utils::read_str_attr;
 
 pub trait DataSubsetRow {
     fn nrows(&self) -> usize;

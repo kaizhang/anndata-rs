@@ -1,17 +1,16 @@
-use crate::anndata_trait::DataIO;
-use crate::utils::{
-    create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION};
+use crate::{
+    anndata_trait::DataIO,
+    utils::hdf5::{
+        create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION
+    },
+};
 
 use std::fmt;
 use ndarray::{Array1, ArrayD, ArrayView, Dimension};
 use hdf5::{
     H5Type, Result, Group, Dataset,
-    types::TypeDescriptor,
-    types::VarLenUnicode,
+    types::{TypeDescriptor, VarLenUnicode, IntSize, FloatSize, TypeDescriptor::*}
 };
-use hdf5::types::TypeDescriptor::*;
-use hdf5::types::IntSize;
-use hdf5::types::FloatSize;
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::{
     prelude::{NamedFromOwned, NamedFrom, IntoSeries},

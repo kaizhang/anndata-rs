@@ -1,7 +1,7 @@
 use crate::{
     base::AnnData,
     anndata_trait::{DataType, DataContainer, DataPartialIO},
-    utils::{ResizableVectorData, COMPRESSION, create_str_attr},
+    utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
     element::{MatrixElem, RawMatrixElem, MatrixElemOptional},
 };
 
@@ -54,8 +54,9 @@ where
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
         create_str_attr(&group, "h5sparse_format", "csr")?;
+        let chunk_size: usize = 5000;
         let data: ResizableVectorData<D> =
-            ResizableVectorData::new(&group, "data", 10000)?;
+            ResizableVectorData::new(&group, "data", chunk_size)?;
         let mut indptr: Vec<usize> = vec![0];
         let iter = self.iterator.scan(0, |state, x| {
             *state = *state + x.len();
@@ -64,71 +65,146 @@ where
 
         if self.num_cols <= (i32::MAX as usize) {
             let indices: ResizableVectorData<i32> =
-                ResizableVectorData::new(&group, "indices", 10000)?;
-            for chunk in &iter.chunks(10000) {
+                ResizableVectorData::new(&group, "indices", chunk_size)?;
+            for chunk in &iter.chunks(chunk_size) {
                 let (a, b): (Vec<i32>, Vec<D>) = chunk.map(|(x, vec)| {
                     indptr.push(x);
                     vec
-                }).flatten().map(|(x, y)| -> (i32, D) {(
-                    x.try_into().expect(&format!("cannot convert '{}' to i32", x)),
-                    y
-                ) }).unzip();
+                }).flatten().map(|(x, y)| -> (i32, D) {
+                    (x.try_into().unwrap(), y)
+                }).unzip();
                 indices.extend(a.into_iter())?;
                 data.extend(b.into_iter())?;
             }
-
-            let num_rows = indptr.len() - 1;
-            group.new_attr_builder()
-                .with_data(&arr1(&[num_rows, self.num_cols]))
-                .create("shape")?;
-
-            let try_convert_indptr: Option<Vec<i32>> = indptr.iter()
-                .map(|x| (*x).try_into().ok()).collect();
-            match try_convert_indptr {
-                Some(vec) => {
-                    group.new_dataset_builder().deflate(COMPRESSION)
-                        .with_data(&Array::from_vec(vec)).create("indptr")?;
-                },
-                _ => {
-                    let vec: Vec<i64> = indptr.into_iter()
-                        .map(|x| x.try_into().unwrap()).collect();
-                    group.new_dataset_builder().deflate(COMPRESSION)
-                        .with_data(&Array::from_vec(vec)).create("indptr")?;
-                },
-            }
-            Ok((DataContainer::H5Group(group), num_rows))
         } else {
             let indices: ResizableVectorData<i64> =
-                ResizableVectorData::new(&group, "indices", 10000)?;
-            for chunk in &iter.chunks(10000) {
+                ResizableVectorData::new(&group, "indices", chunk_size)?;
+            for chunk in &iter.chunks(chunk_size) {
                 let (a, b): (Vec<i64>, Vec<D>) = chunk.map(|(x, vec)| {
                     indptr.push(x);
                     vec
-                }).flatten().map(|(x, y)| -> (i64, D) {(
-                    x.try_into().expect(&format!("cannot convert '{}' to i64", x)),
-                    y
-                ) }).unzip();
+                }).flatten().map(|(x, y)| -> (i64, D) {
+                    (x.try_into().unwrap(), y)
+                }).unzip();
                 indices.extend(a.into_iter())?;
                 data.extend(b.into_iter())?;
             }
-
-            let num_rows = indptr.len() - 1;
-            group.new_attr_builder()
-                .with_data(&arr1(&[num_rows, self.num_cols]))
-                .create("shape")?;
-
-            let vec: Vec<i64> = indptr.into_iter()
-                .map(|x| x.try_into().unwrap()).collect();
-            group.new_dataset_builder().deflate(COMPRESSION)
-                .with_data(&Array::from_vec(vec)).create("indptr")?;
-            Ok((DataContainer::H5Group(group), num_rows))
         }
+
+        let num_rows = indptr.len() - 1;
+        group.new_attr_builder()
+            .with_data(&arr1(&[num_rows, self.num_cols]))
+            .create("shape")?;
+
+        let try_convert_indptr: Option<Vec<i32>> = indptr.iter()
+            .map(|x| (*x).try_into().ok()).collect();
+        match try_convert_indptr {
+            Some(vec) => {
+                group.new_dataset_builder().deflate(COMPRESSION)
+                    .with_data(&Array::from_vec(vec)).create("indptr")?;
+            },
+            _ => {
+                let vec: Vec<i64> = indptr.into_iter()
+                    .map(|x| x.try_into().unwrap()).collect();
+                group.new_dataset_builder().deflate(COMPRESSION)
+                    .with_data(&Array::from_vec(vec)).create("indptr")?;
+            },
+        }
+        Ok((DataContainer::H5Group(group), num_rows))
     }
 
     fn ncols(&self) -> usize { self.num_cols }
     fn get_dtype(&self) -> DataType { DataType::CsrMatrix(D::type_descriptor()) }
     fn version(&self) -> &str { "0.1.0" }
 }
+
+pub struct IndexedCsrIterator<I> {
+    pub iterator: I,
+    pub num_cols: usize,
+}
+
+impl<I, D> RowIterator for IndexedCsrIterator<I>
+where
+    I: Iterator<Item = (usize, Vec<(usize, D)>)>,
+    D: H5Type,
+{
+    fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)> {
+        let group = location.create_group(name)?;
+        create_str_attr(&group, "encoding-type", "csr_matrix")?;
+        create_str_attr(&group, "encoding-version", self.version())?;
+        create_str_attr(&group, "h5sparse_format", "csr")?;
+        let chunk_size: usize = 5000;
+        let data: ResizableVectorData<D> =
+            ResizableVectorData::new(&group, "data", chunk_size)?;
+        let mut indptr: Vec<usize> = vec![0];
+        let iter = self.iterator.scan(0, |state, (i, x)| {
+            *state = *state + x.len();
+            Some((i + 1, *state, x))
+        });
+
+        let mut cur_idx = 0;
+        if self.num_cols <= (i32::MAX as usize) {
+            let indices: ResizableVectorData<i32> =
+                ResizableVectorData::new(&group, "indices", chunk_size)?;
+            for chunk in &iter.chunks(chunk_size) {
+                let (a, b): (Vec<i32>, Vec<D>) = chunk.map(|(i, x, vec)| {
+                    assert!(i > cur_idx, "row index is not sorted");
+                    let lst = *indptr.last().unwrap();
+                    indptr.extend(std::iter::repeat(lst).take(i - cur_idx - 1).chain([x]));
+                    cur_idx = i;
+                    vec
+                }).flatten().map(|(x, y)| -> (i32, D) {
+                    (x.try_into().unwrap(), y)
+                }).unzip();
+                indices.extend(a.into_iter())?;
+                data.extend(b.into_iter())?;
+            }
+        } else {
+            let indices: ResizableVectorData<i64> =
+                ResizableVectorData::new(&group, "indices", chunk_size)?;
+            for chunk in &iter.chunks(chunk_size) {
+                let (a, b): (Vec<i64>, Vec<D>) = chunk.map(|(i, x, vec)| {
+                    assert!(i > cur_idx, "row index is not sorted");
+                    let lst = *indptr.last().unwrap();
+                    indptr.extend(std::iter::repeat(lst).take(i - cur_idx - 1).chain([x]));
+                    cur_idx = i;
+                    vec
+                }).flatten().map(|(x, y)| -> (i64, D) {
+                    (x.try_into().unwrap(), y)
+                }).unzip();
+                indices.extend(a.into_iter())?;
+                data.extend(b.into_iter())?;
+            }
+        }
+
+        let num_rows = indptr.len() - 1;
+        group.new_attr_builder()
+            .with_data(&arr1(&[num_rows, self.num_cols]))
+            .create("shape")?;
+
+        let try_convert_indptr: Option<Vec<i32>> = indptr.iter()
+            .map(|x| (*x).try_into().ok()).collect();
+        match try_convert_indptr {
+            Some(vec) => {
+                group.new_dataset_builder().deflate(COMPRESSION)
+                    .with_data(&Array::from_vec(vec)).create("indptr")?;
+            },
+            _ => {
+                let vec: Vec<i64> = indptr.into_iter()
+                    .map(|x| x.try_into().unwrap()).collect();
+                group.new_dataset_builder().deflate(COMPRESSION)
+                    .with_data(&Array::from_vec(vec)).create("indptr")?;
+            },
+        }
+        Ok((DataContainer::H5Group(group), num_rows))
+    }
+
+    fn ncols(&self) -> usize { self.num_cols }
+    fn get_dtype(&self) -> DataType { DataType::CsrMatrix(D::type_descriptor()) }
+    fn version(&self) -> &str { "0.1.0" }
+}
+
+
 
 impl AnnData {
     pub fn set_x_from_row_iter<I>(&self, data: I) -> Result<()>
