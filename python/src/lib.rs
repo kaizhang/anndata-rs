@@ -17,7 +17,7 @@ use anndata_rs::{
 use pyo3::{
     prelude::*,
     exceptions::PyTypeError,
-    pymodule, types::PyModule, PyResult, Python,
+    PyResult, Python,
 };
 use std::collections::HashMap;
 use rand::SeedableRng;
@@ -198,6 +198,18 @@ impl PyAnnData {
 
     fn write(&self, filename: &str) {
         self.0.write(filename).unwrap();
+    }
+
+    fn read_mtx(&self, filename: &str, sorted: bool) {
+        if utils::is_gzipped(filename) {
+            let f = std::fs::File::open(filename).unwrap();
+            let mut reader = std::io::BufReader::new(flate2::read::MultiGzDecoder::new(f));
+            self.0.read_matrix_market(&mut reader, sorted).unwrap();
+        } else {
+            let f = std::fs::File::open(filename).unwrap();
+            let mut reader = std::io::BufReader::new(f);
+            self.0.read_matrix_market(&mut reader, sorted).unwrap();
+        }
     }
 }
 
@@ -412,15 +424,4 @@ pub fn read_anndata(filename: &str, mode: &str) -> PyResult<PyAnnData> {
     };
     let anndata = AnnData::read(file).unwrap();
     Ok(PyAnnData(anndata))
-}
-
-#[pymodule]
-pub fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<PyAnnData>().unwrap();
-    m.add_class::<PyElem>().unwrap();
-    m.add_class::<PyMatrixElem>().unwrap();
-    m.add_class::<PyDataFrameElem>().unwrap();
-    m.add_function(wrap_pyfunction!(read_anndata, m)?)?;
-
-    Ok(())
 }

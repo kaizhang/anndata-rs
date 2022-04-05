@@ -45,18 +45,22 @@ impl AnnData {
     pub fn close(self) -> Result<()> { self.file.close() }
 
     pub fn set_x(&self, data: &Box<dyn WritePartialData>) -> Result<()> {
+        let n = self.n_obs();
+        let m = self.n_vars();
         assert!(
-            self.n_obs() == data.nrows(),
+            n == 0 || n == data.nrows(),
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs(), data.nrows(),
+            n, data.nrows(),
         );
         assert!(
-            self.n_vars() == data.ncols(),
+            m == 0 || m == data.ncols(),
             "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars(), data.ncols(),
+            m, data.ncols(),
         );
         if !self.x.is_empty() { self.file.unlink("X")?; }
         self.x.insert(data.write(&self.file, "X")?)?;
+        self.set_n_obs(data.nrows());
+        self.set_n_vars(data.ncols());
         Ok(())
     }
 

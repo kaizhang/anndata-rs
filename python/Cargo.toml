@@ -20,10 +20,8 @@ polars = { version = "0.20.0", features = ["ndarray"] }
 polars-core = "0.20.0"
 thiserror = "1.0.30"
 rand = "0.8.5"
+flate2 = "1.0"
 
 [dependencies.pyo3]
 version = "0.16.2"
 features = ["extension-module"]
-
-[lib]
-crate-type = ["cdylib", "lib"]

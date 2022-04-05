@@ -1,21 +1,19 @@
 use crate::PyAnnData;
 use crate::iterator::PyStackedChunkedMatrix;
 
-use anndata_rs::{
-    base::AnnDataSet,
-};
+use anndata_rs::base;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyAnnDataSet(pub AnnDataSet);
+pub struct AnnDataSet(pub base::AnnDataSet);
 
 #[pymethods]
-impl PyAnnDataSet {
+impl AnnDataSet {
     #[new]
     fn new(adatas: HashMap<String, PyAnnData>) -> Self {
-        PyAnnDataSet(AnnDataSet::new(adatas.into_iter().map(|(k, v)| (k, v.0)).collect()).unwrap())
+        AnnDataSet(base::AnnDataSet::new(adatas.into_iter().map(|(k, v)| (k, v.0)).collect()).unwrap())
     }
 
     fn chunked_X(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
