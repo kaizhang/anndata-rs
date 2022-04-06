@@ -81,6 +81,12 @@ impl RawElem<dyn DataIO>
         if self.element.is_some() { self.element = None; }
         self.cache_enabled = false;
     }
+
+    pub fn update(&mut self, data: &Box<dyn DataIO>) -> Result<()> {
+        self.container = data.update(&self.container)?;
+        self.element = None;
+        Ok(())
+    }
 }
 
 pub struct RawMatrixElem<T: ?Sized> {

@@ -1,4 +1,4 @@
-use crate::PyAnnData;
+use crate::AnnData;
 use crate::iterator::PyStackedChunkedMatrix;
 
 use anndata_rs::base;
@@ -12,7 +12,7 @@ pub struct AnnDataSet(pub base::AnnDataSet);
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    fn new(adatas: HashMap<String, PyAnnData>) -> Self {
+    fn new(adatas: HashMap<String, AnnData>) -> Self {
         AnnDataSet(base::AnnDataSet::new(adatas.into_iter().map(|(k, v)| (k, v.0)).collect()).unwrap())
     }
 

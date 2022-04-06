@@ -1,26 +1,26 @@
 use crate::{
-    base::AnnData,
+    base::{AnnData, ElemCollection, AxisArrays, Axis},
     anndata_trait::*,
-    element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem},
+    element::{MatrixElemOptional, DataFrameElem},
     iterator::IndexedCsrIterator,
 };
 
 use itertools::Itertools;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use hdf5::{File, Result, Group}; 
+use hdf5::{File, Result}; 
+use std::ops::Deref;
 
 impl AnnData {
     pub fn read(file: File) -> Result<Self>
     {
-        let mut n_obs = None;
-        let mut n_vars = None;
+        let n_obs = Arc::new(Mutex::new(0));
+        let n_vars = Arc::new(Mutex::new(0));
 
         // Read X
         let x = if file.link_exists("X") {
             let x = MatrixElemOptional::new(DataContainer::open(&file, "X")?)?;
-            n_obs = x.nrows();
-            n_vars = x.ncols();
+            *n_obs.lock().unwrap() = x.nrows().unwrap_or(0);
+            *n_vars.lock().unwrap() = x.ncols().unwrap_or(0);
             x
         } else {
             MatrixElemOptional::empty()
@@ -29,94 +29,86 @@ impl AnnData {
         // Read obs
         let obs = if file.link_exists("obs") {
             let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
-            if n_obs.is_none() { n_obs = obs.nrows(); }
-            assert!(n_obs == obs.nrows(),
-                "Inconsistent number of observations: {} (X) != {} (obs)",
-                n_obs.unwrap(), obs.nrows().unwrap(),
-            );
+            let n = *n_obs.lock().unwrap().deref();
+            if n == 0 {
+                *n_obs.lock().unwrap() = obs.nrows().unwrap();
+            } else {
+                assert!(n == obs.nrows().unwrap(),
+                    "Inconsistent number of observations: {} (X) != {} (obs)",
+                    n, obs.nrows().unwrap(),
+                );
+            }
             obs
         } else {
             DataFrameElem::empty()
         };
 
         // Read obsm
-        let obsm = file.group("obsm").as_ref().map_or(HashMap::new(), |group|
-            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        let obsm = AxisArrays::new(
+            match file.group("obsm") {
+                Ok(g) => g,
+                _ => file.create_group("obsm")?,
+            },
+            Axis::Row,
+            n_obs.clone(),
         );
-        for (k, v) in obsm.iter() {
-            if n_obs.is_none() { n_obs = Some(v.nrows()); }
-            assert!(n_obs.unwrap() == v.nrows(), 
-                "Inconsistent number of observations: {} (X) != {} ({})",
-                n_obs.unwrap(), v.nrows(), k,
-            );
-        }
-
+        
         // Read obsp
-        let obsp = file.group("obsp").as_ref().map_or(HashMap::new(), |group|
-            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        let obsp = AxisArrays::new(
+            match file.group("obsp") {
+                Ok(g) => g,
+                _ => file.create_group("obsp")?,
+            },
+            Axis::Both,
+            n_obs.clone(),
         );
-        for (k, v) in obsp.iter() {
-            if n_obs.is_none() { n_obs = Some(v.nrows()); }
-            assert!(n_obs.unwrap() == v.nrows(), 
-                "Inconsistent number of observations: {} (X) != {} ({})",
-                n_obs.unwrap(), v.nrows(), k,
-            );
-            assert!(v.ncols() == v.nrows(), 
-                "Not a square matrix: {}", k
-            );
-        }
 
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
-            if n_vars.is_none() { n_vars = var.ncols(); }
-            assert!(n_vars == var.ncols(),
-                "Inconsistent number of variables: {} (X) != {} (var)",
-                n_vars.unwrap(), var.ncols().unwrap(),
-            );
+            let n = *n_vars.lock().unwrap().deref();
+            if n == 0 {
+                *n_vars.lock().unwrap() = var.ncols().unwrap();
+            } else {
+                assert!(n == var.ncols().unwrap(),
+                    "Inconsistent number of variables: {} (X) != {} (var)",
+                    n, var.ncols().unwrap(),
+                );
+            }
             var
         } else {
             DataFrameElem::empty()
         };
 
         // Read varm
-        let varm = file.group("varm").as_ref().map_or(HashMap::new(), |group|
-            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        let varm = AxisArrays::new(
+            match file.group("varm") {
+                Ok(g) => g,
+                _ => file.create_group("varm")?,
+            },
+            Axis::Column,
+            n_vars.clone(),
         );
-        for (k, v) in varm.iter() {
-            if n_vars.is_none() { n_vars = Some(v.ncols()); }
-            assert!(n_vars.unwrap() == v.ncols(), 
-                "Inconsistent number of variables: {} (X) != {} ({})",
-                n_vars.unwrap(), v.ncols(), k,
-            );
-        }
 
         // Read varp
-        let varp = file.group("varp").as_ref().map_or(HashMap::new(), |group|
-            get_all_data(group).map(|(k, v)| (k, MatrixElem::new(v).unwrap())).collect()
+        let varp = AxisArrays::new(
+            match file.group("varp") {
+                Ok(g) => g,
+                _ => file.create_group("varp")?,
+            },
+            Axis::Both,
+            n_vars.clone(),
         );
-        for (k, v) in varp.iter() {
-            if n_vars.is_none() { n_vars = Some(v.ncols()); }
-            assert!(n_vars.unwrap() == v.ncols(), 
-                "Inconsistent number of variables: {} (X) != {} ({})",
-                n_vars.unwrap(), v.ncols(), k,
-            );
-            assert!(v.ncols() == v.nrows(), 
-                "Not a square matrix: {}", k
-            );
-        }
 
         // Read uns
-        let uns = file.group("uns").as_ref().map_or(HashMap::new(), |group|
-            get_all_data(group).map(|(k, v)| (k, Elem::new(v).unwrap())).collect()
+        let uns = ElemCollection::new(
+            match file.group("uns") {
+                Ok(g) => g,
+                _ => file.create_group("uns")?,
+            }
         );
 
-        Ok(Self {
-            file,
-            n_obs: Arc::new(Mutex::new(n_obs.unwrap_or(0))),
-            n_vars: Arc::new(Mutex::new(n_vars.unwrap_or(0))),
-            x, obs, obsm, obsp, var, varm, varp, uns,
-        })
+        Ok(Self { file, n_obs, n_vars, x, obs, obsm, obsp, var, varm, varp, uns })
     }
 
     pub fn write(&self, filename: &str) -> Result<()>
@@ -126,14 +118,11 @@ impl AnnData {
         self.x.write(&file, "X")?;
         self.obs.write(&file, "obs")?;
         self.var.write(&file, "var")?;
-        let obsm = file.create_group("obsm")?;
-        for (key, val) in self.obsm.iter() {
-            val.write(&obsm, key)?;
-        }
-        let varm = file.create_group("varm")?;
-        for (key, val) in self.varm.iter() {
-            val.write(&varm, key)?;
-        }
+        self.obsm.write(&file.create_group("obsm")?)?;
+        self.obsp.write(&file.create_group("obsp")?)?;
+        self.varm.write(&file.create_group("varm")?)?;
+        self.varp.write(&file.create_group("varp")?)?;
+        self.uns.write(&file.create_group("uns")?)?;
         Ok(())
     }
 
@@ -176,15 +165,3 @@ impl AnnData {
         }
     }
 }
-
-fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
-    let get_name = |x: String| std::path::Path::new(&x).file_name()
-        .unwrap().to_str().unwrap().to_string();
-    group.groups().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Group(x))
-    ).chain(group.datasets().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Dataset(x))
-    ))
-}
-
-

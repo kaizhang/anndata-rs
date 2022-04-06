@@ -1,4 +1,5 @@
 pub mod conversion;
+pub mod instance;
 
 use flate2::read::MultiGzDecoder;
 use std::fs::File;

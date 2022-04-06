@@ -1,4 +1,4 @@
-use crate::anndata_trait::WritePartialData;
+use crate::anndata_trait::DataPartialIO;
 
 use std::error::Error;
 use std::fmt;
@@ -129,7 +129,7 @@ where
 
 pub(crate) fn read_matrix_market_from_bufread<R>(
     reader: &mut R,
-) -> Result<Box<dyn WritePartialData>, IoError>
+) -> Result<Box<dyn DataPartialIO>, IoError>
 where
     R: io::BufRead,
 {

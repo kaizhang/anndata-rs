@@ -1,7 +1,10 @@
 mod raw;
 
 pub use raw::{RawMatrixElem, RawElem};
-use crate::anndata_trait::*;
+use crate::{
+    anndata_trait::*,
+    utils::hdf5::{read_str_vec_attr, read_str_attr},
+};
 
 use polars::frame::DataFrame;
 use hdf5::{Result, Group}; 
@@ -22,6 +25,10 @@ impl Elem {
 
     pub fn write(&self, location: &Group, name: &str) -> Result<()> {
         self.0.lock().unwrap().write_elem(location, name)
+    }
+
+    pub fn update(&self, data: &Box<dyn DataIO>) {
+        self.0.lock().unwrap().update(data).unwrap();
     }
 
     pub fn enable_cache(&self) { self.0.lock().unwrap().enable_cache(); }
@@ -214,6 +221,21 @@ impl DataFrameElem {
         self.0.lock().unwrap().as_mut().map(|x|
             x.update(data).unwrap()
         );
+    }
+
+    pub fn get_column_names(&self) -> Result<Vec<String>> {
+        match self.0.lock().unwrap().as_ref() {
+            None => Ok(Vec::new()),
+            Some(elem) => match &elem.inner.element {
+                Some(el) => Ok(el.get_column_names_owned()),
+                None => {
+                    let grp = elem.inner.container.get_group_ref()?;
+                    let mut r = read_str_vec_attr(grp, "column-order")?;
+                    r.insert(0, read_str_attr(grp, "_index")?);
+                    Ok(r)
+                }
+            }
+        }
     }
 
     pub fn nrows(&self) -> Option<usize> {

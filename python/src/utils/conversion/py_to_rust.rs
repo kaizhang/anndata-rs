@@ -1,3 +1,5 @@
+use crate::utils::instance::{isinstance_of_csr, isinstance_of_arr};
+
 use pyo3::{
     prelude::*,
     types::PyType,
@@ -7,21 +9,8 @@ use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
 
 use anndata_rs::{
-    anndata_trait::{WriteData, WritePartialData, Scalar},
+    anndata_trait::{Scalar, DataIO, DataPartialIO},
 };
-
-fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    obj.is_instance(
-        py.import("scipy.sparse.csr")?.getattr("csr_matrix")?
-        .downcast::<PyType>().unwrap()
-    )
-}
-
-fn isinstance_of_arr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    obj.is_instance(
-        py.import("numpy")?.getattr("ndarray")?.downcast::<PyType>().unwrap()
-    )
-}
 
 macro_rules! to_rust_arr_macro {
     ($obj:expr) => {
@@ -86,7 +75,7 @@ macro_rules! to_rust_data_macro {
 pub fn to_rust_data1<'py>(
     py: Python<'py>,
     obj: &'py PyAny,
-) -> PyResult<Box<dyn WriteData>>
+) -> PyResult<Box<dyn DataIO>>
 {
     if isinstance_of_arr(py, obj)? {
         to_rust_arr_macro!(obj)
@@ -108,7 +97,7 @@ pub fn to_rust_data1<'py>(
 pub fn to_rust_data2<'py>(
     py: Python<'py>,
     obj: &'py PyAny,
-) -> PyResult<Box<dyn WritePartialData>>
+) -> PyResult<Box<dyn DataPartialIO>>
 {
     to_rust_data_macro!(py, obj)
 }

@@ -9,6 +9,9 @@ use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
 use ndarray::{s, arr1, Array, Array1};
 use hdf5::{Dataset, Group, H5Type, Result};
 use itertools::Itertools;
+use hdf5::types::TypeDescriptor::*;
+use hdf5::types::IntSize;
+use hdf5::types::FloatSize;
 
 pub trait RowIterator {
     fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)>;
@@ -249,7 +252,7 @@ impl AnnData {
         );
  
         let elem = MatrixElem::new(container)?;
-        self.obsm.insert(key.to_string(), elem);
+        self.obsm.data.lock().unwrap().insert(key.to_string(), elem);
         Ok(())
     }
 }
@@ -277,6 +280,25 @@ where
                     .read_1d().unwrap().to_vec();
                 CsrRowsIterator::Disk((data, indices, indptr, 0, chunk_size))
             },
+        }
+    }
+}
+
+impl RawMatrixElem<dyn DataPartialIO>
+{
+    pub fn into_csr_u32_iter<'a>(
+        &'a self,
+        chunk_size: usize
+    ) -> impl Iterator<Item = Vec<Vec<(usize, u32)>>> + 'a
+    {
+        match self.inner.dtype {
+            DataType::CsrMatrix(Integer(IntSize::U8)) =>
+                self.downcast::<CsrMatrix<i64>>().into_row_iter(chunk_size).map(|x|
+                    x.into_iter().map(|vec|
+                        vec.into_iter().map(|(i, v)| (i, v.try_into().unwrap())).collect()
+                    ).collect()
+                ),
+            _ => todo!()
         }
     }
 }
