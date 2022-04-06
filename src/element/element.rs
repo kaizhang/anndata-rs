@@ -1,9 +1,7 @@
-mod raw;
-
-pub use raw::{RawMatrixElem, RawElem};
 use crate::{
     anndata_trait::*,
     utils::hdf5::{read_str_vec_attr, read_str_attr},
+    element::{RawMatrixElem, RawElem},
 };
 
 use polars::frame::DataFrame;

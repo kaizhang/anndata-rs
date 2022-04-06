@@ -6,9 +6,11 @@ use crate::utils::conversion::{
 };
 
 use anndata_rs::{
-    base::{ElemCollection, AxisArrays},
     anndata_trait::DataType,
-    element::{Elem, MatrixElem, MatrixElemOptional, DataFrameElem},
+    element::{
+        Elem, MatrixElem, MatrixElemOptional, DataFrameElem,
+        ElemCollection, AxisArrays,
+    },
 };
 use pyo3::{
     prelude::*,

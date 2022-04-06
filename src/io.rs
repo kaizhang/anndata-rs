@@ -1,7 +1,7 @@
 use crate::{
-    base::{AnnData, ElemCollection, AxisArrays, Axis},
+    base::AnnData,
     anndata_trait::*,
-    element::{MatrixElemOptional, DataFrameElem},
+    element::{MatrixElemOptional, DataFrameElem, ElemCollection, AxisArrays, Axis},
     iterator::IndexedCsrIterator,
 };
 
