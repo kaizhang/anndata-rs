@@ -6,8 +6,8 @@ use crate::element::{
 
 use crate::utils::{
     to_indices,
-    conversion::{to_py_df, to_rust_df, to_rust_data1, to_rust_data2, to_py_data2},
-    instance::{isinstance_of_arr, isinstance_of_pandas},
+    conversion::{to_rust_df, to_rust_data1, to_rust_data2},
+    instance::isinstance_of_pandas,
 };
 
 use anndata_rs::anndata;

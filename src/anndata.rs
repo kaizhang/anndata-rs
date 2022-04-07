@@ -4,7 +4,6 @@ use crate::{
         ElemTrait, MatrixElem, DataFrameElem,
         ElemCollection, AxisArrays, Axis, Stacked,
     },
-    iterator::StackedChunkedMatrix,
 };
 
 use std::sync::{Arc, Mutex};

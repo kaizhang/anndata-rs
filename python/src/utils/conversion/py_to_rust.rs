@@ -2,7 +2,6 @@ use crate::utils::instance::{isinstance_of_csr, isinstance_of_arr};
 
 use pyo3::{
     prelude::*,
-    types::PyType,
     PyResult, Python,
 };
 use numpy::PyReadonlyArrayDyn;

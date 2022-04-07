@@ -7,7 +7,6 @@ pub use crate::anndata::{AnnData, AnnDataSet, read_h5ad, read_mtx};
 
 use pyo3::{
     prelude::*,
-    types::PyIterator,
     pymodule, types::PyModule, PyResult, Python,
 };
 

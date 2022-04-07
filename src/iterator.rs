@@ -11,7 +11,6 @@ use hdf5::{Dataset, Group, H5Type, Result};
 use itertools::Itertools;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
-use hdf5::types::FloatSize;
 
 pub trait RowIterator {
     fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)>;
@@ -123,6 +122,7 @@ where
 
 pub struct IndexedCsrIterator<I> {
     pub iterator: I,
+    pub num_rows: usize,
     pub num_cols: usize,
 }
 
@@ -180,7 +180,10 @@ where
             }
         }
 
-        let num_rows = indptr.len() - 1;
+        let num_rows = self.num_rows;
+        let lst = *indptr.last().unwrap();
+        indptr.extend(std::iter::repeat(lst).take(num_rows + 1 - indptr.len()));
+
         group.new_attr_builder()
             .with_data(&arr1(&[num_rows, self.num_cols]))
             .create("shape")?;

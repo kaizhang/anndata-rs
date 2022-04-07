@@ -140,22 +140,24 @@ impl AnnData {
             }
             match data_type {
                 crate::utils::io::DataType::Integer => {
-                    let (_, num_cols, iter) = crate::utils::io::
+                    let (num_rows, num_cols, iter) = crate::utils::io::
                         read_sorted_mm_body_from_bufread::<R, i64>(reader);
                     self.set_x_from_row_iter(IndexedCsrIterator {
                         iterator: iter.group_by(|x| x.0).into_iter().map(|(k, grp)|
                             (k, grp.map(|(_, j, v)| (j, v)).collect())
                         ),
+                        num_rows,
                         num_cols,
                     })
                 },
                 _ => {
-                    let (_, num_cols, iter) = crate::utils::io::
+                    let (num_rows, num_cols, iter) = crate::utils::io::
                         read_sorted_mm_body_from_bufread::<R, f64>(reader);
                     self.set_x_from_row_iter(IndexedCsrIterator {
                         iterator: iter.group_by(|x| x.0).into_iter().map(|(k, grp)|
                             (k, grp.map(|(_, j, v)| (j, v)).collect())
                         ),
+                        num_rows,
                         num_cols,
                     })
                 },
