@@ -1,8 +1,8 @@
 use crate::{
     anndata_trait::*,
     element::{
-        MatrixElemOptional, DataFrameElem,
-        ElemCollection, AxisArrays, Axis,
+        ElemTrait, MatrixElem, DataFrameElem,
+        ElemCollection, AxisArrays, Axis, Stacked,
     },
     iterator::StackedChunkedMatrix,
 };
@@ -13,13 +13,14 @@ use hdf5::{File, Result};
 use polars::frame::DataFrame;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use indexmap::map::IndexMap;
 
 #[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
     pub n_obs: Arc<Mutex<usize>>,
     pub n_vars: Arc<Mutex<usize>>,
-    pub x: MatrixElemOptional,
+    pub x: Arc<Mutex<Option<MatrixElem>>>,
     pub obs: DataFrameElem,
     pub obsm: AxisArrays,
     pub obsp: AxisArrays,
@@ -46,23 +47,32 @@ impl AnnData {
 
     pub fn close(self) -> Result<()> { self.file.close() }
 
-    pub fn set_x(&self, data: &Box<dyn DataPartialIO>) -> Result<()> {
-        let n = self.n_obs();
-        let m = self.n_vars();
-        assert!(
-            n == 0 || n == data.nrows(),
-            "Number of observations mismatched, expecting {}, but found {}",
-            n, data.nrows(),
-        );
-        assert!(
-            m == 0 || m == data.ncols(),
-            "Number of variables mismatched, expecting {}, but found {}",
-            m, data.ncols(),
-        );
-        if !self.x.is_empty() { self.file.unlink("X")?; }
-        self.x.insert(data.write(&self.file, "X")?)?;
-        self.set_n_obs(data.nrows());
-        self.set_n_vars(data.ncols());
+    pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
+        let mut x_guard = self.x.lock().unwrap();
+        match data_ {
+            Some(data) => {
+                let n = self.n_obs();
+                let m = self.n_vars();
+                assert!(
+                    n == 0 || n == data.nrows(),
+                    "Number of observations mismatched, expecting {}, but found {}",
+                    n, data.nrows(),
+                );
+                assert!(
+                    m == 0 || m == data.ncols(),
+                    "Number of variables mismatched, expecting {}, but found {}",
+                    m, data.ncols(),
+                );
+                if x_guard.is_some() { self.file.unlink("X")?; }
+                *x_guard = Some(MatrixElem::new(data.write(&self.file, "X")?)?);
+                self.set_n_obs(data.nrows());
+                self.set_n_vars(data.ncols());
+            },
+            None => if x_guard.is_some() {
+                self.file.unlink("X")?;
+                *x_guard = None;
+            },
+        }
         Ok(())
     }
 
@@ -183,7 +193,7 @@ impl AnnData {
             ElemCollection::new(container)
         };
         Ok(Self { file, n_obs, n_vars,
-            x: MatrixElemOptional::empty(),
+            x: Arc::new(Mutex::new(None)),
             obs: DataFrameElem::empty(), obsm, obsp,
             var: DataFrameElem::empty(), varm, varp,
             uns,
@@ -192,7 +202,7 @@ impl AnnData {
 
     pub fn subset_obs(&self, idx: &[usize])
     {
-        self.x.subset_rows(idx);
+        self.x.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
         self.obs.subset_rows(idx);
         self.obsm.subset(idx);
         self.obsp.subset(idx);
@@ -201,7 +211,7 @@ impl AnnData {
 
     pub fn subset_var(&self, idx: &[usize])
     {
-        self.x.subset_cols(idx);
+        self.x.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
         self.var.subset_cols(idx);
         self.varm.subset(idx);
         self.varp.subset(idx);
@@ -210,7 +220,7 @@ impl AnnData {
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize])
     {
-        self.x.subset(ridx, cidx);
+        self.x.lock().unwrap().as_ref().map(|x| x.subset(ridx, cidx));
         self.obs.subset_rows(ridx);
         self.obsm.subset(ridx);
         self.obsp.subset(ridx);
@@ -223,44 +233,50 @@ impl AnnData {
 }
 
 pub struct AnnDataSet {
-    pub anndatas: HashMap<String, AnnData>,
-    pub n_obs: Arc<Mutex<usize>>,
-    pub n_vars: Arc<Mutex<usize>>,
-    pub obs: HashSet<String>,
-    pub obsm: HashSet<String>,
-    pub var: DataFrame,
+    annotation: AnnData,
+    pub x: Stacked<MatrixElem>,
+    pub anndatas: IndexMap<String, AnnData>,
 }
 
 impl AnnDataSet {
-    pub fn new(anndatas: HashMap<String, AnnData>) -> Result<Self> {
+    pub fn new(anndatas: IndexMap<String, AnnData>, filename: &str) -> Result<Self> {
         //if !anndatas.values().map(|x| x.var.read().unwrap().unwrap()[0]).all_equal() {
         //    panic!("var not equal");
         //}
-        let var = DataFrame::new(vec![
-            anndatas.values().next().unwrap().var.read().unwrap().unwrap()[0].clone()
-        ]).unwrap();
-        let n_vars = Arc::new(Mutex::new(var.height()));
-        let n_obs = Arc::new(Mutex::new(anndatas.values().map(|x| x.n_obs()).sum()));
+
+        let n_obs = anndatas.values().map(|x| x.n_obs()).sum();
+        let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
+
+        let annotation = AnnData::new(filename, n_obs, n_vars)?;
+        if let Some(obs) = anndatas.values().map(|x| x.obs.read().map(|d| d.unwrap()[0].clone())).collect::<Option<Vec<_>>>() {
+            annotation.set_obs(&DataFrame::new(vec![
+            obs.into_iter().reduce(|mut accum, item| {
+                accum.append(&item).unwrap();
+                accum
+            }).unwrap().clone()
+            ]).unwrap())?;
+        }
+        if let Some(var) = anndatas.values().next().unwrap().var.read() {
+            annotation.set_var(&DataFrame::new(vec![var.unwrap()[0].clone()]).unwrap())?;
+        }
+        
+        /*
         let obs = intersections(anndatas.values().map(|x|
                 x.obs.read().unwrap().unwrap().get_column_names().into_iter()
                 .map(|s| s.to_string()).collect()).collect());
         let obsm = intersections(anndatas.values().map(
                 |x| x.obsm.data.lock().unwrap().keys().map(Clone::clone).collect()).collect());
+        */
 
-        Ok(Self { anndatas, n_vars, n_obs, obs, obsm, var })
+        let x = Stacked::new(anndatas.values().map(|x|
+            x.x.lock().unwrap().as_ref().unwrap().clone()).collect())?;
+
+        Ok(Self { annotation, x, anndatas })
     }
 
-    pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
+    pub fn n_obs(&self) -> usize { self.annotation.n_obs() }
 
-    pub fn n_vars(&self) -> usize { *self.n_vars.lock().unwrap().deref() }
-
-    pub fn chunked_x(&self, chunk_size: usize) -> StackedChunkedMatrix {
-        StackedChunkedMatrix {
-            matrices: self.anndatas.values().map(|x| x.x.chunked(chunk_size)).collect(),
-            current_matrix_index: 0,
-            n_mat: self.anndatas.len(),
-        }
-    }
+    pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
 }
 
 fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {

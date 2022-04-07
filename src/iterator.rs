@@ -1,8 +1,8 @@
 use crate::{
-    base::AnnData,
+    anndata::AnnData,
     anndata_trait::{DataType, DataContainer, DataPartialIO},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{MatrixElem, RawMatrixElem, MatrixElemOptional},
+    element::{ElemTrait, MatrixElem, RawMatrixElem},
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
@@ -214,6 +214,8 @@ impl AnnData {
     where
         I: RowIterator,
     {
+        let mut x_guard = self.x.lock().unwrap();
+ 
         if self.n_vars() == 0 { self.set_n_vars(data.ncols()); }
         assert!(
             self.n_vars() == data.ncols(),
@@ -221,7 +223,8 @@ impl AnnData {
             self.n_vars(), data.ncols(),
         );
 
-        if !self.x.is_empty() { self.file.unlink("X")?; }
+        if x_guard.is_some() { self.file.unlink("X")?; }
+
         let (container, nrows) = data.write(&self.file, "X")?;
         if self.n_obs() == 0 { self.set_n_obs(nrows); }
         assert!(
@@ -229,7 +232,7 @@ impl AnnData {
             "Number of observations mismatched, expecting {}, but found {}",
             self.n_obs(), nrows,
         );
-        self.x.insert(container)?;
+        *x_guard = Some(MatrixElem::new(container)?);
         Ok(())
     }
 
@@ -351,35 +354,8 @@ where
     }
 }
 
-impl MatrixElem {
-    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix {
-            elem: MatrixElemLike::M1(self.clone()),
-            chunk_size,
-            size: self.nrows(),
-            current_index: 0,
-        }
-    }
-}
-
-impl MatrixElemOptional {
-    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix {
-            elem: MatrixElemLike::M2(self.clone()),
-            chunk_size,
-            size: self.nrows().unwrap_or(0),
-            current_index: 0,
-        }
-    }
-}
-
-pub enum MatrixElemLike {
-    M1(MatrixElem),
-    M2(MatrixElemOptional),
-}
-
 pub struct ChunkedMatrix {
-    pub(crate) elem: MatrixElemLike,
+    pub(crate) elem: MatrixElem,
     pub(crate) chunk_size: usize,
     pub(crate) size: usize,
     pub(crate) current_index: usize,
@@ -395,11 +371,7 @@ impl Iterator for ChunkedMatrix {
             let i = self.current_index;
             let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
             self.current_index = j;
-            let data = match &self.elem {
-                MatrixElemLike::M1(m) => m.0.lock().unwrap().read_dyn_row_slice(i..j).unwrap(),
-                MatrixElemLike::M2(m) => m.0.lock().unwrap().as_ref().unwrap()
-                    .read_dyn_row_slice(i..j).unwrap(),
-            };
+            let data = self.elem.0.lock().unwrap().read_dyn_row_slice(i..j).unwrap();
             Some(data)
         }
     }

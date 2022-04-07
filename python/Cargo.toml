@@ -25,3 +25,6 @@ flate2 = "1.0"
 [dependencies.pyo3]
 version = "0.16.2"
 features = ["extension-module"]
+
+[lib]
+crate-type = ["cdylib"]

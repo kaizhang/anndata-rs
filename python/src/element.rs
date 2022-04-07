@@ -1,4 +1,4 @@
-use crate::iterator::PyChunkedMatrix;
+use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
 use crate::utils::conversion::{
     to_py_df, to_rust_df,
     to_py_data1, to_py_data2,
@@ -8,7 +8,8 @@ use crate::utils::conversion::{
 use anndata_rs::{
     anndata_trait::DataType,
     element::{
-        Elem, MatrixElem, MatrixElemOptional, DataFrameElem,
+        ElemTrait, Stacked,
+        Elem, MatrixElem, DataFrameElem,
         ElemCollection, AxisArrays,
     },
 };
@@ -106,63 +107,6 @@ impl PyMatrixElem {
 
     fn __str__(&self) -> String { self.__repr__() }
 }
-
-#[pyclass]
-#[repr(transparent)]
-pub struct PyMatrixElemOptional(pub(crate) MatrixElemOptional);
-
-#[pymethods]
-impl PyMatrixElemOptional {
-    fn enable_cache(&mut self) { self.0.enable_cache() }
-
-    fn disable_cache(&mut self) { self.0.disable_cache() }
-
-    #[getter]
-    fn shape(&self) -> (usize, usize) {
-        (self.0.nrows().unwrap_or(0), self.0.ncols().unwrap_or(0))
-    }
-
-    // TODO: efficient partial data reading
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
-        if subscript.eq(py.eval("...", None, None)?)? ||
-            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-            to_py_data2(py, self.0.read().unwrap().unwrap())
-        } else {
-            let data = to_py_data2(py, self.0.read().unwrap().unwrap())?;
-            data.call_method1(py, "__getitem__", (subscript,))
-        }
-    }
- 
-    #[args(
-        replace = true,
-        seed = 2022,
-    )]
-    fn chunk<'py>(
-        &self,
-        py: Python<'py>,
-        size: usize,
-        replace: bool,
-        seed: u64,
-    ) -> PyResult<PyObject> {
-        let length = self.0.nrows().unwrap_or(0);
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        let idx: Vec<usize> = if replace {
-            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
-        } else {
-            rand::seq::index::sample(&mut rng, length, size).into_vec()
-        };
-        to_py_data2(py, self.0.0.lock().unwrap().as_ref().unwrap().read_rows(idx.as_slice()).unwrap())
-    }
-
-    fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
-        PyChunkedMatrix(self.0.chunked(chunk_size))
-    }
-
-    fn __repr__(&self) -> String { format!("{}", self.0) }
-
-    fn __str__(&self) -> String { self.__repr__() }
-}
-
 
 #[pyclass]
 #[repr(transparent)]
@@ -282,3 +226,56 @@ impl PyAxisArrays {
 
     fn __str__(&self) -> String { self.__repr__() }
 }
+
+#[pyclass]
+#[repr(transparent)]
+pub struct PyStackedMatrixElem(pub(crate) Stacked<MatrixElem>);
+
+#[pymethods]
+impl PyStackedMatrixElem {
+    fn enable_cache(&mut self) { self.0.enable_cache() }
+
+    fn disable_cache(&mut self) { self.0.disable_cache() }
+
+    fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix{
+        PyStackedChunkedMatrix(self.0.chunked(chunk_size))
+    }
+
+    /*
+    #[args(
+        replace = true,
+        seed = 2022,
+    )]
+    fn chunk<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        replace: bool,
+        seed: u64,
+    ) -> PyResult<PyObject> {
+        let length = self.0.nrows();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let idx: Vec<usize> = if replace {
+            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
+        } else {
+            rand::seq::index::sample(&mut rng, length, size).into_vec()
+        };
+        to_py_data2(py, self.0.0.lock().unwrap().read_rows(idx.as_slice()).unwrap())
+    }
+    */
+
+    fn get_rows<'py>(
+        &self,
+        py: Python<'py>,
+        indices: &'py PyAny,
+    ) -> PyResult<Py<PyAny>> {
+        let idx = crate::utils::to_indices(py, indices, self.0.size)?;
+        to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
+    }
+ 
+ 
+    //fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    //fn __str__(&self) -> String { self.__repr__() }
+}
+

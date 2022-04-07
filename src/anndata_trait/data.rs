@@ -154,6 +154,23 @@ impl DataContainer {
             ))),
         }
     }
+
+    /// Delete the container.
+    pub fn delete(self) -> Result<()> {
+        let (file, name) = match &self {
+            DataContainer::H5Group(grp) => (grp.file()?, grp.name()),
+            DataContainer::H5Dataset(data) => (data.file()?, data.name()),
+        };
+        let (path, obj) = name.as_str().rsplit_once("/")
+            .unwrap_or(("", name.as_str()));
+        if path.is_empty() {
+            file.unlink(obj)?;
+        } else {
+            let g = file.group(path)?;
+            g.unlink(obj)?;
+        }
+        Ok(())
+    }
 }
 
 pub trait WriteData {

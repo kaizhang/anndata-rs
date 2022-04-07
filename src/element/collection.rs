@@ -1,6 +1,6 @@
 use crate::{
     anndata_trait::*,
-    element::{Elem, MatrixElem},
+    element::{Elem, MatrixElem, ElemTrait},
 };
 
 use std::sync::{Arc, Mutex};
@@ -190,4 +190,3 @@ fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
         (get_name(x.name()), DataContainer::H5Dataset(x))
     ))
 }
-

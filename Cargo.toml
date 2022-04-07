@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 flate2 = "1.0"
+indexmap = "1.8.1"
 itertools = "0.8"
 hdf5 = "0.8.1"
 ndarray = "0.15.4"

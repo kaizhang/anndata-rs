@@ -1,7 +1,7 @@
 use crate::{
-    base::AnnData,
+    anndata::AnnData,
     anndata_trait::*,
-    element::{MatrixElemOptional, DataFrameElem, ElemCollection, AxisArrays, Axis},
+    element::{ElemTrait, MatrixElem, DataFrameElem, ElemCollection, AxisArrays, Axis},
     iterator::IndexedCsrIterator,
 };
 
@@ -18,12 +18,12 @@ impl AnnData {
 
         // Read X
         let x = if file.link_exists("X") {
-            let x = MatrixElemOptional::new(DataContainer::open(&file, "X")?)?;
-            *n_obs.lock().unwrap() = x.nrows().unwrap_or(0);
-            *n_vars.lock().unwrap() = x.ncols().unwrap_or(0);
-            x
+            let x = MatrixElem::new(DataContainer::open(&file, "X")?)?;
+            *n_obs.lock().unwrap() = x.nrows();
+            *n_vars.lock().unwrap() = x.ncols();
+            Arc::new(Mutex::new(Some(x)))
         } else {
-            MatrixElemOptional::empty()
+            Arc::new(Mutex::new(None))
         };
 
         // Read obs
@@ -115,7 +115,7 @@ impl AnnData {
     {
         let file = File::create(filename)?;
 
-        self.x.write(&file, "X")?;
+        self.x.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
         self.obs.write(&file, "obs")?;
         self.var.write(&file, "var")?;
         self.obsm.write(&file.create_group("obsm")?)?;
@@ -161,7 +161,9 @@ impl AnnData {
                 },
             }
         } else {
-            self.set_x(&crate::utils::io::read_matrix_market_from_bufread(reader).unwrap())
+            self.set_x(Some(
+                &crate::utils::io::read_matrix_market_from_bufread(reader).unwrap()
+            ))
         }
     }
 }
