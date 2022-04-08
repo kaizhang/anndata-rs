@@ -59,7 +59,25 @@ def test_chunk(tmp_path):
     for m in adata.X.chunked(47):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
+    s_ = np.zeros_like(s)
+    for m in adata.X.chunked(500000):
+        s_ += m.sum(axis = 0)
+    np.testing.assert_array_equal(s, s_)
 
+    x1 = random(2321, 50, 0.1, format="csr", dtype=np.int64)
+    x2 = random(2921, 50, 0.1, format="csr", dtype=np.int64)
+    x3 = random(1340, 50, 0.1, format="csr", dtype=np.int64)
+    merged = vstack([x1, x2, x3])
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    adata = AnnDataSet([("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path))
+
+    s = merged.sum(axis = 0)
+    s_ = np.zeros_like(s)
+    for m in adata.X.chunked(47):
+        s_ += m.sum(axis = 0)
+    np.testing.assert_array_equal(s, s_)
     s_ = np.zeros_like(s)
     for m in adata.X.chunked(500000):
         s_ += m.sum(axis = 0)

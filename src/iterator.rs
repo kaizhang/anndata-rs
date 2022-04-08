@@ -391,14 +391,16 @@ impl Iterator for StackedChunkedMatrix {
 
     fn next(&mut self) -> Option<Self::Item> {
         let i = self.current_matrix_index;
-        match self.matrices[i].next() {
-            None => if i >= self.n_mat {
-                None
-            } else {
-                self.current_matrix_index += 1;
-                self.next()
-            },
-            r => r,
+        if i >= self.n_mat {
+            None
+        } else {
+            match self.matrices[i].next() {
+                None => { 
+                    self.current_matrix_index += 1;
+                    self.next()
+                },
+                r => r,
+            }
         }
     }
 }

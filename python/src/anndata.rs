@@ -241,16 +241,38 @@ impl AnnDataSet {
         AnnDataSet(anndata::AnnDataSet::new(data, filename).unwrap())
     }
 
-    #[getter(X)]
-    fn get_x(&self) -> PyStackedMatrixElem {
-        PyStackedMatrixElem(self.0.x.clone())
-    }
+    #[getter]
+    fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     #[getter]
     fn n_obs(&self) -> usize { self.0.n_obs() }
 
     #[getter]
     fn n_vars(&self) -> usize { self.0.n_vars() }
+
+    #[getter(X)]
+    fn get_x(&self) -> PyStackedMatrixElem {
+        PyStackedMatrixElem(self.0.x.clone())
+    }
+
+    #[getter(uns)]
+    fn get_uns(&self) -> PyElemCollection {
+        PyElemCollection(self.0.get_uns().clone())
+    }
+
+    #[setter(uns)]
+    fn set_uns<'py>(
+        &mut self,
+        py: Python<'py>,
+        mut uns: HashMap<String, &'py PyAny>,
+    ) -> PyResult<()>
+    {
+        let x: PyResult<_> = uns.drain().map(|(k, v)|
+            Ok((k, to_rust_data1(py, v)?))
+        ).collect();
+        self.0.set_uns(&x?).unwrap();
+        Ok(())
+    }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
 
