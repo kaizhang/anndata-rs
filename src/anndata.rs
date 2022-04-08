@@ -20,14 +20,79 @@ pub struct AnnData {
     pub n_obs: Arc<Mutex<usize>>,
     pub n_vars: Arc<Mutex<usize>>,
     pub x: Arc<Mutex<Option<MatrixElem>>>,
-    pub obs: DataFrameElem,
+    pub obs: Arc<Mutex<Option<DataFrameElem>>>,
     pub obsm: AxisArrays,
     pub obsp: AxisArrays,
-    pub var: DataFrameElem,
+    pub var: Arc<Mutex<Option<DataFrameElem>>>,
     pub varm: AxisArrays,
     pub varp: AxisArrays,
     pub uns: ElemCollection,
 }
+
+/*
+impl std::fmt::Display for AnnData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            &mut f,
+            "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
+            self.n_obs(),
+            self.n_vars(),
+            self.filename(),
+        ).unwrap();
+
+        if !self.obs.is_empty {
+        if let Some(obs) = self.obs.0 {
+            write!(
+                &mut f,
+                "\n    obs: {}",
+                self.obs.0.get_column_names().unwrap().join(", "),
+            ).unwrap();
+        }
+        if let Some(var) = self.get_var() {
+            write!(
+                &mut f,
+                "\n    var: {}",
+                var.0.get_column_names().unwrap().join(", "),
+            ).unwrap();
+        }
+
+        let obsm = self.get_obsm().keys();
+        if obsm.len() > 0 {
+            write!(&mut descr, "\n    obsm: {}", obsm.join(", ")).unwrap();
+        }
+        let obsp = self.get_obsp().keys();
+        if obsp.len() > 0 {
+            write!(&mut descr, "\n    obsp: {}", obsp.join(", ")).unwrap();
+        }
+        let varm = self.get_varm().keys();
+        if varm.len() > 0 {
+            write!(&mut descr, "\n    varm: {}", varm.join(", ")).unwrap();
+        }
+        let varp = self.get_varp().keys();
+        if varp.len() > 0 {
+            write!(&mut descr, "\n    varp: {}", varp.join(", ")).unwrap();
+        }
+        let uns = self.get_uns().keys();
+        if uns.len() > 0 {
+            write!(&mut descr, "\n    uns: {}", uns.join(", ")).unwrap();
+        }
+        descr
+    }
+
+
+
+
+
+
+        let elem = self.0.lock().unwrap();
+        write!(f, "Elem with {}, cache_enabled: {}, cached: {}",
+            elem.dtype,
+            if elem.cache_enabled { "yes" } else { "no" },
+            if elem.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+*/
 
 impl AnnData {
     pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
@@ -75,19 +140,29 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn set_obs(&self, obs: &DataFrame) -> Result<()> {
-        let n = self.n_obs();
-        assert!(
-            n == 0 || n == obs.nrows(),
-            "Number of observations mismatched, expecting {}, but found {}",
-            n, obs.nrows(),
-        );
-        if self.obs.is_empty() {
-            self.obs.insert(obs.write(&self.file, "obs")?)?;
-        } else {
-            self.obs.update(obs);
+    pub fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+        let mut obs_guard = self.obs.lock().unwrap();
+        match obs_ {
+            None => if obs_guard.is_some() {
+                self.file.unlink("obs")?;
+                *obs_guard = None;
+            },
+            Some(obs) => {
+                let n = self.n_obs();
+                assert!(
+                    n == 0 || n == obs.nrows(),
+                    "Number of observations mismatched, expecting {}, but found {}",
+                    n, obs.nrows(),
+                );
+                match obs_guard.as_ref() {
+                    Some(x) => x.update(obs),
+                    None => {
+                        *obs_guard = Some(DataFrameElem::new(obs.write(&self.file, "obs")?)?);
+                    },
+                }
+                self.set_n_obs(obs.nrows());
+            },
         }
-        self.set_n_obs(obs.nrows());
         Ok(())
     }
 
@@ -115,19 +190,29 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn set_var(&self, var: &DataFrame) -> Result<()> {
-        let n = self.n_vars();
-        assert!(
-            n == 0 || n == var.nrows(),
-            "Number of variables mismatched, expecting {}, but found {}",
-            n, var.nrows(),
-        );
-        if self.var.is_empty() {
-            self.var.insert(var.write(&self.file, "var")?)?;
-        } else {
-            self.var.update(var);
+    pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+        let mut var_guard = self.var.lock().unwrap();
+        match var_ {
+            None => if var_guard.is_some() {
+                self.file.unlink("var")?;
+                *var_guard = None;
+            },
+            Some(var) => {
+                let n = self.n_vars();
+                assert!(
+                    n == 0 || n == var.nrows(),
+                    "Number of variables mismatched, expecting {}, but found {}",
+                    n, var.nrows(),
+                );
+                match var_guard.as_ref() {
+                    Some(x) => x.update(var),
+                    None => {
+                        *var_guard = Some(DataFrameElem::new(var.write(&self.file, "var")?)?);
+                    },
+                }
+                self.set_n_vars(var.nrows());
+            },
         }
-        self.set_n_vars(var.nrows());
         Ok(())
     }
 
@@ -193,8 +278,10 @@ impl AnnData {
         };
         Ok(Self { file, n_obs, n_vars,
             x: Arc::new(Mutex::new(None)),
-            obs: DataFrameElem::empty(), obsm, obsp,
-            var: DataFrameElem::empty(), varm, varp,
+            obs: Arc::new(Mutex::new(None)),
+            obsm, obsp,
+            var: Arc::new(Mutex::new(None)),
+            varm, varp,
             uns,
         })
     }
@@ -202,7 +289,7 @@ impl AnnData {
     pub fn subset_obs(&self, idx: &[usize])
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
-        self.obs.subset_rows(idx);
+        self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
         self.obsm.subset(idx);
         self.obsp.subset(idx);
         self.set_n_obs(idx.len());
@@ -211,7 +298,7 @@ impl AnnData {
     pub fn subset_var(&self, idx: &[usize])
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
-        self.var.subset_cols(idx);
+        self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
         self.varm.subset(idx);
         self.varp.subset(idx);
         self.set_n_vars(idx.len());
@@ -220,10 +307,10 @@ impl AnnData {
     pub fn subset(&self, ridx: &[usize], cidx: &[usize])
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset(ridx, cidx));
-        self.obs.subset_rows(ridx);
+        self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(ridx));
         self.obsm.subset(ridx);
         self.obsp.subset(ridx);
-        self.var.subset_cols(cidx);
+        self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(cidx));
         self.varm.subset(cidx);
         self.varp.subset(cidx);
         self.set_n_obs(ridx.len());
@@ -247,16 +334,19 @@ impl AnnDataSet {
         let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
 
         let annotation = AnnData::new(filename, n_obs, n_vars)?;
-        if let Some(obs) = anndatas.values().map(|x| x.obs.read().map(|d| d.unwrap()[0].clone())).collect::<Option<Vec<_>>>() {
-            annotation.set_obs(&DataFrame::new(vec![
+        if let Some(obs) = anndatas.values()
+            .map(|x| x.obs.lock().unwrap().as_ref().map(|d| d.read().unwrap()[0].clone()))
+            .collect::<Option<Vec<_>>>()
+        {
+            annotation.set_obs(Some(&DataFrame::new(vec![
             obs.into_iter().reduce(|mut accum, item| {
                 accum.append(&item).unwrap();
                 accum
             }).unwrap().clone()
-            ]).unwrap())?;
+            ]).unwrap()))?;
         }
-        if let Some(var) = anndatas.values().next().unwrap().var.read() {
-            annotation.set_var(&DataFrame::new(vec![var.unwrap()[0].clone()]).unwrap())?;
+        if let Some(var) = anndatas.values().next().unwrap().var.lock().unwrap().as_ref() {
+            annotation.set_var(Some(&DataFrame::new(vec![var.read()?[0].clone()]).unwrap()))?;
         }
         
         /*

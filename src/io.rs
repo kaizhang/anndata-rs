@@ -31,16 +31,16 @@ impl AnnData {
             let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
             let n = *n_obs.lock().unwrap().deref();
             if n == 0 {
-                *n_obs.lock().unwrap() = obs.nrows().unwrap();
+                *n_obs.lock().unwrap() = obs.nrows();
             } else {
-                assert!(n == obs.nrows().unwrap(),
+                assert!(n == obs.nrows(),
                     "Inconsistent number of observations: {} (X) != {} (obs)",
-                    n, obs.nrows().unwrap(),
+                    n, obs.nrows(),
                 );
             }
-            obs
+            Arc::new(Mutex::new(Some(obs)))
         } else {
-            DataFrameElem::empty()
+            Arc::new(Mutex::new(None))
         };
 
         // Read obsm
@@ -68,16 +68,16 @@ impl AnnData {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
             let n = *n_vars.lock().unwrap().deref();
             if n == 0 {
-                *n_vars.lock().unwrap() = var.ncols().unwrap();
+                *n_vars.lock().unwrap() = var.ncols();
             } else {
-                assert!(n == var.ncols().unwrap(),
+                assert!(n == var.ncols(),
                     "Inconsistent number of variables: {} (X) != {} (var)",
-                    n, var.ncols().unwrap(),
+                    n, var.ncols(),
                 );
             }
-            var
+            Arc::new(Mutex::new(Some(var)))
         } else {
-            DataFrameElem::empty()
+            Arc::new(Mutex::new(None))
         };
 
         // Read varm
@@ -116,8 +116,8 @@ impl AnnData {
         let file = File::create(filename)?;
 
         self.x.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
-        self.obs.write(&file, "obs")?;
-        self.var.write(&file, "var")?;
+        self.obs.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
+        self.var.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
         self.obsm.write(&file.create_group("obsm")?)?;
         self.obsp.write(&file.create_group("obsp")?)?;
         self.varm.write(&file.create_group("varm")?)?;

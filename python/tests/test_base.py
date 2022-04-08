@@ -1,4 +1,4 @@
-from anndata_rs.pyanndata import AnnData, AnnDataSet
+from anndata_rs.pyanndata import AnnData, AnnDataSet, read_h5ad
 
 import numpy as np
 from numpy import dtype, ma
@@ -16,6 +16,10 @@ def h5ad(dir=Path("./")):
 def test_creation(tmp_path):
     # some test objects that we use below
     adata_dense = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
+    file = adata_dense.filename
+    del adata_dense
+    adata_dense = read_h5ad(file, mode="r")
+
     adata_sparse = AnnData(
         filename = h5ad(tmp_path),
         X = csr_matrix([[0, 2, 3], [0, 5, 6]]),

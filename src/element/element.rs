@@ -71,93 +71,76 @@ impl std::fmt::Display for MatrixElem {
 }
 
 #[derive(Clone)]
-pub struct DataFrameElem(pub Arc<Mutex<Option<RawMatrixElem<DataFrame>>>>);
+pub struct DataFrameElem(pub Arc<Mutex<RawMatrixElem<DataFrame>>>);
 
 impl DataFrameElem {
-    pub fn empty() -> Self { Self(Arc::new(Mutex::new(None))) }
-
-    pub fn is_empty(&self) -> bool { self.0.lock().unwrap().is_none() }
-
     pub fn new(container: DataContainer) -> Result<Self> {
         let mut elem = RawMatrixElem::<DataFrame>::new_elem(container)?;
         elem.enable_cache();
-        Ok(Self(Arc::new(Mutex::new(Some(elem)))))
-    }
-
-    pub fn insert(&self, container: DataContainer) -> Result<()> {
-        let elem = RawMatrixElem::<DataFrame>::new_elem(container)?;
-        let _r: &mut RawMatrixElem<_> = self.0.lock().unwrap().insert(elem);
-        Ok(())
+        Ok(Self(Arc::new(Mutex::new(elem))))
     }
 
     pub fn enable_cache(&self) {
-        self.0.lock().unwrap().as_mut().map(|x| x.enable_cache());
+        self.0.lock().unwrap().enable_cache();
     }
 
     pub fn disable_cache(&self) {
-        self.0.lock().unwrap().as_mut().map(|x| x.disable_cache());
+        self.0.lock().unwrap().disable_cache();
     }
 
-    pub fn read(&self) -> Option<Result<DataFrame>> {
-        self.0.lock().unwrap().as_mut().map(|x| x.read_elem())
+    pub fn read(&self) -> Result<DataFrame> {
+        self.0.lock().unwrap().read_elem()
     }
 
     pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.0.lock().unwrap().as_ref()
-            .map_or(Ok(()), |x| x.write_elem(location, name))
+        self.0.lock().unwrap().write_elem(location, name)
     }
 
     pub fn update(&self, data: &DataFrame) {
-        self.0.lock().unwrap().as_mut().map(|x|
-            x.update(data).unwrap()
-        );
+        self.0.lock().unwrap().update(data).unwrap()
     }
 
     pub fn get_column_names(&self) -> Result<Vec<String>> {
-        match self.0.lock().unwrap().as_ref() {
-            None => Ok(Vec::new()),
-            Some(elem) => match &elem.inner.element {
-                Some(el) => Ok(el.get_column_names_owned()),
-                None => {
-                    let grp = elem.inner.container.get_group_ref()?;
-                    let mut r = read_str_vec_attr(grp, "column-order")?;
-                    r.insert(0, read_str_attr(grp, "_index")?);
-                    Ok(r)
-                }
+        let elem = self.0.lock().unwrap();
+        match &elem.inner.element {
+            Some(el) => Ok(el.get_column_names_owned()),
+            None => {
+                let grp = elem.inner.container.get_group_ref()?;
+                let mut r = read_str_vec_attr(grp, "column-order")?;
+                r.insert(0, read_str_attr(grp, "_index")?);
+                Ok(r)
             }
         }
     }
 
-    pub fn nrows(&self) -> Option<usize> {
-        self.0.lock().unwrap().as_ref().map(|x| x.nrows)
+    pub fn nrows(&self) -> usize {
+        self.0.lock().unwrap().nrows
     }
 
-    pub fn ncols(&self) -> Option<usize> {
-        self.0.lock().unwrap().as_ref().map(|x| x.ncols)
+    pub fn ncols(&self) -> usize {
+        self.0.lock().unwrap().ncols
     }
 
     pub fn subset_rows(&self, idx: &[usize]) {
-        self.0.lock().unwrap().as_mut().map(|x| x.subset_rows(idx).unwrap());
+        self.0.lock().unwrap().subset_rows(idx).unwrap();
     }
 
     pub fn subset_cols(&self, idx: &[usize]) {
-        self.0.lock().unwrap().as_mut().map(|x| x.subset_cols(idx).unwrap());
+        self.0.lock().unwrap().subset_cols(idx).unwrap();
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize]) {
-        self.0.lock().unwrap().as_mut().map(|x| x.subset(ridx, cidx).unwrap());
+        self.0.lock().unwrap().subset(ridx, cidx).unwrap();
     }
 }
 
 impl std::fmt::Display for DataFrameElem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0.lock().unwrap().as_ref() {
-            None => write!(f, "empty DataFrameElem"),
-            Some(elem) => write!(f, "DataFrameElem, cache_enabled: {}, cached: {}",
-                if elem.inner.cache_enabled { "yes" } else { "no" },
-                if elem.inner.element.is_some() { "yes" } else { "no" },
-            )
-        }
+        let elem = self.0.lock().unwrap();
+        write!(f, "DataFrameElem, cache_enabled: {}, cached: {}",
+            if elem.inner.cache_enabled { "yes" } else { "no" },
+            if elem.inner.element.is_some() { "yes" } else { "no" },
+        )
     }
 }
 

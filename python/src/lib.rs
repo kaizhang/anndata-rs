@@ -20,5 +20,6 @@ fn pyanndata(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_mtx, m)?)?;
     m.add_function(wrap_pyfunction!(read_h5ad, m)?)?;
+    m.add_function(wrap_pyfunction!(read_dataset, m)?)?;
     Ok(())
 }

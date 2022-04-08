@@ -118,21 +118,13 @@ impl PyDataFrameElem {
 
     fn disable_cache(&mut self) { self.0.disable_cache() }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Option<Py<PyAny>>> {
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if subscript.eq(py.eval("...", None, None)?)? ||
             subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-            match self.0.read() {
-                None => Ok(None),
-                Some(x) => Ok(Some(to_py_df(x.unwrap())?)),
-            }
+                to_py_df(self.0.read().unwrap())
         } else {
-            match self.0.read() {
-                None => Ok(None),
-                Some(x) => {
-                    let data = to_py_df(x.unwrap())?;
-                    Ok(Some(data.call_method1(py, "__getitem__", (subscript,))?))
-                },
-            }
+            let data = to_py_df(self.0.read().unwrap())?;
+            data.call_method1(py, "__getitem__", (subscript,))
         }
     }
 
@@ -142,21 +134,14 @@ impl PyDataFrameElem {
         key: &'py PyAny,
         data: &'py PyAny,
     ) -> PyResult<()> {
-        match self.0.read() {
-            None => Err(PyTypeError::new_err(
-                "Cannot set a empty dataframe"
-            )),
-            Some(value) => {
-                let df = to_py_df(value.unwrap())?;
-                df.call_method1(py, "__setitem__", (key, data))?;
-                self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
-                Ok(())
-            },
-        }
+        let df = to_py_df(self.0.read().unwrap())?;
+        df.call_method1(py, "__setitem__", (key, data))?;
+        self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
+        Ok(())
     }
  
     fn __contains__(&self, key: &str) -> bool {
-        self.0.read().map_or(false, |x| x.unwrap().find_idx_by_name(key).is_some())
+        self.0.read().unwrap().find_idx_by_name(key).is_some()
     }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }

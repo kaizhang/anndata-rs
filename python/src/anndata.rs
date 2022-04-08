@@ -50,8 +50,8 @@ impl AnnData {
             filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)
         ).unwrap());
        anndata.set_x(py, X)?;
-       if let Some(d) = obs { anndata.set_obs(py, d)?; }
-       if let Some(d) = var { anndata.set_var(py, d)?; }
+       anndata.set_obs(py, obs)?;
+       anndata.set_var(py, var)?;
        if let Some(d) = obsm { anndata.set_obsm(py, d)?; }
        Ok(anndata)
     }
@@ -91,25 +91,24 @@ impl AnnData {
 
     #[getter(obs)]
     fn get_obs(&self) -> Option<PyDataFrameElem> {
-        if self.0.obs.is_empty() {
-            None
-        } else {
-            Some(PyDataFrameElem(self.0.obs.clone()))
-        }
+        self.0.obs.lock().unwrap().as_ref().map(|x| 
+            PyDataFrameElem(x.clone()))
     }
 
     #[setter(obs)]
-    fn set_obs<'py>(&self, py: Python<'py>, df: &'py PyAny) -> PyResult<()> {
-        let polars = py.import("polars")?;
-        let df_ = if isinstance_of_pandas(py, df)? {
-            polars.call_method1("from_pandas", (df, ))?
-        } else if df.is_instance_of::<pyo3::types::PyDict>()? {
-            polars.call_method1("from_dict", (df, ))?
-        } else {
-            df
-        };
- 
-        self.0.set_obs(&to_rust_df(df_)?).unwrap();
+    fn set_obs<'py>(&self, py: Python<'py>, df: Option<&'py PyAny>) -> PyResult<()> {
+        let data = df.map(|x| {
+            let polars = py.import("polars")?;
+            let df_ = if isinstance_of_pandas(py, x)? {
+                polars.call_method1("from_pandas", (x, ))?
+            } else if x.is_instance_of::<pyo3::types::PyDict>()? {
+                polars.call_method1("from_dict", (x, ))?
+            } else {
+                x
+            };
+            to_rust_df(df_)
+        }).transpose()?;
+        self.0.set_obs(data.as_ref()).unwrap();
         Ok(())
     }
 
@@ -136,25 +135,24 @@ impl AnnData {
     
     #[getter(var)]
     fn get_var(&self) -> Option<PyDataFrameElem> {
-        if self.0.var.is_empty() {
-            None
-        } else {
-            Some(PyDataFrameElem(self.0.var.clone()))
-        }
+        self.0.var.lock().unwrap().as_ref().map(|x| 
+            PyDataFrameElem(x.clone()))
     }
 
     #[setter(var)]
-    fn set_var<'py>(&self, py: Python<'py>, df: &'py PyAny) -> PyResult<()> {
-        let polars = py.import("polars")?;
-        let df_ = if isinstance_of_pandas(py, df)? {
-            polars.call_method1("from_pandas", (df, ))?
-        } else if df.is_instance_of::<pyo3::types::PyDict>()? {
-            polars.call_method1("from_dict", (df, ))?
-        } else {
-            df
-        };
- 
-        self.0.set_var(&to_rust_df(df_)?).unwrap();
+    fn set_var<'py>(&self, py: Python<'py>, df: Option<&'py PyAny>) -> PyResult<()> {
+        let data = df.map(|x| {
+            let polars = py.import("polars")?;
+            let df_ = if isinstance_of_pandas(py, x)? {
+                polars.call_method1("from_pandas", (x, ))?
+            } else if x.is_instance_of::<pyo3::types::PyDict>()? {
+                polars.call_method1("from_dict", (x, ))?
+            } else {
+                x
+            };
+            to_rust_df(df_)
+        }).transpose()?;
+        self.0.set_var(data.as_ref()).unwrap();
         Ok(())
     }
 
