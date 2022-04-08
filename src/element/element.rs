@@ -191,7 +191,8 @@ impl Stacked<MatrixElem>
 
     pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
         let (ori_idx, rows): (Vec<_>, Vec<_>) = idx.iter().map(|x| self.normalize_index(*x))
-            .enumerate().group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
+            .enumerate().sorted_by_key(|x| x.1.0).into_iter()
+            .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
                 let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
                 (ori_idx, self.elems[key].0.lock().unwrap().read_rows(inner_idx.as_slice()))
             }).unzip();
