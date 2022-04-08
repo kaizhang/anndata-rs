@@ -3,7 +3,7 @@ use crate::{
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
     utils::hdf5::{read_str_vec_attr, read_str_attr},
-    utils::macros::proc_arr_data,
+    utils::macros::{proc_csr_data, proc_arr_data},
 };
 
 use polars::frame::DataFrame;
@@ -11,6 +11,7 @@ use hdf5::{Result, Group};
 use std::sync::{Arc, Mutex};
 use itertools::Itertools;
 use ndarray::{ArrayD, Axis};
+use nalgebra_sparse::CsrMatrix;
 
 #[derive(Clone)]
 pub struct Elem(pub Arc<Mutex<RawElem<dyn DataIO>>>);
@@ -162,9 +163,21 @@ impl std::fmt::Display for DataFrameElem {
 
 #[derive(Clone)]
 pub struct Stacked<T> {
-    pub size: usize,
+    pub nrows: usize,
+    pub ncols: usize,
     pub elems: Arc<Vec<T>>,
     accum: Vec<usize>,
+}
+
+impl std::fmt::Display for Stacked<MatrixElem> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} x {} stacked elements ({}) with {}",
+            self.nrows,
+            self.ncols,
+            self.elems.len(),
+            self.elems[0].dtype(),
+        )
+    }
 }
 
 impl Stacked<MatrixElem>
@@ -181,12 +194,16 @@ impl Stacked<MatrixElem>
         if !elems.iter().map(|x| x.dtype()).all_equal() {
             panic!("dtype not equal");
         }
+        if !elems.iter().map(|x| x.ncols()).all_equal() {
+            panic!("num cols mismatch");
+        }
+        let ncols = elems.iter().next().map(|x| x.ncols()).unwrap_or(0);
         let accum: Vec<usize> = std::iter::once(0).chain(elems.iter().scan(0, |state, x| {
             *state = *state + x.nrows();
             Some(*state)
         })).collect();
-        let size = *accum.last().unwrap();
-        Ok(Self { size, elems: Arc::new(elems), accum })
+        let nrows = *accum.last().unwrap();
+        Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
     }
 
     pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
@@ -228,7 +245,13 @@ fn concat_matrices(index: Vec<usize>, mats: Vec<Box<dyn DataPartialIO>>) -> Resu
                 index.as_slice(),
                 mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
             ))
-        }
+        },
+        DataType::CsrMatrix(ty) => {
+            proc_csr_data!(ty, concat_csr(
+                index.as_slice(),
+                mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
+            ))
+        },
         x => panic!("{}", x),
     }
 }
@@ -241,6 +264,26 @@ fn concat_array<T: Clone>(index: &[usize], mats: Vec<Box<ArrayD<T>>>) -> ArrayD<
     let new_idx: Vec<_> = index.iter().enumerate().sorted_by_key(|x| *x.1)
         .map(|x| x.0).collect();
     merged.select(Axis(0), new_idx.as_slice())
+}
+
+fn concat_csr<T: Clone>(index: &[usize], mats: Vec<Box<CsrMatrix<T>>>) -> CsrMatrix<T> {
+    if !mats.iter().map(|x| x.ncols()).all_equal() {
+        panic!("num cols mismatch");
+    }
+    let num_rows = mats.iter().map(|x| x.nrows()).sum();
+    let num_cols = mats.iter().next().map(|x| x.ncols()).unwrap_or(0);
+    let mut values = Vec::new();
+    let mut col_indices = Vec::new();
+    let mut row_offsets = Vec::new();
+    let nnz = mats.iter().map(|x| x.row_iter()).flatten()
+        .zip(index).sorted_by_key(|x| *x.1).fold(0, |acc, x| {
+            row_offsets.push(acc);
+            values.extend_from_slice(x.0.values());
+            col_indices.extend_from_slice(x.0.col_indices());
+            acc + x.0.nnz()
+        });
+    row_offsets.push(nnz);
+    CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
 }
 
 pub trait ElemTrait {

@@ -276,6 +276,14 @@ impl AnnDataSet {
     pub fn n_obs(&self) -> usize { self.annotation.n_obs() }
 
     pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
+
+    pub fn get_obsm(&self) -> &AxisArrays {
+        &self.annotation.obsm
+    }
+
+    pub fn set_obsm(&mut self, obsm: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
+        self.annotation.set_obsm(obsm)
+    }
 }
 
 fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {

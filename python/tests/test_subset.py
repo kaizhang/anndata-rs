@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import uuid
 from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse, random
+from scipy.sparse import csr_matrix, issparse, random, vstack
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
@@ -79,4 +79,15 @@ def test_anndataset(tmp_path):
 
     idx = np.random.randint(0, 100, 50)
     np.testing.assert_array_equal(merged[idx, :], dataset.X.get_rows(idx))
+
+    data1 = random(2000, 500, 0.01, format="csr")
+    data2 = random(2231, 500, 0.2, format="csr")
+    data3 = random(231, 500, 0.5, format="csr")
+    merged = vstack([data1, data2, data3])
+    adata1 = AnnData(X=data1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=data2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=data3, filename=h5ad(tmp_path))
+    dataset = AnnDataSet([("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path))
+    idx = np.random.randint(0, 3000, 1000)
+    np.testing.assert_array_equal(merged[idx, :].todense(), dataset.X.get_rows(idx).todense())
  

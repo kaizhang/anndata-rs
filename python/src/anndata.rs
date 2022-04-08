@@ -113,8 +113,6 @@ impl AnnData {
         Ok(())
     }
 
-
-
     #[getter(obsm)]
     fn get_obsm(&self) -> PyAxisArrays { PyAxisArrays(self.0.obsm.clone()) }
 
@@ -309,6 +307,18 @@ impl AnnDataSet {
 
     #[getter]
     fn n_vars(&self) -> usize { self.0.n_vars() }
+
+    #[getter(obsm)]
+    fn get_obsm(&self) -> PyAxisArrays { PyAxisArrays(self.0.get_obsm().clone()) }
+
+    #[setter(obsm)]
+    fn set_obsm<'py>(&mut self, py: Python<'py>, mut obsm: HashMap<String, &'py PyAny>) -> PyResult<()> {
+        let obsm_: PyResult<_> = obsm.drain().map(|(k, v)|
+            Ok((k, to_rust_data2(py, v)?))
+        ).collect();
+        self.0.set_obsm(&obsm_?).unwrap();
+        Ok(())
+    }
 }
 
 #[pyfunction]
