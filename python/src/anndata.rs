@@ -16,7 +16,76 @@ use pyo3::{
     PyResult, Python,
 };
 use std::collections::HashMap;
-use std::fmt::Write;
+use paste::paste;
+
+macro_rules! def_df_accessor {
+    ($name:ty, { $($field:ident),* }) => {
+        paste! {
+            #[pymethods]
+            impl $name {
+            $(
+                #[getter($field)]
+                fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
+                    self.0.[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
+                        PyDataFrameElem(x.clone()))
+                }
+
+                #[setter($field)]
+                fn [<set_ $field>]<'py>(
+                    &mut self,
+                    py: Python<'py>,
+                    df: Option<&'py PyAny>
+                ) -> PyResult<()>
+                {
+                    let data = df.map(|x| {
+                        let polars = py.import("polars")?;
+                        let df_ = if isinstance_of_pandas(py, x)? {
+                            polars.call_method1("from_pandas", (x, ))?
+                        } else if x.is_instance_of::<pyo3::types::PyDict>()? {
+                            polars.call_method1("from_dict", (x, ))?
+                        } else {
+                            x
+                        };
+                        to_rust_df(df_)
+                    }).transpose()?;
+                    self.0.[<set_ $field>](data.as_ref()).unwrap();
+                    Ok(())
+                }
+            )*
+            }
+        }
+    }
+}
+
+macro_rules! def_arr_accessor {
+    ($name:ty, $get_type:ty, $set_type:ty, { $($field:ident),* }) => {
+        paste! {
+            #[pymethods]
+            impl $name {
+            $(
+                #[getter($field)]
+                fn [<get_ $field>](&self) -> $get_type {
+                    $get_type(self.0.[<get_ $field>]().clone())
+                }
+
+                #[setter($field)]
+                fn [<set_ $field>]<'py>(
+                    &mut self,
+                    py: Python<'py>,
+                    mut $field: $set_type
+                ) -> PyResult<()>
+                {
+                    let x: PyResult<_> = $field.drain().map(|(k, v)|
+                        Ok((k, to_rust_data2(py, v)?))
+                    ).collect();
+                    self.0.[<set_ $field>](&x?).unwrap();
+                    Ok(())
+                }
+            )*
+            }
+        }
+    }
+}
 
 #[pyclass]
 #[repr(transparent)]
@@ -89,94 +158,8 @@ impl AnnData {
         Ok(())
     }
 
-    #[getter(obs)]
-    fn get_obs(&self) -> Option<PyDataFrameElem> {
-        self.0.obs.lock().unwrap().as_ref().map(|x| 
-            PyDataFrameElem(x.clone()))
-    }
-
-    #[setter(obs)]
-    fn set_obs<'py>(&self, py: Python<'py>, df: Option<&'py PyAny>) -> PyResult<()> {
-        let data = df.map(|x| {
-            let polars = py.import("polars")?;
-            let df_ = if isinstance_of_pandas(py, x)? {
-                polars.call_method1("from_pandas", (x, ))?
-            } else if x.is_instance_of::<pyo3::types::PyDict>()? {
-                polars.call_method1("from_dict", (x, ))?
-            } else {
-                x
-            };
-            to_rust_df(df_)
-        }).transpose()?;
-        self.0.set_obs(data.as_ref()).unwrap();
-        Ok(())
-    }
-
-    #[getter(obsm)]
-    fn get_obsm(&self) -> PyAxisArrays { PyAxisArrays(self.0.obsm.clone()) }
-
-    #[setter(obsm)]
-    fn set_obsm<'py>(&mut self, py: Python<'py>, mut obsm: HashMap<String, &'py PyAny>) -> PyResult<()> {
-        let obsm_: PyResult<_> = obsm.drain().map(|(k, v)|
-            Ok((k, to_rust_data2(py, v)?))
-        ).collect();
-        self.0.set_obsm(&obsm_?).unwrap();
-        Ok(())
-    }
-    
-    #[getter(obsp)]
-    fn get_obsp(&self) -> PyAxisArrays { PyAxisArrays(self.0.obsp.clone()) }
-
-    #[setter(obsp)]
-    fn set_obsp<'py>(&mut self, py: Python<'py>, mut obsp: HashMap<String, &'py PyAny>) {
-        let obsp_ = obsp.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
-        self.0.set_obsp(&obsp_).unwrap();
-    }
-    
-    #[getter(var)]
-    fn get_var(&self) -> Option<PyDataFrameElem> {
-        self.0.var.lock().unwrap().as_ref().map(|x| 
-            PyDataFrameElem(x.clone()))
-    }
-
-    #[setter(var)]
-    fn set_var<'py>(&self, py: Python<'py>, df: Option<&'py PyAny>) -> PyResult<()> {
-        let data = df.map(|x| {
-            let polars = py.import("polars")?;
-            let df_ = if isinstance_of_pandas(py, x)? {
-                polars.call_method1("from_pandas", (x, ))?
-            } else if x.is_instance_of::<pyo3::types::PyDict>()? {
-                polars.call_method1("from_dict", (x, ))?
-            } else {
-                x
-            };
-            to_rust_df(df_)
-        }).transpose()?;
-        self.0.set_var(data.as_ref()).unwrap();
-        Ok(())
-    }
-
-    #[getter(varm)]
-    fn get_varm(&self) -> PyAxisArrays { PyAxisArrays(self.0.varm.clone()) }
-
-    #[setter(varm)]
-    fn set_varm<'py>(&mut self, py: Python<'py>, mut varm: HashMap<String, &'py PyAny>) {
-        let varm_ = varm.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
-        self.0.set_varm(&varm_).unwrap();
-    }
-
-    #[getter(varp)]
-    fn get_varp(&self) -> PyAxisArrays { PyAxisArrays(self.0.varp.clone()) }
-    
-    #[setter(varp)]
-    fn set_varp<'py>(&mut self, py: Python<'py>, mut varp: HashMap<String, &'py PyAny>)
-    {
-        let varp_ = varp.drain().map(|(k, v)| (k, to_rust_data2(py, v).unwrap())).collect();
-        self.0.set_varp(&varp_).unwrap();
-    }
-    
     #[getter(uns)]
-    fn get_uns(&self) -> PyElemCollection { PyElemCollection(self.0.uns.clone()) }
+    fn get_uns(&self) -> PyElemCollection { PyElemCollection(self.0.get_uns().clone()) }
 
     #[setter(uns)]
     fn set_uns<'py>(&mut self, py: Python<'py>, mut uns: HashMap<String, &'py PyAny>) {
@@ -232,56 +215,19 @@ impl AnnData {
         }
     }
 
-    fn __repr__(&self) -> String {
-        let mut descr = String::new();
-        write!(
-            &mut descr,
-            "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
-            self.n_obs(),
-            self.n_vars(),
-            self.filename(),
-        ).unwrap();
-
-        if let Some(obs) = self.get_obs() {
-            write!(
-                &mut descr,
-                "\n    obs: {}",
-                obs.0.get_column_names().unwrap().join(", "),
-            ).unwrap();
-        }
-        if let Some(var) = self.get_var() {
-            write!(
-                &mut descr,
-                "\n    var: {}",
-                var.0.get_column_names().unwrap().join(", "),
-            ).unwrap();
-        }
-
-        let obsm = self.get_obsm().keys();
-        if obsm.len() > 0 {
-            write!(&mut descr, "\n    obsm: {}", obsm.join(", ")).unwrap();
-        }
-        let obsp = self.get_obsp().keys();
-        if obsp.len() > 0 {
-            write!(&mut descr, "\n    obsp: {}", obsp.join(", ")).unwrap();
-        }
-        let varm = self.get_varm().keys();
-        if varm.len() > 0 {
-            write!(&mut descr, "\n    varm: {}", varm.join(", ")).unwrap();
-        }
-        let varp = self.get_varp().keys();
-        if varp.len() > 0 {
-            write!(&mut descr, "\n    varp: {}", varp.join(", ")).unwrap();
-        }
-        let uns = self.get_uns().keys();
-        if uns.len() > 0 {
-            write!(&mut descr, "\n    uns: {}", uns.join(", ")).unwrap();
-        }
-        descr
-    }
+    fn __repr__(&self) -> String { format!("{}", self.0) }
 
     fn __str__(&self) -> String { self.__repr__() }
 }
+
+def_df_accessor!(AnnData, { obs, var });
+
+def_arr_accessor!(
+    AnnData,
+    PyAxisArrays,
+    HashMap<String, &'py PyAny>,
+    { obsm, obsp, varm, varp }
+);
 
 #[pyclass]
 #[repr(transparent)]
@@ -306,18 +252,19 @@ impl AnnDataSet {
     #[getter]
     fn n_vars(&self) -> usize { self.0.n_vars() }
 
-    #[getter(obsm)]
-    fn get_obsm(&self) -> PyAxisArrays { PyAxisArrays(self.0.get_obsm().clone()) }
+    fn __repr__(&self) -> String { format!("{}", self.0) }
 
-    #[setter(obsm)]
-    fn set_obsm<'py>(&mut self, py: Python<'py>, mut obsm: HashMap<String, &'py PyAny>) -> PyResult<()> {
-        let obsm_: PyResult<_> = obsm.drain().map(|(k, v)|
-            Ok((k, to_rust_data2(py, v)?))
-        ).collect();
-        self.0.set_obsm(&obsm_?).unwrap();
-        Ok(())
-    }
+    fn __str__(&self) -> String { self.__repr__() }
 }
+
+def_df_accessor!(AnnDataSet, { obs, var });
+
+def_arr_accessor!(
+    AnnDataSet,
+    PyAxisArrays,
+    HashMap<String, &'py PyAny>,
+    { obsm, obsp, varm, varp }
+);
 
 #[pyfunction]
 pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {

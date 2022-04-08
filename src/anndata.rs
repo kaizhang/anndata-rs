@@ -13,6 +13,20 @@ use polars::frame::DataFrame;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use indexmap::map::IndexMap;
+use itertools::Itertools;
+use paste::paste;
+
+macro_rules! def_getter {
+    ($get_type:ty, { $($field:ident),* }) => {
+        paste! {
+            $(
+                pub fn [<get_ $field>](&self) -> $get_type {
+                    &self.$field
+                }
+            )*
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AnnData {
@@ -20,79 +34,63 @@ pub struct AnnData {
     pub n_obs: Arc<Mutex<usize>>,
     pub n_vars: Arc<Mutex<usize>>,
     pub x: Arc<Mutex<Option<MatrixElem>>>,
-    pub obs: Arc<Mutex<Option<DataFrameElem>>>,
-    pub obsm: AxisArrays,
-    pub obsp: AxisArrays,
-    pub var: Arc<Mutex<Option<DataFrameElem>>>,
-    pub varm: AxisArrays,
-    pub varp: AxisArrays,
-    pub uns: ElemCollection,
+    pub(crate) obs: Arc<Mutex<Option<DataFrameElem>>>,
+    pub(crate) obsm: AxisArrays,
+    pub(crate) obsp: AxisArrays,
+    pub(crate) var: Arc<Mutex<Option<DataFrameElem>>>,
+    pub(crate) varm: AxisArrays,
+    pub(crate) varp: AxisArrays,
+    pub(crate) uns: ElemCollection,
 }
 
-/*
 impl std::fmt::Display for AnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            &mut f,
+            f,
             "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
             self.n_obs(),
             self.n_vars(),
             self.filename(),
-        ).unwrap();
+        )?;
 
-        if !self.obs.is_empty {
-        if let Some(obs) = self.obs.0 {
+        if let Some(obs) = self.obs.lock().unwrap().as_ref() {
             write!(
-                &mut f,
+                f,
                 "\n    obs: {}",
-                self.obs.0.get_column_names().unwrap().join(", "),
-            ).unwrap();
+                obs.get_column_names().unwrap().join(", "),
+            )?;
         }
-        if let Some(var) = self.get_var() {
+        if let Some(var) = self.var.lock().unwrap().as_ref() {
             write!(
-                &mut f,
+                f,
                 "\n    var: {}",
-                var.0.get_column_names().unwrap().join(", "),
-            ).unwrap();
+                var.get_column_names().unwrap().join(", "),
+            )?;
         }
 
-        let obsm = self.get_obsm().keys();
-        if obsm.len() > 0 {
-            write!(&mut descr, "\n    obsm: {}", obsm.join(", ")).unwrap();
-        }
-        let obsp = self.get_obsp().keys();
-        if obsp.len() > 0 {
-            write!(&mut descr, "\n    obsp: {}", obsp.join(", ")).unwrap();
-        }
-        let varm = self.get_varm().keys();
-        if varm.len() > 0 {
-            write!(&mut descr, "\n    varm: {}", varm.join(", ")).unwrap();
-        }
-        let varp = self.get_varp().keys();
-        if varp.len() > 0 {
-            write!(&mut descr, "\n    varp: {}", varp.join(", ")).unwrap();
-        }
-        let uns = self.get_uns().keys();
-        if uns.len() > 0 {
-            write!(&mut descr, "\n    uns: {}", uns.join(", ")).unwrap();
-        }
-        descr
-    }
+        let obsm: String = self.obsm.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !obsm.is_empty() { write!(f, "\n    obsm: {}", obsm)?; }
 
+        let obsp: String = self.obsp.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !obsp.is_empty() { write!(f, "\n    obsp: {}", obsp)?; }
 
+        let varm: String = self.varm.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !varm.is_empty() { write!(f, "\n    varm: {}", varm)?; }
 
+        let varp: String = self.varp.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !varp.is_empty() { write!(f, "\n    varp: {}", varp)?; }
 
+        let uns: String = self.uns.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !uns.is_empty() { write!(f, "\n    uns: {}", uns)?; }
 
-
-        let elem = self.0.lock().unwrap();
-        write!(f, "Elem with {}, cache_enabled: {}, cached: {}",
-            elem.dtype,
-            if elem.cache_enabled { "yes" } else { "no" },
-            if elem.element.is_some() { "yes" } else { "no" },
-        )
+        Ok(())
     }
 }
-*/
 
 impl AnnData {
     pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
@@ -110,6 +108,11 @@ impl AnnData {
     pub fn filename(&self) -> String { self.file.filename() }
 
     pub fn close(self) -> Result<()> { self.file.close() }
+
+
+    def_getter!(&Arc<Mutex<Option<DataFrameElem>>>, { obs, var });
+    def_getter!(&AxisArrays, { obsm, obsp, varm, varp });
+    def_getter!(&ElemCollection, { uns });
 
     pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
         let mut x_guard = self.x.lock().unwrap();
@@ -324,6 +327,77 @@ pub struct AnnDataSet {
     pub anndatas: IndexMap<String, AnnData>,
 }
 
+impl std::fmt::Display for AnnDataSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
+            self.n_obs(),
+            self.n_vars(),
+            self.annotation.filename(),
+        )?;
+        write!(
+            f,
+            "\ncontains {} AnnData objects with keys: {}",
+            self.anndatas.len(),
+            self.anndatas.keys().map(|x| x.as_str()).intersperse(", ").collect::<String>(),
+        )?;
+
+        if let Some(obs) = self.annotation.obs.lock().unwrap().as_ref() {
+            write!(
+                f,
+                "\n    obs: {}",
+                obs.get_column_names().unwrap().join(", "),
+            )?;
+        }
+        if let Some(var) = self.annotation.var.lock().unwrap().as_ref() {
+            write!(
+                f,
+                "\n    var: {}",
+                var.get_column_names().unwrap().join(", "),
+            )?;
+        }
+
+        let obsm: String = self.annotation.obsm.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !obsm.is_empty() { write!(f, "\n    obsm: {}", obsm)?; }
+
+        let obsp: String = self.annotation.obsp.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !obsp.is_empty() { write!(f, "\n    obsp: {}", obsp)?; }
+
+        let varm: String = self.annotation.varm.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !varm.is_empty() { write!(f, "\n    varm: {}", varm)?; }
+
+        let varp: String = self.annotation.varp.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !varp.is_empty() { write!(f, "\n    varp: {}", varp)?; }
+
+        let uns: String = self.annotation.uns.data.lock().unwrap().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        if !uns.is_empty() { write!(f, "\n    uns: {}", uns)?; }
+
+        Ok(())
+    }
+}
+
+macro_rules! def_accessor {
+    ($get_type:ty, $set_type:ty, { $($field:ident),* }) => {
+        paste! {
+            $(
+                pub fn [<get_ $field>](&self) -> $get_type {
+                    &self.annotation.$field
+                }
+
+                pub fn [<set_ $field>](&mut self, $field: $set_type) -> Result<()> {
+                    self.annotation.[<set_ $field>]($field)
+                }
+            )*
+        }
+    }
+}
+
 impl AnnDataSet {
     pub fn new(anndatas: IndexMap<String, AnnData>, filename: &str) -> Result<Self> {
         //if !anndatas.values().map(|x| x.var.read().unwrap().unwrap()[0]).all_equal() {
@@ -367,13 +441,19 @@ impl AnnDataSet {
 
     pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
 
-    pub fn get_obsm(&self) -> &AxisArrays {
-        &self.annotation.obsm
-    }
+    def_accessor!(
+        &Arc<Mutex<Option<DataFrameElem>>>,
+        Option<&DataFrame>,
+        { obs, var }
+    );
 
-    pub fn set_obsm(&mut self, obsm: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
-        self.annotation.set_obsm(obsm)
-    }
+    def_accessor!(
+        &AxisArrays,
+        &HashMap<String, Box<dyn DataPartialIO>>,
+        { obsm, obsp, varm, varp }
+    );
+
+    def_accessor!(&ElemCollection, &HashMap<String, Box<dyn DataIO>>, { uns });
 }
 
 fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
