@@ -288,14 +288,35 @@ def_arr_accessor!(
     { obsm, obsp, varm, varp }
 );
 
+/// Read and stack vertically multiple `.h5ad`-formatted hdf5 files.
+///
+/// Parameters
+/// ----------
+///
+/// files
+///     List of key and file name pairs.
+/// storage
+///     File name of the output file containing the AnnDataSet object.
 #[pyfunction]
+#[pyo3(text_signature = "(files, storage)")]
 pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {
     let adatas = files.into_iter()
         .map(|(key, file)| (key, read_h5ad(file, "r").unwrap().0)).collect();
     AnnDataSet(anndata::AnnDataSet::new(adatas, storage).unwrap())
 }
 
+/// Read `.h5ad`-formatted hdf5 file.
+///
+/// Parameters
+/// ----------
+///
+/// filename
+///     File name of data file.
+/// mode
+///     If `'r'`, the file is opened in read-only mode.
+///     If you want to modify the AnnData object, you need to choose `'r+'`.
 #[pyfunction(mode = "\"r+\"")]
+#[pyo3(text_signature = "(filename, mode)")]
 pub fn read_h5ad(filename: &str, mode: &str) -> PyResult<AnnData> {
     let file = match mode {
         "r" => hdf5::File::open(filename).unwrap(),
@@ -306,8 +327,22 @@ pub fn read_h5ad(filename: &str, mode: &str) -> PyResult<AnnData> {
     Ok(AnnData(anndata))
 }
 
+/// Read Matrix Market file.
+///
+/// Parameters
+/// ----------
+///
+/// filename 
+///     File name of matrix market file.
+/// storage
+///     File name of the output ".h5ad" file.
+/// sorted
+///     Indicate whether the entries in the matrix market file have been
+///     sorted by row and column indices. When the data is sorted, only
+///     a small amount of (constant) memory will be used.
 #[pyfunction(sorted = "false")]
-pub fn read_mtx<'py>(py: Python<'py>, input: &str, output: &str, sorted: bool) -> PyResult<AnnData> {
+#[pyo3(text_signature = "(input, output, sorted)")]
+pub fn read_mtx<'py>(py: Python<'py>, filename: &str, storage: &str, sorted: bool) -> PyResult<AnnData> {
     let anndata = AnnData::new(py, output, None, None, None, None, None, None)?;
     anndata.import_mtx(input, sorted);
     Ok(anndata)
