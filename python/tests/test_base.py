@@ -1,4 +1,4 @@
-from anndata_rs.pyanndata import AnnData, AnnDataSet, read_h5ad
+from anndata_rs import AnnData, AnnDataSet, read_h5ad
 
 import numpy as np
 from numpy import dtype, ma

@@ -1,4 +1,4 @@
-from anndata_rs.pyanndata import AnnData, AnnDataSet
+from anndata_rs import AnnData, AnnDataSet
 
 import numpy as np
 import pandas as pd

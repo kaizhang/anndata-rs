@@ -2,6 +2,12 @@
 name = "anndata-rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Kai Zhang <kai@kzhang.org>"]
+description = "Rust APIs"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/"
+homepage = "https://github.com/"
 
 [dependencies]
 flate2 = "1.0"

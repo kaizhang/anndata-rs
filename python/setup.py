@@ -2,14 +2,14 @@ from setuptools import setup
 from setuptools_rust import Binding, RustExtension
 
 setup(
-    name="anndata-rs",
+    name="anndata_rs",
     description='',
     url='https://kzhang.org/SnapATAC2/', 
     author='Kai Zhang',
     author_email='kai@kzhang.org',
     license='MIT',
     version="0.1.0",
-    rust_extensions=[RustExtension("anndata_rs.pyanndata", binding=Binding.PyO3)],
+    rust_extensions=[RustExtension("anndata_rs", binding=Binding.PyO3)],
     packages=[
         "anndata_rs",
     ],

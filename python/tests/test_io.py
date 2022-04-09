@@ -1,4 +1,4 @@
-from anndata_rs.pyanndata import AnnData, read_mtx
+from anndata_rs import AnnData, read_mtx
 
 import numpy as np
 from pathlib import Path

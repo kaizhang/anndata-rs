@@ -1,5 +1,5 @@
 [package]
-name = "anndata_rs"
+name = "pyanndata"
 version = "0.1.0"
 edition = "2021"
 authors = ["Kai Zhang <kai@kzhang.org>"]
@@ -11,11 +11,21 @@ homepage = "https://github.com/"
 keywords = ["data"]
 
 [dependencies]
-pyanndata = { path = "../pyanndata" }
+anndata-rs = { path = "../anndata-rs" }
+numpy = "0.16.2"
+ndarray = "0.15.4"
+nalgebra-sparse = "0.6.0"
+hdf5 = "0.8.1"
+polars = { version = "0.20.0", features = ["ndarray"] }
+polars-core = "0.20.0"
+thiserror = "1.0.30"
+rand = "0.8.5"
+flate2 = "1.0"
+paste = "1.0.7"
 
 [dependencies.pyo3]
 version = "0.16.2"
 features = ["extension-module", "multiple-pymethods"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["lib"]
