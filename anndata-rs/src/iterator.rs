@@ -239,15 +239,22 @@ impl AnnData {
         Ok(())
     }
 
+    /*
     pub fn add_obsm_from_row_iter<I>(&mut self, key: &str, data: I) -> Result<()>
     where
         I: RowIterator,
     {
-       let obsm = match self.file.group("obsm") {
+        let obsm_guard = self.obsm.lock().unwrap();
+        match obsm_guard.as_ref() {
+            None => self.file.create_group("obsm").unwrap(),
+            Some(g)
+
+        }
+        let obsm = match self.file.group("obsm") {
             Ok(x) => x,
             _ => self.file.create_group("obsm").unwrap(),
         };
-        if self.obsm.contains_key(key) { obsm.unlink(key)?; } 
+        if obsm_guard.contains_key(key) { obsm.unlink(key)?; } 
         let (container, nrows) = data.write(&obsm, key)?;
         if self.n_obs() == 0 { self.set_n_obs(nrows); }
 
@@ -261,6 +268,7 @@ impl AnnData {
         self.obsm.data.lock().unwrap().insert(key.to_string(), elem);
         Ok(())
     }
+    */
 }
 
 pub trait IntoRowsIterator {

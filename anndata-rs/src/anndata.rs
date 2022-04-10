@@ -16,18 +16,6 @@ use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
 
-macro_rules! def_getter {
-    ($get_type:ty, { $($field:ident),* }) => {
-        paste! {
-            $(
-                pub fn [<get_ $field>](&self) -> $get_type {
-                    &self.$field
-                }
-            )*
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
@@ -35,12 +23,12 @@ pub struct AnnData {
     pub n_vars: Arc<Mutex<usize>>,
     pub x: Arc<Mutex<Option<MatrixElem>>>,
     pub(crate) obs: Arc<Mutex<Option<DataFrameElem>>>,
-    pub(crate) obsm: AxisArrays,
-    pub(crate) obsp: AxisArrays,
+    pub(crate) obsm: Arc<Mutex<Option<AxisArrays>>>,
+    pub(crate) obsp: Arc<Mutex<Option<AxisArrays>>>,
     pub(crate) var: Arc<Mutex<Option<DataFrameElem>>>,
-    pub(crate) varm: AxisArrays,
-    pub(crate) varp: AxisArrays,
-    pub(crate) uns: ElemCollection,
+    pub(crate) varm: Arc<Mutex<Option<AxisArrays>>>,
+    pub(crate) varp: Arc<Mutex<Option<AxisArrays>>>,
+    pub(crate) uns: Arc<Mutex<Option<ElemCollection>>>,
 }
 
 impl std::fmt::Display for AnnData {
@@ -68,27 +56,97 @@ impl std::fmt::Display for AnnData {
             )?;
         }
 
-        let obsm: String = self.obsm.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !obsm.is_empty() { write!(f, "\n    obsm: {}", obsm)?; }
+        macro_rules! fmt_item {
+            ($($item:ident),*) => {
+                $(
 
-        let obsp: String = self.obsp.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !obsp.is_empty() { write!(f, "\n    obsp: {}", obsp)?; }
+                if let Some($item) = self.$item.lock().unwrap().as_ref() {
+                    let data: String = $item.data.lock().unwrap().keys().
+                        map(|x| x.as_str()).intersperse(", ").collect();
+                    if !data.is_empty() {
+                        write!(f, "\n    {}: {}", stringify!($item), data)?;
+                    }
+                }
 
-        let varm: String = self.varm.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !varm.is_empty() { write!(f, "\n    varm: {}", varm)?; }
-
-        let varp: String = self.varp.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !varp.is_empty() { write!(f, "\n    varp: {}", varp)?; }
-
-        let uns: String = self.uns.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !uns.is_empty() { write!(f, "\n    uns: {}", uns)?; }
+                )*
+            }
+        }
+        fmt_item!(obsm, obsp, varm, varp, uns);
 
         Ok(())
+    }
+}
+
+/// define get_* functions
+macro_rules! anndata_getter {
+    ($get_type:ty, { $($field:ident),* }) => {
+        paste! {
+            $(
+                pub fn [<get_ $field>](&self) -> $get_type {
+                    &self.$field
+                }
+            )*
+        }
+    }
+}
+
+macro_rules! anndata_setter_row {
+    ($($field:ident),*) => {
+        paste! {
+            $(
+            pub fn [<set_ $field>](
+                &self,
+                data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
+            ) -> Result<()>
+            {
+                let mut guard = self.$field.lock().unwrap();
+                let field = stringify!($field);
+                if guard.is_some() { self.file.unlink(field)?; }
+                match data_ {
+                    None => { *guard = None; },
+                    Some(data) => {
+                        let container = self.file.create_group(field)?;
+                        let item = AxisArrays::new(container, Axis::Row, self.n_obs.clone());
+                        for (key, val) in data.iter() {
+                            item.insert(key, val)?;
+                        }
+                        *guard = Some(item);
+                    },
+                }
+                Ok(())
+            }
+            )*
+        }
+    }
+}
+
+macro_rules! anndata_setter_col {
+    ($($field:ident),*) => {
+        paste! {
+            $(
+            pub fn [<set_ $field>](
+                &self,
+                data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
+            ) -> Result<()>
+            {
+                let mut guard = self.$field.lock().unwrap();
+                let field = stringify!($field);
+                if guard.is_some() { self.file.unlink(field)?; }
+                match data_ {
+                    None => { *guard = None; },
+                    Some(data) => {
+                        let container = self.file.create_group(field)?;
+                        let item = AxisArrays::new(container, Axis::Column, self.n_vars.clone());
+                        for (key, val) in data.iter() {
+                            item.insert(key, val)?;
+                        }
+                        *guard = Some(item);
+                    },
+                }
+                Ok(())
+            }
+            )*
+        }
     }
 }
 
@@ -109,10 +167,9 @@ impl AnnData {
 
     pub fn close(self) -> Result<()> { self.file.close() }
 
-
-    def_getter!(&Arc<Mutex<Option<DataFrameElem>>>, { obs, var });
-    def_getter!(&AxisArrays, { obsm, obsp, varm, varp });
-    def_getter!(&ElemCollection, { uns });
+    anndata_getter!(&Arc<Mutex<Option<DataFrameElem>>>, { obs, var });
+    anndata_getter!(&Arc<Mutex<Option<AxisArrays>>>, { obsm, obsp, varm, varp });
+    anndata_getter!(&Arc<Mutex<Option<ElemCollection>>>, { uns });
 
     pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
         let mut x_guard = self.x.lock().unwrap();
@@ -169,30 +226,6 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn set_obsm(&mut self, obsm: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
-        if self.file.group("obsm").is_ok() { self.file.unlink("obsm")?; }
-        self.obsm = {
-            let container = self.file.create_group("obsm")?;
-            AxisArrays::new(container, Axis::Row, self.n_obs.clone())
-        };
-        for (key, data) in obsm.iter() {
-            self.obsm.insert(key, data)?;
-        }
-        Ok(())
-    }
-
-    pub fn set_obsp(&mut self, obsp: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
-        if self.file.group("obsp").is_ok() { self.file.unlink("obsp")?; }
-        self.obsp = {
-            let container = self.file.create_group("obsp")?;
-            AxisArrays::new(container, Axis::Both, self.n_obs.clone())
-        };
-        for (key, data) in obsp.iter() {
-            self.obsp.insert(key, data)?;
-        }
-        Ok(())
-    }
-
     pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
         let mut var_guard = self.var.lock().unwrap();
         match var_ {
@@ -219,38 +252,22 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn set_varm(&mut self, varm: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
-        if self.file.group("varm").is_ok() { self.file.unlink("varm")?; }
-        self.varm = {
-            let container = self.file.create_group("varm")?;
-            AxisArrays::new(container, Axis::Column, self.n_vars.clone())
-        };
-        for (key, data) in varm.iter() {
-            self.varm.insert(key, data)?;
-        }
-        Ok(())
-    }
+    anndata_setter_row!(obsm, obsp);
+    anndata_setter_col!(varm, varp);
 
-    pub fn set_varp(&mut self, varp: &HashMap<String, Box<dyn DataPartialIO>>) -> Result<()> {
-        if self.file.group("varp").is_ok() { self.file.unlink("varp")?; }
-        self.varp = {
-            let container = self.file.create_group("varp")?;
-            AxisArrays::new(container, Axis::Both, self.n_vars.clone())
-        };
-        for (key, data) in varp.iter() {
-            self.varp.insert(key, data)?;
-        }
-        Ok(())
-    }
-
-    pub fn set_uns(&mut self, uns: &HashMap<String, Box<dyn DataIO>>) -> Result<()> {
-        if self.file.group("uns").is_ok() { self.file.unlink("uns")?; }
-        self.uns = {
-            let container = self.file.create_group("uns")?;
-            ElemCollection::new(container)
-        };
-        for (key, data) in uns.iter() {
-            self.uns.insert(key, data)?;
+    pub fn set_uns(&mut self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
+        let mut guard = self.uns.lock().unwrap();
+        if guard.is_some() { self.file.unlink("uns")?; }
+        match uns_ {
+            None => { *guard = None; },
+            Some(uns) => {
+                let container = self.file.create_group("uns")?;
+                let item = ElemCollection::new(container);
+                for (key, data) in uns.iter() {
+                    item.insert(key, data)?;
+                }
+                *guard = Some(item);
+            },
         }
         Ok(())
     }
@@ -282,10 +299,12 @@ impl AnnData {
         Ok(Self { file, n_obs, n_vars,
             x: Arc::new(Mutex::new(None)),
             obs: Arc::new(Mutex::new(None)),
-            obsm, obsp,
+            obsm: Arc::new(Mutex::new(Some(obsm))),
+            obsp: Arc::new(Mutex::new(Some(obsp))),
             var: Arc::new(Mutex::new(None)),
-            varm, varp,
-            uns,
+            varm: Arc::new(Mutex::new(Some(varm))),
+            varp: Arc::new(Mutex::new(Some(varp))),
+            uns: Arc::new(Mutex::new(Some(uns))),
         })
     }
 
@@ -293,8 +312,8 @@ impl AnnData {
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
         self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
-        self.obsm.subset(idx);
-        self.obsp.subset(idx);
+        self.obsm.lock().unwrap().as_ref().map(|x| x.subset(idx));
+        self.obsp.lock().unwrap().as_ref().map(|x| x.subset(idx));
         self.set_n_obs(idx.len());
     }
 
@@ -302,8 +321,8 @@ impl AnnData {
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
         self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
-        self.varm.subset(idx);
-        self.varp.subset(idx);
+        self.varm.lock().unwrap().as_ref().map(|x| x.subset(idx));
+        self.varp.lock().unwrap().as_ref().map(|x| x.subset(idx));
         self.set_n_vars(idx.len());
     }
 
@@ -311,11 +330,11 @@ impl AnnData {
     {
         self.x.lock().unwrap().as_ref().map(|x| x.subset(ridx, cidx));
         self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(ridx));
-        self.obsm.subset(ridx);
-        self.obsp.subset(ridx);
+        self.obsm.lock().unwrap().as_ref().map(|x| x.subset(ridx));
+        self.obsp.lock().unwrap().as_ref().map(|x| x.subset(ridx));
         self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(cidx));
-        self.varm.subset(cidx);
-        self.varp.subset(cidx);
+        self.varm.lock().unwrap().as_ref().map(|x| x.subset(cidx));
+        self.varp.lock().unwrap().as_ref().map(|x| x.subset(cidx));
         self.set_n_obs(ridx.len());
         self.set_n_vars(cidx.len());
     }
@@ -358,25 +377,20 @@ impl std::fmt::Display for AnnDataSet {
             )?;
         }
 
-        let obsm: String = self.annotation.obsm.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !obsm.is_empty() { write!(f, "\n    obsm: {}", obsm)?; }
-
-        let obsp: String = self.annotation.obsp.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !obsp.is_empty() { write!(f, "\n    obsp: {}", obsp)?; }
-
-        let varm: String = self.annotation.varm.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !varm.is_empty() { write!(f, "\n    varm: {}", varm)?; }
-
-        let varp: String = self.annotation.varp.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !varp.is_empty() { write!(f, "\n    varp: {}", varp)?; }
-
-        let uns: String = self.annotation.uns.data.lock().unwrap().keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        if !uns.is_empty() { write!(f, "\n    uns: {}", uns)?; }
+        macro_rules! fmt_item {
+            ($($item:ident),*) => {
+                $(
+                if let Some($item) = self.annotation.$item.lock().unwrap().as_ref() {
+                    let data: String = $item.data.lock().unwrap().keys().
+                        map(|x| x.as_str()).intersperse(", ").collect();
+                    if !data.is_empty() {
+                        write!(f, "\n    {}: {}", stringify!($item), data)?;
+                    }
+                }
+                )*
+            }
+        }
+        fmt_item!(obsm, obsp, varm, varp, uns);
 
         Ok(())
     }
@@ -448,12 +462,16 @@ impl AnnDataSet {
     );
 
     def_accessor!(
-        &AxisArrays,
-        &HashMap<String, Box<dyn DataPartialIO>>,
+        &Arc<Mutex<Option<AxisArrays>>>,
+        Option<&HashMap<String, Box<dyn DataPartialIO>>>,
         { obsm, obsp, varm, varp }
     );
 
-    def_accessor!(&ElemCollection, &HashMap<String, Box<dyn DataIO>>, { uns });
+    def_accessor!(
+        &Arc<Mutex<Option<ElemCollection>>>,
+        Option<&HashMap<String, Box<dyn DataIO>>>,
+        { uns }
+    );
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;

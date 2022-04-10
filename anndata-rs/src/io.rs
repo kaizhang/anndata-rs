@@ -43,26 +43,6 @@ impl AnnData {
             Arc::new(Mutex::new(None))
         };
 
-        // Read obsm
-        let obsm = AxisArrays::new(
-            match file.group("obsm") {
-                Ok(g) => g,
-                _ => file.create_group("obsm")?,
-            },
-            Axis::Row,
-            n_obs.clone(),
-        );
-        
-        // Read obsp
-        let obsp = AxisArrays::new(
-            match file.group("obsp") {
-                Ok(g) => g,
-                _ => file.create_group("obsp")?,
-            },
-            Axis::Both,
-            n_obs.clone(),
-        );
-
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
@@ -80,33 +60,23 @@ impl AnnData {
             Arc::new(Mutex::new(None))
         };
 
-        // Read varm
-        let varm = AxisArrays::new(
-            match file.group("varm") {
-                Ok(g) => g,
-                _ => file.create_group("varm")?,
-            },
-            Axis::Column,
-            n_vars.clone(),
-        );
-
-        // Read varp
-        let varp = AxisArrays::new(
-            match file.group("varp") {
-                Ok(g) => g,
-                _ => file.create_group("varp")?,
-            },
-            Axis::Both,
-            n_vars.clone(),
-        );
-
-        // Read uns
-        let uns = ElemCollection::new(
-            match file.group("uns") {
-                Ok(g) => g,
-                _ => file.create_group("uns")?,
+        /// define get_* functions
+        macro_rules! def_item {
+            ($field:ident, $closure:expr) => {
+                let $field = {
+                    let field = stringify!($field);
+                    let data = file.group(field)
+                        .map_or(file.create_group(field).ok(), Some)
+                        .map($closure);
+                    Arc::new(Mutex::new(data))
+                };
             }
-        );
+        }
+        def_item!(obsm, |x| AxisArrays::new(x, Axis::Row, n_obs.clone()));
+        def_item!(obsp, |x| AxisArrays::new(x, Axis::Both, n_obs.clone()));
+        def_item!(varm, |x| AxisArrays::new(x, Axis::Column, n_vars.clone()));
+        def_item!(varp, |x| AxisArrays::new(x, Axis::Both, n_vars.clone()));
+        def_item!(uns, |x| ElemCollection::new(x));
 
         Ok(Self { file, n_obs, n_vars, x, obs, obsm, obsp, var, varm, varp, uns })
     }
@@ -118,11 +88,11 @@ impl AnnData {
         self.x.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
         self.obs.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
         self.var.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
-        self.obsm.write(&file.create_group("obsm")?)?;
-        self.obsp.write(&file.create_group("obsp")?)?;
-        self.varm.write(&file.create_group("varm")?)?;
-        self.varp.write(&file.create_group("varp")?)?;
-        self.uns.write(&file.create_group("uns")?)?;
+        self.obsm.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
+        self.obsp.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
+        self.varm.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
+        self.varp.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
+        self.uns.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
         Ok(())
     }
 

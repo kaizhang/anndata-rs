@@ -74,23 +74,25 @@ macro_rules! def_arr_accessor {
             impl $name {
             $(
                 #[getter($field)]
-                fn [<get_ $field>](&self) -> $get_type {
-                    $get_type(inner!(self).[<get_ $field>]().clone())
+                fn [<get_ $field>](&self) -> Option<$get_type> {
+                    inner!(self).[<get_ $field>]().lock().unwrap().as_ref()
+                        .map(|x| $get_type(x.clone()))
                 }
 
                 #[setter($field)]
                 fn [<set_ $field>]<'py>(
-                    &mut self,
+                    &self,
                     py: Python<'py>,
-                    mut $field: $set_type
+                    $field: $set_type
                 ) -> PyResult<()>
                 {
-                    let x: PyResult<_> = $field.drain().map(|(k, v)|
+                    let data: PyResult<_> = $field.map(|mut x| x.drain().map(|(k, v)|
                         Ok((k, to_rust_data2(py, v)?))
-                    ).collect();
-                    mut_inner!(self).[<set_ $field>](&x?).unwrap();
+                    ).collect()).transpose();
+                    mut_inner!(self).[<set_ $field>](data?.as_ref()).unwrap();
                     Ok(())
                 }
+
             )*
             }
         }
@@ -123,6 +125,10 @@ impl AnnData {
         obs = "None",
         var = "None",
         obsm = "None",
+        obsp = "None",
+        varm = "None",
+        varp = "None",
+        uns = "None",
     )]
     fn new<'py>(
         py: Python<'py>,
@@ -133,6 +139,10 @@ impl AnnData {
         obs: Option<&'py PyAny>,
         var: Option<&'py PyAny>,
         obsm: Option<HashMap<String, &'py PyAny>>,
+        obsp: Option<HashMap<String, &'py PyAny>>,
+        varm: Option<HashMap<String, &'py PyAny>>,
+        varp: Option<HashMap<String, &'py PyAny>>,
+        uns: Option<HashMap<String, &'py PyAny>>,
     ) -> PyResult<Self> {
         let mut anndata = AnnData::wrap(anndata::AnnData::new(
             filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)
@@ -140,7 +150,11 @@ impl AnnData {
        anndata.set_x(py, X)?;
        anndata.set_obs(py, obs)?;
        anndata.set_var(py, var)?;
-       if let Some(d) = obsm { anndata.set_obsm(py, d)?; }
+       anndata.set_obsm(py, obsm)?;
+       anndata.set_obsp(py, obsp)?;
+       anndata.set_varm(py, varm)?;
+       anndata.set_varp(py, varp)?;
+       anndata.set_uns(py, uns)?;
        Ok(anndata)
     }
 
@@ -178,12 +192,17 @@ impl AnnData {
     }
 
     #[getter(uns)]
-    fn get_uns(&self) -> PyElemCollection { PyElemCollection(inner!(self).get_uns().clone()) }
+    fn get_uns(&self) -> Option<PyElemCollection> {
+        inner!(self).get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
+    }
 
     #[setter(uns)]
-    fn set_uns<'py>(&mut self, py: Python<'py>, mut uns: HashMap<String, &'py PyAny>) {
-        let uns_ = uns.drain().map(|(k, v)| (k, to_rust_data1(py, v).unwrap())).collect();
-        mut_inner!(self).set_uns(&uns_).unwrap();
+    fn set_uns<'py>(&self, py: Python<'py>, uns: Option<HashMap<String, &'py PyAny>>) -> PyResult<()> {
+        let uns_ = uns.map(|mut x|
+            x.drain().map(|(k, v)| (k, to_rust_data1(py, v).unwrap())).collect()
+        );
+        mut_inner!(self).set_uns(uns_.as_ref()).unwrap();
+        Ok(())
     }
 
     fn subset<'py>(
@@ -251,7 +270,7 @@ def_df_accessor!(AnnData, { obs, var });
 def_arr_accessor!(
     AnnData,
     PyAxisArrays,
-    HashMap<String, &'py PyAny>,
+    Option<HashMap<String, &'py PyAny>>,
     { obsm, obsp, varm, varp }
 );
 
@@ -288,21 +307,21 @@ impl AnnDataSet {
     }
 
     #[getter(uns)]
-    fn get_uns(&self) -> PyElemCollection {
-        PyElemCollection(inner!(self).get_uns().clone())
+    fn get_uns(&self) -> Option<PyElemCollection> {
+        inner!(self).get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
     }
 
     #[setter(uns)]
     fn set_uns<'py>(
-        &mut self,
+        &self,
         py: Python<'py>,
-        mut uns: HashMap<String, &'py PyAny>,
+        uns: Option<HashMap<String, &'py PyAny>>,
     ) -> PyResult<()>
     {
-        let x: PyResult<_> = uns.drain().map(|(k, v)|
+        let data: PyResult<_> = uns.map(|mut x| x.drain().map(|(k, v)|
             Ok((k, to_rust_data1(py, v)?))
-        ).collect();
-        mut_inner!(self).set_uns(&x?).unwrap();
+        ).collect()).transpose();
+        mut_inner!(self).set_uns(data?.as_ref()).unwrap();
         Ok(())
     }
 
@@ -323,7 +342,7 @@ def_df_accessor!(AnnDataSet, { obs, var });
 def_arr_accessor!(
     AnnDataSet,
     PyAxisArrays,
-    HashMap<String, &'py PyAny>,
+    Option<HashMap<String, &'py PyAny>>,
     { obsm, obsp, varm, varp }
 );
 
@@ -383,7 +402,9 @@ pub fn read(filename: &str, mode: &str) -> PyResult<AnnData> {
 #[pyfunction(sorted = "false")]
 #[pyo3(text_signature = "(input, output, sorted)")]
 pub fn read_mtx<'py>(py: Python<'py>, filename: &str, storage: &str, sorted: bool) -> PyResult<AnnData> {
-    let anndata = AnnData::new(py, storage, None, None, None, None, None, None)?;
+    let anndata = AnnData::new(
+        py, storage, None, None, None, None, None, None, None, None, None, None
+    )?;
     anndata.import_mtx(filename, sorted);
     Ok(anndata)
 }

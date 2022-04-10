@@ -68,7 +68,7 @@ pub enum Axis {
 #[derive(Clone)]
 pub struct AxisArrays {
     pub container: Group,
-    pub size: Arc<Mutex<usize>>,
+    pub size: Arc<Mutex<usize>>,   // shared global reference
     pub axis: Axis,
     pub data: Arc<Mutex<HashMap<String, MatrixElem>>>,
 }
