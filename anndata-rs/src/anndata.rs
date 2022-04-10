@@ -454,6 +454,14 @@ impl AnnDataSet {
     );
 
     def_accessor!(&ElemCollection, &HashMap<String, Box<dyn DataIO>>, { uns });
+
+    pub fn close(self) -> Result<()> {
+        self.annotation.close()?;
+        for ann in self.anndatas.into_values() {
+            ann.close()?;
+        }
+        Ok(())
+    }
 }
 
 fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {

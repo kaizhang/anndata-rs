@@ -17,6 +17,16 @@ use pyo3::{
 };
 use std::collections::HashMap;
 use paste::paste;
+use std::sync::{Arc, Mutex};
+use std::ops::DerefMut;
+
+macro_rules! inner {
+    ($anndata:expr) => { $anndata.0.lock().unwrap().as_ref().unwrap() }
+}
+
+macro_rules! mut_inner {
+    ($anndata:expr) => { $anndata.0.lock().unwrap().as_mut().unwrap() }
+}
 
 macro_rules! def_df_accessor {
     ($name:ty, { $($field:ident),* }) => {
@@ -26,7 +36,7 @@ macro_rules! def_df_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
-                    self.0.[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
+                    inner!(self).[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
                         PyDataFrameElem(x.clone()))
                 }
 
@@ -48,7 +58,7 @@ macro_rules! def_df_accessor {
                         };
                         to_rust_df(df_)
                     }).transpose()?;
-                    self.0.[<set_ $field>](data.as_ref()).unwrap();
+                    mut_inner!(self).[<set_ $field>](data.as_ref()).unwrap();
                     Ok(())
                 }
             )*
@@ -65,7 +75,7 @@ macro_rules! def_arr_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> $get_type {
-                    $get_type(self.0.[<get_ $field>]().clone())
+                    $get_type(inner!(self).[<get_ $field>]().clone())
                 }
 
                 #[setter($field)]
@@ -78,7 +88,7 @@ macro_rules! def_arr_accessor {
                     let x: PyResult<_> = $field.drain().map(|(k, v)|
                         Ok((k, to_rust_data2(py, v)?))
                     ).collect();
-                    self.0.[<set_ $field>](&x?).unwrap();
+                    mut_inner!(self).[<set_ $field>](&x?).unwrap();
                     Ok(())
                 }
             )*
@@ -87,10 +97,19 @@ macro_rules! def_arr_accessor {
     }
 }
 
+/// Wrap the inner AnnData by Mutex so that we can close and
+/// drop it in Python.
 #[pyclass]
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct AnnData(pub anndata::AnnData);
+pub struct AnnData(pub Arc<Mutex<Option<anndata::AnnData>>>);
+
+impl AnnData {
+    pub fn wrap(anndata: anndata::AnnData) -> Self {
+        AnnData(Arc::new(Mutex::new(Some(anndata))))
+    }
+}
+
 
 #[pymethods]
 impl AnnData {
@@ -115,7 +134,7 @@ impl AnnData {
         var: Option<&'py PyAny>,
         obsm: Option<HashMap<String, &'py PyAny>>,
     ) -> PyResult<Self> {
-        let mut anndata = AnnData(anndata::AnnData::new(
+        let mut anndata = AnnData::wrap(anndata::AnnData::new(
             filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)
         ).unwrap());
        anndata.set_x(py, X)?;
@@ -129,10 +148,10 @@ impl AnnData {
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     #[getter]
-    fn n_obs(&self) -> usize { self.0.n_obs() }
+    fn n_obs(&self) -> usize { inner!(self).n_obs() }
 
     #[getter]
-    fn n_vars(&self) -> usize { self.0.n_vars() }
+    fn n_vars(&self) -> usize { inner!(self).n_vars() }
 
     #[getter]
     fn var_names(&self) -> PyObject {
@@ -146,25 +165,25 @@ impl AnnData {
 
     #[getter(X)]
     fn get_x(&self) -> Option<PyMatrixElem> {
-        self.0.x.lock().unwrap().as_ref().map(|x| PyMatrixElem(x.clone()))
+        inner!(self).x.lock().unwrap().as_ref().map(|x| PyMatrixElem(x.clone()))
     }
 
     #[setter(X)]
     fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
         match data {
-            None => self.0.set_x(None).unwrap(),
-            Some(d) => self.0.set_x(Some(&to_rust_data2(py, d)?)).unwrap(),
+            None => inner!(self).set_x(None).unwrap(),
+            Some(d) => inner!(self).set_x(Some(&to_rust_data2(py, d)?)).unwrap(),
         }
         Ok(())
     }
 
     #[getter(uns)]
-    fn get_uns(&self) -> PyElemCollection { PyElemCollection(self.0.get_uns().clone()) }
+    fn get_uns(&self) -> PyElemCollection { PyElemCollection(inner!(self).get_uns().clone()) }
 
     #[setter(uns)]
     fn set_uns<'py>(&mut self, py: Python<'py>, mut uns: HashMap<String, &'py PyAny>) {
         let uns_ = uns.drain().map(|(k, v)| (k, to_rust_data1(py, v).unwrap())).collect();
-        self.0.set_uns(&uns_).unwrap();
+        mut_inner!(self).set_uns(&uns_).unwrap();
     }
 
     fn subset<'py>(
@@ -181,15 +200,15 @@ impl AnnData {
                 match var_indices {
                     Some(vidx) => {
                         let j = to_indices(py, vidx, n_vars)?;
-                        self.0.subset(i.as_slice(), j.as_slice());
+                        inner!(self).subset(i.as_slice(), j.as_slice());
                     },
-                    None => self.0.subset_obs(i.as_slice()),
+                    None => inner!(self).subset_obs(i.as_slice()),
                 }
             },
             None => {
                if let Some(vidx) = var_indices {
                     let j = to_indices(py, vidx, n_vars)?;
-                    self.0.subset_var(j.as_slice());
+                    inner!(self).subset_var(j.as_slice());
                }
             },
         }
@@ -197,25 +216,32 @@ impl AnnData {
     }
             
     #[getter]
-    fn filename(&self) -> String { self.0.filename() }
+    fn filename(&self) -> String { inner!(self).filename() }
 
     fn write(&self, filename: &str) {
-        self.0.write(filename).unwrap();
+        inner!(self).write(filename).unwrap();
+    }
+
+    fn close(&self) {
+        let mut inner = self.0.lock().unwrap();
+        if let Some(anndata) = std::mem::replace(inner.deref_mut(), None) {
+            anndata.close().unwrap();
+        }
     }
 
     fn import_mtx(&self, filename: &str, sorted: bool) {
         if crate::utils::is_gzipped(filename) {
             let f = std::fs::File::open(filename).unwrap();
             let mut reader = std::io::BufReader::new(flate2::read::MultiGzDecoder::new(f));
-            self.0.read_matrix_market(&mut reader, sorted).unwrap();
+            inner!(self).read_matrix_market(&mut reader, sorted).unwrap();
         } else {
             let f = std::fs::File::open(filename).unwrap();
             let mut reader = std::io::BufReader::new(f);
-            self.0.read_matrix_market(&mut reader, sorted).unwrap();
+            inner!(self).read_matrix_market(&mut reader, sorted).unwrap();
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String { format!("{}", inner!(self)) }
 
     fn __str__(&self) -> String { self.__repr__() }
 }
@@ -231,33 +257,39 @@ def_arr_accessor!(
 
 #[pyclass]
 #[repr(transparent)]
-pub struct AnnDataSet(pub anndata::AnnDataSet);
+pub struct AnnDataSet(pub Arc<Mutex<Option<anndata::AnnDataSet>>>);
+
+impl AnnDataSet {
+    pub fn wrap(anndata: anndata::AnnDataSet) -> Self {
+        AnnDataSet(Arc::new(Mutex::new(Some(anndata))))
+    }
+}
 
 #[pymethods]
 impl AnnDataSet {
     #[new]
     fn new(adatas: Vec<(String, AnnData)>, filename: &str) -> Self {
-        let data = adatas.into_iter().map(|(k, v)| (k, v.0)).collect();
-        AnnDataSet(anndata::AnnDataSet::new(data, filename).unwrap())
+        let data = adatas.into_iter().map(|(k, v)| (k, inner!(v).clone())).collect();
+        AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename).unwrap())
     }
 
     #[getter]
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     #[getter]
-    fn n_obs(&self) -> usize { self.0.n_obs() }
+    fn n_obs(&self) -> usize { inner!(self).n_obs() }
 
     #[getter]
-    fn n_vars(&self) -> usize { self.0.n_vars() }
+    fn n_vars(&self) -> usize { inner!(self).n_vars() }
 
     #[getter(X)]
     fn get_x(&self) -> PyStackedMatrixElem {
-        PyStackedMatrixElem(self.0.x.clone())
+        PyStackedMatrixElem(inner!(self).x.clone())
     }
 
     #[getter(uns)]
     fn get_uns(&self) -> PyElemCollection {
-        PyElemCollection(self.0.get_uns().clone())
+        PyElemCollection(inner!(self).get_uns().clone())
     }
 
     #[setter(uns)]
@@ -270,11 +302,18 @@ impl AnnDataSet {
         let x: PyResult<_> = uns.drain().map(|(k, v)|
             Ok((k, to_rust_data1(py, v)?))
         ).collect();
-        self.0.set_uns(&x?).unwrap();
+        mut_inner!(self).set_uns(&x?).unwrap();
         Ok(())
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn close(&self) {
+        let mut inner = self.0.lock().unwrap();
+        if let Some(dataset) = std::mem::replace(inner.deref_mut(), None) {
+            dataset.close().unwrap();
+        }
+    }
+
+    fn __repr__(&self) -> String { format!("{}", inner!(self)) }
 
     fn __str__(&self) -> String { self.__repr__() }
 }
@@ -300,9 +339,10 @@ def_arr_accessor!(
 #[pyfunction]
 #[pyo3(text_signature = "(files, storage)")]
 pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {
-    let adatas = files.into_iter()
-        .map(|(key, file)| (key, read_h5ad(file, "r").unwrap().0)).collect();
-    AnnDataSet(anndata::AnnDataSet::new(adatas, storage).unwrap())
+    let adatas = files.into_iter().map(|(key, file)|
+        ( key, inner!(read(file, "r").unwrap()).clone() )
+    ).collect();
+    AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage).unwrap())
 }
 
 /// Read `.h5ad`-formatted hdf5 file.
@@ -317,14 +357,14 @@ pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {
 ///     If you want to modify the AnnData object, you need to choose `'r+'`.
 #[pyfunction(mode = "\"r+\"")]
 #[pyo3(text_signature = "(filename, mode)")]
-pub fn read_h5ad(filename: &str, mode: &str) -> PyResult<AnnData> {
+pub fn read(filename: &str, mode: &str) -> PyResult<AnnData> {
     let file = match mode {
         "r" => hdf5::File::open(filename).unwrap(),
         "r+" => hdf5::File::open_rw(filename).unwrap(),
         _ => panic!("Unkown mode"),
     };
     let anndata = anndata::AnnData::read(file).unwrap();
-    Ok(AnnData(anndata))
+    Ok(AnnData::wrap(anndata))
 }
 
 /// Read Matrix Market file.
@@ -343,7 +383,7 @@ pub fn read_h5ad(filename: &str, mode: &str) -> PyResult<AnnData> {
 #[pyfunction(sorted = "false")]
 #[pyo3(text_signature = "(input, output, sorted)")]
 pub fn read_mtx<'py>(py: Python<'py>, filename: &str, storage: &str, sorted: bool) -> PyResult<AnnData> {
-    let anndata = AnnData::new(py, output, None, None, None, None, None, None)?;
-    anndata.import_mtx(input, sorted);
+    let anndata = AnnData::new(py, storage, None, None, None, None, None, None)?;
+    anndata.import_mtx(filename, sorted);
     Ok(anndata)
 }

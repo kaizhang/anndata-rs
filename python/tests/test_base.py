@@ -1,4 +1,4 @@
-from anndata_rs import AnnData, AnnDataSet, read_h5ad
+from anndata_rs import AnnData, AnnDataSet, read
 
 import numpy as np
 from numpy import dtype, ma
@@ -18,7 +18,7 @@ def test_creation(tmp_path):
     adata_dense = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
     file = adata_dense.filename
     del adata_dense
-    adata_dense = read_h5ad(file, mode="r")
+    adata_dense = read(file, mode="r")
 
     adata_sparse = AnnData(
         filename = h5ad(tmp_path),
