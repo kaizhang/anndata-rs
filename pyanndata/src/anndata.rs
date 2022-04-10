@@ -17,7 +17,7 @@ use pyo3::{
 };
 use std::collections::HashMap;
 use paste::paste;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::ops::DerefMut;
 
 macro_rules! inner {
@@ -104,11 +104,15 @@ macro_rules! def_arr_accessor {
 #[pyclass]
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct AnnData(pub Arc<Mutex<Option<anndata::AnnData>>>);
+pub struct AnnData(pub(crate) Arc<Mutex<Option<anndata::AnnData>>>);
 
 impl AnnData {
     pub fn wrap(anndata: anndata::AnnData) -> Self {
         AnnData(Arc::new(Mutex::new(Some(anndata))))
+    }
+
+    pub fn inner(&self) -> MutexGuard<'_, Option<anndata::AnnData>> {
+        self.0.lock().unwrap()
     }
 }
 
@@ -276,11 +280,15 @@ def_arr_accessor!(
 
 #[pyclass]
 #[repr(transparent)]
-pub struct AnnDataSet(pub Arc<Mutex<Option<anndata::AnnDataSet>>>);
+pub struct AnnDataSet(pub(crate) Arc<Mutex<Option<anndata::AnnDataSet>>>);
 
 impl AnnDataSet {
     pub fn wrap(anndata: anndata::AnnDataSet) -> Self {
         AnnDataSet(Arc::new(Mutex::new(Some(anndata))))
+    }
+
+    pub fn inner(&self) -> MutexGuard<'_, Option<anndata::AnnDataSet>> {
+        self.0.lock().unwrap()
     }
 }
 

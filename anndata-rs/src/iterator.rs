@@ -2,7 +2,7 @@ use crate::{
     anndata::AnnData,
     anndata_trait::{DataType, DataContainer, DataPartialIO},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{ElemTrait, MatrixElem, RawMatrixElem},
+    element::{AxisArrays, ElemTrait, MatrixElem, RawMatrixElem},
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
@@ -238,37 +238,31 @@ impl AnnData {
         *x_guard = Some(MatrixElem::new(container)?);
         Ok(())
     }
+}
 
-    /*
-    pub fn add_obsm_from_row_iter<I>(&mut self, key: &str, data: I) -> Result<()>
+impl AxisArrays {
+    pub fn insert_from_row_iter<I>(&mut self, key: &str, data: I) -> Result<()>
     where
         I: RowIterator,
     {
-        let obsm_guard = self.obsm.lock().unwrap();
-        match obsm_guard.as_ref() {
-            None => self.file.create_group("obsm").unwrap(),
-            Some(g)
+        let mut size_guard = self.size.lock().unwrap();
+        let mut n = *size_guard;
 
-        }
-        let obsm = match self.file.group("obsm") {
-            Ok(x) => x,
-            _ => self.file.create_group("obsm").unwrap(),
-        };
-        if obsm_guard.contains_key(key) { obsm.unlink(key)?; } 
-        let (container, nrows) = data.write(&obsm, key)?;
-        if self.n_obs() == 0 { self.set_n_obs(nrows); }
+        if self.contains_key(key) { self.container.unlink(key)?; } 
+        let (container, nrows) = data.write(&self.container, key)?;
 
+        if n == 0 { n = nrows; }
         assert!(
-            self.n_obs() == nrows,
+            n == nrows,
             "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs(), nrows,
+            n, nrows,
         );
  
         let elem = MatrixElem::new(container)?;
-        self.obsm.data.lock().unwrap().insert(key.to_string(), elem);
+        self.data.lock().unwrap().insert(key.to_string(), elem);
+        *size_guard = n;
         Ok(())
     }
-    */
 }
 
 pub trait IntoRowsIterator {
