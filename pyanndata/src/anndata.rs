@@ -18,15 +18,8 @@ use pyo3::{
 use std::collections::HashMap;
 use paste::paste;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::ops::Deref;
 use std::ops::DerefMut;
-
-macro_rules! inner {
-    ($anndata:expr) => { $anndata.0.lock().unwrap().as_ref().unwrap() }
-}
-
-macro_rules! mut_inner {
-    ($anndata:expr) => { $anndata.0.lock().unwrap().as_mut().unwrap() }
-}
 
 macro_rules! def_df_accessor {
     ($name:ty, { $($field:ident),* }) => {
@@ -36,7 +29,7 @@ macro_rules! def_df_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
-                    inner!(self).[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
+                    self.inner().[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
                         PyDataFrameElem(x.clone()))
                 }
 
@@ -58,7 +51,7 @@ macro_rules! def_df_accessor {
                         };
                         to_rust_df(df_)
                     }).transpose()?;
-                    mut_inner!(self).[<set_ $field>](data.as_ref()).unwrap();
+                    self.inner().[<set_ $field>](data.as_ref()).unwrap();
                     Ok(())
                 }
             )*
@@ -75,7 +68,7 @@ macro_rules! def_arr_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<$get_type> {
-                    inner!(self).[<get_ $field>]().lock().unwrap().as_ref()
+                    self.inner().[<get_ $field>]().lock().unwrap().as_ref()
                         .map(|x| $get_type(x.clone()))
                 }
 
@@ -89,7 +82,7 @@ macro_rules! def_arr_accessor {
                     let data: PyResult<_> = $field.map(|mut x| x.drain().map(|(k, v)|
                         Ok((k, to_rust_data2(py, v)?))
                     ).collect()).transpose();
-                    mut_inner!(self).[<set_ $field>](data?.as_ref()).unwrap();
+                    self.inner().[<set_ $field>](data?.as_ref()).unwrap();
                     Ok(())
                 }
 
@@ -104,15 +97,37 @@ macro_rules! def_arr_accessor {
 #[pyclass]
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct AnnData(pub(crate) Arc<Mutex<Option<anndata::AnnData>>>);
+pub struct AnnData(Arc<Mutex<Option<anndata::AnnData>>>);
+
+pub struct InnerAnnData<'a>(MutexGuard<'a, Option<anndata::AnnData>>);
+
+impl Deref for InnerAnnData<'_> {
+    type Target = anndata::AnnData;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.0.deref() {
+            None => panic!("accessing a closed AnnData object"),
+            Some(x) => x,
+        }
+    }
+}
+
+impl DerefMut for InnerAnnData<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self.0.deref_mut() {
+            None => panic!("accessing a closed AnnData object"),
+            Some(ref mut x) => x,
+        }
+    }
+}
 
 impl AnnData {
     pub fn wrap(anndata: anndata::AnnData) -> Self {
         AnnData(Arc::new(Mutex::new(Some(anndata))))
     }
 
-    pub fn inner(&self) -> MutexGuard<'_, Option<anndata::AnnData>> {
-        self.0.lock().unwrap()
+    pub fn inner(&self) -> InnerAnnData<'_> {
+        InnerAnnData(self.0.lock().unwrap())
     }
 }
 
@@ -166,10 +181,10 @@ impl AnnData {
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     #[getter]
-    fn n_obs(&self) -> usize { inner!(self).n_obs() }
+    fn n_obs(&self) -> usize { self.inner().n_obs() }
 
     #[getter]
-    fn n_vars(&self) -> usize { inner!(self).n_vars() }
+    fn n_vars(&self) -> usize { self.inner().n_vars() }
 
     #[getter]
     fn var_names(&self) -> PyObject {
@@ -183,21 +198,21 @@ impl AnnData {
 
     #[getter(X)]
     fn get_x(&self) -> Option<PyMatrixElem> {
-        inner!(self).x.lock().unwrap().as_ref().map(|x| PyMatrixElem(x.clone()))
+        self.inner().x.lock().unwrap().as_ref().map(|x| PyMatrixElem(x.clone()))
     }
 
     #[setter(X)]
     fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
         match data {
-            None => inner!(self).set_x(None).unwrap(),
-            Some(d) => inner!(self).set_x(Some(&to_rust_data2(py, d)?)).unwrap(),
+            None => self.inner().set_x(None).unwrap(),
+            Some(d) => self.inner().set_x(Some(&to_rust_data2(py, d)?)).unwrap(),
         }
         Ok(())
     }
 
     #[getter(uns)]
     fn get_uns(&self) -> Option<PyElemCollection> {
-        inner!(self).get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
+        self.inner().get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
     }
 
     #[setter(uns)]
@@ -205,7 +220,7 @@ impl AnnData {
         let uns_ = uns.map(|mut x|
             x.drain().map(|(k, v)| (k, to_rust_data1(py, v).unwrap())).collect()
         );
-        mut_inner!(self).set_uns(uns_.as_ref()).unwrap();
+        self.inner().set_uns(uns_.as_ref()).unwrap();
         Ok(())
     }
 
@@ -223,15 +238,15 @@ impl AnnData {
                 match var_indices {
                     Some(vidx) => {
                         let j = to_indices(py, vidx, n_vars)?;
-                        inner!(self).subset(i.as_slice(), j.as_slice());
+                        self.inner().subset(i.as_slice(), j.as_slice());
                     },
-                    None => inner!(self).subset_obs(i.as_slice()),
+                    None => self.inner().subset_obs(i.as_slice()),
                 }
             },
             None => {
                if let Some(vidx) = var_indices {
                     let j = to_indices(py, vidx, n_vars)?;
-                    inner!(self).subset_var(j.as_slice());
+                    self.inner().subset_var(j.as_slice());
                }
             },
         }
@@ -239,10 +254,10 @@ impl AnnData {
     }
             
     #[getter]
-    fn filename(&self) -> String { inner!(self).filename() }
+    fn filename(&self) -> String { self.inner().filename() }
 
     fn write(&self, filename: &str) {
-        inner!(self).write(filename).unwrap();
+        self.inner().write(filename).unwrap();
     }
 
     fn close(&self) {
@@ -252,19 +267,27 @@ impl AnnData {
         }
     }
 
+    fn is_closed(&self) -> bool { self.0.lock().unwrap().is_none() }
+
     fn import_mtx(&self, filename: &str, sorted: bool) {
         if crate::utils::is_gzipped(filename) {
             let f = std::fs::File::open(filename).unwrap();
             let mut reader = std::io::BufReader::new(flate2::read::MultiGzDecoder::new(f));
-            inner!(self).read_matrix_market(&mut reader, sorted).unwrap();
+            self.inner().read_matrix_market(&mut reader, sorted).unwrap();
         } else {
             let f = std::fs::File::open(filename).unwrap();
             let mut reader = std::io::BufReader::new(f);
-            inner!(self).read_matrix_market(&mut reader, sorted).unwrap();
+            self.inner().read_matrix_market(&mut reader, sorted).unwrap();
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", inner!(self)) }
+    fn __repr__(&self) -> String {
+        if self.is_closed() {
+            "Closed AnnData object".to_string()
+        } else {
+            format!("{}", self.inner().deref())
+        }
+    }
 
     fn __str__(&self) -> String { self.__repr__() }
 }
@@ -280,15 +303,37 @@ def_arr_accessor!(
 
 #[pyclass]
 #[repr(transparent)]
-pub struct AnnDataSet(pub(crate) Arc<Mutex<Option<anndata::AnnDataSet>>>);
+pub struct AnnDataSet(Arc<Mutex<Option<anndata::AnnDataSet>>>);
+
+pub struct InnerAnnDataSet<'a>(MutexGuard<'a, Option<anndata::AnnDataSet>>);
+
+impl Deref for InnerAnnDataSet<'_> {
+    type Target = anndata::AnnDataSet;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.0.deref() {
+            None => panic!("accessing a closed AnnDataSet object"),
+            Some(x) => x,
+        }
+    }
+}
+
+impl DerefMut for InnerAnnDataSet<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self.0.deref_mut() {
+            None => panic!("accessing a closed AnnDataSet object"),
+            Some(ref mut x) => x,
+        }
+    }
+}
 
 impl AnnDataSet {
     pub fn wrap(anndata: anndata::AnnDataSet) -> Self {
         AnnDataSet(Arc::new(Mutex::new(Some(anndata))))
     }
 
-    pub fn inner(&self) -> MutexGuard<'_, Option<anndata::AnnDataSet>> {
-        self.0.lock().unwrap()
+    pub fn inner(&self) -> InnerAnnDataSet<'_> {
+        InnerAnnDataSet(self.0.lock().unwrap())
     }
 }
 
@@ -296,7 +341,7 @@ impl AnnDataSet {
 impl AnnDataSet {
     #[new]
     fn new(adatas: Vec<(String, AnnData)>, filename: &str) -> Self {
-        let data = adatas.into_iter().map(|(k, v)| (k, inner!(v).clone())).collect();
+        let data = adatas.into_iter().map(|(k, v)| (k, v.inner().clone())).collect();
         AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename).unwrap())
     }
 
@@ -304,19 +349,19 @@ impl AnnDataSet {
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     #[getter]
-    fn n_obs(&self) -> usize { inner!(self).n_obs() }
+    fn n_obs(&self) -> usize { self.inner().n_obs() }
 
     #[getter]
-    fn n_vars(&self) -> usize { inner!(self).n_vars() }
+    fn n_vars(&self) -> usize { self.inner().n_vars() }
 
     #[getter(X)]
     fn get_x(&self) -> PyStackedMatrixElem {
-        PyStackedMatrixElem(inner!(self).x.clone())
+        PyStackedMatrixElem(self.inner().x.clone())
     }
 
     #[getter(uns)]
     fn get_uns(&self) -> Option<PyElemCollection> {
-        inner!(self).get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
+        self.inner().get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
     }
 
     #[setter(uns)]
@@ -329,7 +374,7 @@ impl AnnDataSet {
         let data: PyResult<_> = uns.map(|mut x| x.drain().map(|(k, v)|
             Ok((k, to_rust_data1(py, v)?))
         ).collect()).transpose();
-        mut_inner!(self).set_uns(data?.as_ref()).unwrap();
+        self.inner().set_uns(data?.as_ref()).unwrap();
         Ok(())
     }
 
@@ -340,7 +385,15 @@ impl AnnDataSet {
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", inner!(self)) }
+    fn is_closed(&self) -> bool { self.0.lock().unwrap().is_none() }
+
+    fn __repr__(&self) -> String {
+        if self.is_closed() {
+            "Closed AnnDataSet object".to_string()
+        } else {
+            format!("{}", self.inner().deref())
+        }
+    }
 
     fn __str__(&self) -> String { self.__repr__() }
 }
@@ -367,7 +420,7 @@ def_arr_accessor!(
 #[pyo3(text_signature = "(files, storage)")]
 pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {
     let adatas = files.into_iter().map(|(key, file)|
-        ( key, inner!(read(file, "r").unwrap()).clone() )
+        ( key, read(file, "r").unwrap().inner().clone() )
     ).collect();
     AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage).unwrap())
 }
