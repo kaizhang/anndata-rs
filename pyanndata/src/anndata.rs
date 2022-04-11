@@ -29,7 +29,7 @@ macro_rules! def_df_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
-                    self.inner().[<get_ $field>]().lock().unwrap().as_ref().map(|x| 
+                    self.inner().[<get_ $field>]().0.as_ref().map(|x| 
                         PyDataFrameElem(x.clone()))
                 }
 
@@ -68,7 +68,7 @@ macro_rules! def_arr_accessor {
             $(
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<$get_type> {
-                    self.inner().[<get_ $field>]().lock().unwrap().as_ref()
+                    self.inner().[<get_ $field>]().0.as_ref()
                         .map(|x| $get_type(x.clone()))
                 }
 
@@ -187,18 +187,24 @@ impl AnnData {
     fn n_vars(&self) -> usize { self.inner().n_vars() }
 
     #[getter]
-    fn var_names(&self) -> PyObject {
-        todo!()
+    fn var_names(&self) -> Option<Vec<String>> {
+        self.inner().get_var().0.as_ref().map(|x|
+            x.read().unwrap()[0].utf8().unwrap().into_iter()
+            .map(|s| s.unwrap().to_string()).collect()
+        )
     }
 
     #[getter]
-    fn obs_names(&self) -> PyObject {
-        todo!()
+    fn obs_names(&self) -> Option<Vec<String>> {
+        self.inner().get_obs().0.as_ref().map(|x|
+            x.read().unwrap()[0].utf8().unwrap().into_iter()
+            .map(|s| s.unwrap().to_string()).collect()
+        )
     }
 
     #[getter(X)]
     fn get_x(&self) -> Option<PyMatrixElem> {
-        self.inner().x.lock().unwrap().as_ref().map(|x| PyMatrixElem(x.clone()))
+        self.inner().get_x().0.as_ref().map(|x| PyMatrixElem(x.clone()))
     }
 
     #[setter(X)]
@@ -212,7 +218,7 @@ impl AnnData {
 
     #[getter(uns)]
     fn get_uns(&self) -> Option<PyElemCollection> {
-        self.inner().get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
+        self.inner().get_uns().0.as_ref().map(|x| PyElemCollection(x.clone()))
     }
 
     #[setter(uns)]
@@ -340,9 +346,9 @@ impl AnnDataSet {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    fn new(adatas: Vec<(String, AnnData)>, filename: &str) -> Self {
+    fn new(adatas: Vec<(String, AnnData)>, filename: &str, add_key: &str) -> Self {
         let data = adatas.into_iter().map(|(k, v)| (k, v.inner().clone())).collect();
-        AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename).unwrap())
+        AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename, add_key).unwrap())
     }
 
     #[getter]
@@ -354,6 +360,22 @@ impl AnnDataSet {
     #[getter]
     fn n_vars(&self) -> usize { self.inner().n_vars() }
 
+    #[getter]
+    fn var_names(&self) -> Option<Vec<String>> {
+        self.inner().get_var().0.as_ref().map(|x|
+            x.read().unwrap()[0].utf8().unwrap().into_iter()
+            .map(|s| s.unwrap().to_string()).collect()
+        )
+    }
+
+    #[getter]
+    fn obs_names(&self) -> Option<Vec<String>> {
+        self.inner().get_obs().0.as_ref().map(|x|
+            x.read().unwrap()[0].utf8().unwrap().into_iter()
+            .map(|s| s.unwrap().to_string()).collect()
+        )
+    }
+
     #[getter(X)]
     fn get_x(&self) -> PyStackedMatrixElem {
         PyStackedMatrixElem(self.inner().x.clone())
@@ -361,7 +383,7 @@ impl AnnDataSet {
 
     #[getter(uns)]
     fn get_uns(&self) -> Option<PyElemCollection> {
-        self.inner().get_uns().lock().unwrap().as_ref().map(|x| PyElemCollection(x.clone()))
+        self.inner().get_uns().0.as_ref().map(|x| PyElemCollection(x.clone()))
     }
 
     #[setter(uns)]
@@ -407,24 +429,6 @@ def_arr_accessor!(
     { obsm, obsp, varm, varp }
 );
 
-/// Read and stack vertically multiple `.h5ad`-formatted hdf5 files.
-///
-/// Parameters
-/// ----------
-///
-/// files
-///     List of key and file name pairs.
-/// storage
-///     File name of the output file containing the AnnDataSet object.
-#[pyfunction]
-#[pyo3(text_signature = "(files, storage)")]
-pub fn read_dataset(files: Vec<(String, &str)>, storage: &str) -> AnnDataSet {
-    let adatas = files.into_iter().map(|(key, file)|
-        ( key, read(file, "r").unwrap().inner().clone() )
-    ).collect();
-    AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage).unwrap())
-}
-
 /// Read `.h5ad`-formatted hdf5 file.
 ///
 /// Parameters
@@ -468,4 +472,40 @@ pub fn read_mtx<'py>(py: Python<'py>, filename: &str, storage: &str, sorted: boo
     )?;
     anndata.import_mtx(filename, sorted);
     Ok(anndata)
+}
+
+/// Read and stack vertically multiple `.h5ad`-formatted hdf5 files.
+///
+/// Parameters
+/// ----------
+///
+/// files
+///     List of key and file name pairs.
+/// storage
+///     File name of the output file containing the AnnDataSet object.
+/// add_key
+///     The column name in obs to store the keys
+#[pyfunction(add_key= "\"batch\"")]
+#[pyo3(text_signature = "(files, storage)")]
+pub fn create_dataset(files: Vec<(String, &str)>, storage: &str, add_key: &str) -> AnnDataSet {
+    let adatas = files.into_iter().map(|(key, file)|
+        ( key, read(file, "r").unwrap().inner().clone() )
+    ).collect();
+    AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage, add_key).unwrap())
+}
+
+
+#[pyfunction(anndatas = "None", mode = "\"r+\"")]
+#[pyo3(text_signature = "(filename, anndatas, mode)")]
+pub fn read_dataset(
+    filename: &str,
+    anndatas: Option<HashMap<&str, &str>>,
+    mode: &str,
+) -> AnnDataSet {
+    let file = match mode {
+        "r" => hdf5::File::open(filename).unwrap(),
+        "r+" => hdf5::File::open_rw(filename).unwrap(),
+        _ => panic!("Unkown mode"),
+    };
+    AnnDataSet::wrap(anndata::AnnDataSet::read(file, anndatas).unwrap())
 }
