@@ -123,8 +123,9 @@ impl PyDataFrameElem {
             subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
                 to_py_df(self.0.read().unwrap())
         } else {
-            let data = to_py_df(self.0.read().unwrap())?;
-            data.call_method1(py, "__getitem__", (subscript,))
+            to_py_df(self.0.read().unwrap())?
+                .call_method1(py, "__getitem__", (subscript,))?
+                .call_method0(py, "to_numpy")
         }
     }
 
@@ -135,8 +136,14 @@ impl PyDataFrameElem {
         data: &'py PyAny,
     ) -> PyResult<()> {
         let df = to_py_df(self.0.read().unwrap())?;
-        df.call_method1(py, "__setitem__", (key, data))?;
-        self.0.update(&to_rust_df(df.as_ref(py)).unwrap());
+        let new_df = if key.is_instance_of::<pyo3::types::PyString>()? {
+            let series = py.import("polars")?.call_method1("Series", (key, data))?;
+            df.call_method1(py, "with_column", (series,))?
+        } else {
+            df.call_method1(py, "__setitem__", (key, data))?;
+            df
+        };
+        self.0.update(&to_rust_df(new_df.as_ref(py)).unwrap());
         Ok(())
     }
  
