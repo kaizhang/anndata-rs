@@ -17,7 +17,8 @@ use pyo3::{
 };
 use std::collections::HashMap;
 use paste::paste;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use parking_lot::{Mutex, MutexGuard};
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -127,7 +128,7 @@ impl AnnData {
     }
 
     pub fn inner(&self) -> InnerAnnData<'_> {
-        InnerAnnData(self.0.lock().unwrap())
+        InnerAnnData(self.0.lock())
     }
 }
 
@@ -267,13 +268,13 @@ impl AnnData {
     }
 
     fn close(&self) {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock();
         if let Some(anndata) = std::mem::replace(inner.deref_mut(), None) {
             anndata.close().unwrap();
         }
     }
 
-    fn is_closed(&self) -> bool { self.0.lock().unwrap().is_none() }
+    fn is_closed(&self) -> bool { self.0.lock().is_none() }
 
     fn import_mtx(&self, filename: &str, sorted: bool) {
         if crate::utils::is_gzipped(filename) {
@@ -339,7 +340,7 @@ impl AnnDataSet {
     }
 
     pub fn inner(&self) -> InnerAnnDataSet<'_> {
-        InnerAnnDataSet(self.0.lock().unwrap())
+        InnerAnnDataSet(self.0.lock())
     }
 }
 
@@ -401,13 +402,13 @@ impl AnnDataSet {
     }
 
     fn close(&self) {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock();
         if let Some(dataset) = std::mem::replace(inner.deref_mut(), None) {
             dataset.close().unwrap();
         }
     }
 
-    fn is_closed(&self) -> bool { self.0.lock().unwrap().is_none() }
+    fn is_closed(&self) -> bool { self.0.lock().is_none() }
 
     fn __repr__(&self) -> String {
         if self.is_closed() {

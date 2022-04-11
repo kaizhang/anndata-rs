@@ -3,7 +3,8 @@ use crate::{
     element::{Elem, MatrixElem, ElemTrait},
 };
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::{Result, Group}; 
 
@@ -22,15 +23,15 @@ impl ElemCollection {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.lock().unwrap().is_empty()
+        self.data.lock().is_empty()
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
-        self.data.lock().unwrap().contains_key(key)
+        self.data.lock().contains_key(key)
     }
 
     pub fn insert(&self, key: &str, data: &Box<dyn DataIO>) -> Result<()> {
-        let mut data_guard = self.data.lock().unwrap();
+        let mut data_guard = self.data.lock();
         match data_guard.get(key) {
             None => {
                 let container = data.write(&self.container, key)?;
@@ -43,7 +44,7 @@ impl ElemCollection {
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.lock().unwrap().iter() {
+        for (key, val) in self.data.lock().iter() {
             val.write(location, key)?;
         }
         Ok(())
@@ -52,7 +53,7 @@ impl ElemCollection {
 
 impl std::fmt::Display for ElemCollection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let keys = self.data.lock().unwrap().keys().map(|x| x.to_string())
+        let keys = self.data.lock().keys().map(|x| x.to_string())
             .collect::<Vec<_>>().join(", ");
         write!(f, "Dict with keys: {}", keys)
     }
@@ -110,7 +111,7 @@ impl std::fmt::Display for AxisArrays {
             Axis::Column => "column",
             Axis::Both => "square",
         };
-        let keys = self.data.lock().unwrap().keys().map(|x| x.to_string())
+        let keys = self.data.lock().keys().map(|x| x.to_string())
             .collect::<Vec<_>>().join(", ");
         write!(f, "AxisArrays ({}) with keys: {}", ty, keys)
     }
@@ -126,7 +127,7 @@ impl AxisArrays {
             (k, MatrixElem::new(v).unwrap())
         ).collect();
         {
-            let mut size_guard = size.lock().unwrap();
+            let mut size_guard = size.lock();
             let mut n = *size_guard;
             for (_, v) in data.iter() {
                 if let Some(s) = check_dims!(n, v, axis) {
@@ -139,20 +140,20 @@ impl AxisArrays {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.lock().unwrap().is_empty()
+        self.data.lock().is_empty()
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
-        self.data.lock().unwrap().contains_key(key)
+        self.data.lock().contains_key(key)
     }
 
     pub fn insert(&self, key: &str, data: &Box<dyn DataPartialIO>) -> Result<()> {
-        let mut size_guard = self.size.lock().unwrap();
+        let mut size_guard = self.size.lock();
         let mut n = *size_guard;
         if let Some(s) = check_dims!(n, data, self.axis) {
             n = s;
         }
-        let mut data_guard = self.data.lock().unwrap();
+        let mut data_guard = self.data.lock();
         match data_guard.get(key) {
             None => {
                 let container = data.write(&self.container, key)?;
@@ -167,14 +168,14 @@ impl AxisArrays {
     
     pub(crate) fn subset(&self, idx: &[usize]) {
         match self.axis {
-            Axis::Row => self.data.lock().unwrap().values_mut().for_each(|x| x.subset_rows(idx)),
-            Axis::Column => self.data.lock().unwrap().values_mut().for_each(|x| x.subset_cols(idx)),
-            Axis::Both => self.data.lock().unwrap().values_mut().for_each(|x| x.subset(idx, idx)),
+            Axis::Row => self.data.lock().values_mut().for_each(|x| x.subset_rows(idx)),
+            Axis::Column => self.data.lock().values_mut().for_each(|x| x.subset_cols(idx)),
+            Axis::Both => self.data.lock().values_mut().for_each(|x| x.subset(idx, idx)),
         }
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.lock().unwrap().iter() {
+        for (key, val) in self.data.lock().iter() {
             val.write(location, key)?;
         }
         Ok(())

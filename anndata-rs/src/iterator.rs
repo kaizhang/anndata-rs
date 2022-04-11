@@ -217,7 +217,7 @@ impl AnnData {
     where
         I: RowIterator,
     {
-        let mut x_guard = self.x.lock().unwrap();
+        let mut x_guard = self.x.lock();
  
         if self.n_vars() == 0 { self.set_n_vars(data.ncols()); }
         assert!(
@@ -245,7 +245,7 @@ impl AxisArrays {
     where
         I: RowIterator,
     {
-        let mut size_guard = self.size.lock().unwrap();
+        let mut size_guard = self.size.lock();
         let mut n = *size_guard;
 
         if self.contains_key(key) { self.container.unlink(key)?; } 
@@ -259,7 +259,7 @@ impl AxisArrays {
         );
  
         let elem = MatrixElem::new(container)?;
-        self.data.lock().unwrap().insert(key.to_string(), elem);
+        self.data.lock().insert(key.to_string(), elem);
         *size_guard = n;
         Ok(())
     }
@@ -376,7 +376,7 @@ impl Iterator for ChunkedMatrix {
             let i = self.current_index;
             let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
             self.current_index = j;
-            let data = self.elem.0.lock().unwrap().read_dyn_row_slice(i..j).unwrap();
+            let data = self.elem.0.lock().read_dyn_row_slice(i..j).unwrap();
             Some(data)
         }
     }

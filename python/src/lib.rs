@@ -1,4 +1,4 @@
-use pyanndata::{element, AnnData, AnnDataSet, read, read_mtx, read_dataset};
+use pyanndata::{element, AnnData, AnnDataSet, read, read_mtx, read_dataset, create_dataset};
 
 use pyo3::{
     prelude::*,
@@ -15,6 +15,7 @@ fn anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_mtx, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;
+    m.add_function(wrap_pyfunction!(create_dataset, m)?)?;
     m.add_function(wrap_pyfunction!(read_dataset, m)?)?;
     Ok(())
 }

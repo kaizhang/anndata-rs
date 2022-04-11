@@ -6,7 +6,8 @@ use crate::{
 };
 
 use itertools::Itertools;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use hdf5::{File, Result}; 
 use std::ops::Deref;
 
@@ -19,8 +20,8 @@ impl AnnData {
         // Read X
         let x = if file.link_exists("X") {
             let x = MatrixElem::new(DataContainer::open(&file, "X")?)?;
-            *n_obs.lock().unwrap() = x.nrows();
-            *n_vars.lock().unwrap() = x.ncols();
+            *n_obs.lock() = x.nrows();
+            *n_vars.lock() = x.ncols();
             Arc::new(Mutex::new(Some(x)))
         } else {
             Arc::new(Mutex::new(None))
@@ -29,9 +30,9 @@ impl AnnData {
         // Read obs
         let obs = if file.link_exists("obs") {
             let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
-            let n = *n_obs.lock().unwrap().deref();
+            let n = *n_obs.lock().deref();
             if n == 0 {
-                *n_obs.lock().unwrap() = obs.nrows();
+                *n_obs.lock() = obs.nrows();
             } else {
                 assert!(n == obs.nrows(),
                     "Inconsistent number of observations: {} (X) != {} (obs)",
@@ -46,9 +47,9 @@ impl AnnData {
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
-            let n = *n_vars.lock().unwrap().deref();
+            let n = *n_vars.lock().deref();
             if n == 0 {
-                *n_vars.lock().unwrap() = var.ncols();
+                *n_vars.lock() = var.ncols();
             } else {
                 assert!(n == var.ncols(),
                     "Inconsistent number of variables: {} (X) != {} (var)",
@@ -85,14 +86,14 @@ impl AnnData {
     {
         let file = File::create(filename)?;
 
-        self.x.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
-        self.obs.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
-        self.var.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
-        self.obsm.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
-        self.obsp.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
-        self.varm.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
-        self.varp.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
-        self.uns.lock().unwrap().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+        self.x.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
+        self.obs.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
+        self.var.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
+        self.obsm.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
+        self.obsp.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
+        self.varm.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
+        self.varp.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
+        self.uns.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
         Ok(())
     }
 

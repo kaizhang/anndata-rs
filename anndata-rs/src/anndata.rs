@@ -6,7 +6,8 @@ use crate::{
     },
 };
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use parking_lot::{Mutex, MutexGuard};
 use std::collections::{HashMap, HashSet};
 use hdf5::{File, Result}; 
 use polars::prelude::{NamedFrom, DataFrame, Series};
@@ -65,7 +66,7 @@ impl std::fmt::Display for AnnData {
         macro_rules! fmt_df {
             ($($df:ident),*) => {
                 $(
-                if let Some($df) = self.$df.lock().unwrap().as_ref() {
+                if let Some($df) = self.$df.lock().as_ref() {
                     write!(
                         f, "\n    {}: {}", stringify!($df),
                         $df.get_column_names().unwrap().join(", "),
@@ -79,8 +80,8 @@ impl std::fmt::Display for AnnData {
         macro_rules! fmt_item {
             ($($item:ident),*) => {
                 $(
-                if let Some($item) = self.$item.lock().unwrap().as_ref() {
-                    let data: String = $item.data.lock().unwrap().keys().
+                if let Some($item) = self.$item.lock().as_ref() {
+                    let data: String = $item.data.lock().keys().
                         map(|x| x.as_str()).intersperse(", ").collect();
                     if !data.is_empty() {
                         write!(f, "\n    {}: {}", stringify!($item), data)?;
@@ -101,7 +102,7 @@ macro_rules! anndata_getter {
         paste! {
             $(
                 pub fn [<get_ $field>](&self) -> ElementGuard<'_, $get_type> {
-                    ElementGuard(self.$field.lock().unwrap())
+                    ElementGuard(self.$field.lock())
                 }
             )*
         }
@@ -117,7 +118,7 @@ macro_rules! anndata_setter_row {
                 data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
             ) -> Result<()>
             {
-                let mut guard = self.$field.lock().unwrap();
+                let mut guard = self.$field.lock();
                 let field = stringify!($field);
                 if guard.is_some() { self.file.unlink(field)?; }
                 match data_ {
@@ -147,7 +148,7 @@ macro_rules! anndata_setter_col {
                 data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
             ) -> Result<()>
             {
-                let mut guard = self.$field.lock().unwrap();
+                let mut guard = self.$field.lock();
                 let field = stringify!($field);
                 if guard.is_some() { self.file.unlink(field)?; }
                 match data_ {
@@ -169,16 +170,16 @@ macro_rules! anndata_setter_col {
 }
 
 impl AnnData {
-    pub fn n_obs(&self) -> usize { *self.n_obs.lock().unwrap().deref() }
+    pub fn n_obs(&self) -> usize { *self.n_obs.lock().deref() }
 
-    pub fn n_vars(&self) -> usize { *self.n_vars.lock().unwrap().deref() }
+    pub fn n_vars(&self) -> usize { *self.n_vars.lock().deref() }
 
     pub(crate) fn set_n_obs(&self, n: usize) {
-        *self.n_obs.lock().unwrap().deref_mut() = n;
+        *self.n_obs.lock().deref_mut() = n;
     }
 
     pub(crate) fn set_n_vars(&self, n: usize) {
-        *self.n_vars.lock().unwrap().deref_mut() = n;
+        *self.n_vars.lock().deref_mut() = n;
     }
 
     pub fn filename(&self) -> String { self.file.filename() }
@@ -191,7 +192,7 @@ impl AnnData {
     anndata_getter!(ElemCollection, { uns });
 
     pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
-        let mut x_guard = self.x.lock().unwrap();
+        let mut x_guard = self.x.lock();
         match data_ {
             Some(data) => {
                 let n = self.n_obs();
@@ -220,7 +221,7 @@ impl AnnData {
     }
 
     pub fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
-        let mut obs_guard = self.obs.lock().unwrap();
+        let mut obs_guard = self.obs.lock();
         match obs_ {
             None => if obs_guard.is_some() {
                 self.file.unlink("obs")?;
@@ -246,7 +247,7 @@ impl AnnData {
     }
 
     pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
-        let mut var_guard = self.var.lock().unwrap();
+        let mut var_guard = self.var.lock();
         match var_ {
             None => if var_guard.is_some() {
                 self.file.unlink("var")?;
@@ -275,7 +276,7 @@ impl AnnData {
     anndata_setter_col!(varm, varp);
 
     pub fn set_uns(&mut self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
-        let mut guard = self.uns.lock().unwrap();
+        let mut guard = self.uns.lock();
         if guard.is_some() { self.file.unlink("uns")?; }
         match uns_ {
             None => { *guard = None; },
@@ -329,31 +330,31 @@ impl AnnData {
 
     pub fn subset_obs(&self, idx: &[usize])
     {
-        self.x.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
-        self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(idx));
-        self.obsm.lock().unwrap().as_ref().map(|x| x.subset(idx));
-        self.obsp.lock().unwrap().as_ref().map(|x| x.subset(idx));
+        self.x.lock().as_ref().map(|x| x.subset_rows(idx));
+        self.obs.lock().as_ref().map(|x| x.subset_rows(idx));
+        self.obsm.lock().as_ref().map(|x| x.subset(idx));
+        self.obsp.lock().as_ref().map(|x| x.subset(idx));
         self.set_n_obs(idx.len());
     }
 
     pub fn subset_var(&self, idx: &[usize])
     {
-        self.x.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
-        self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(idx));
-        self.varm.lock().unwrap().as_ref().map(|x| x.subset(idx));
-        self.varp.lock().unwrap().as_ref().map(|x| x.subset(idx));
+        self.x.lock().as_ref().map(|x| x.subset_cols(idx));
+        self.var.lock().as_ref().map(|x| x.subset_cols(idx));
+        self.varm.lock().as_ref().map(|x| x.subset(idx));
+        self.varp.lock().as_ref().map(|x| x.subset(idx));
         self.set_n_vars(idx.len());
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize])
     {
-        self.x.lock().unwrap().as_ref().map(|x| x.subset(ridx, cidx));
-        self.obs.lock().unwrap().as_ref().map(|x| x.subset_rows(ridx));
-        self.obsm.lock().unwrap().as_ref().map(|x| x.subset(ridx));
-        self.obsp.lock().unwrap().as_ref().map(|x| x.subset(ridx));
-        self.var.lock().unwrap().as_ref().map(|x| x.subset_cols(cidx));
-        self.varm.lock().unwrap().as_ref().map(|x| x.subset(cidx));
-        self.varp.lock().unwrap().as_ref().map(|x| x.subset(cidx));
+        self.x.lock().as_ref().map(|x| x.subset(ridx, cidx));
+        self.obs.lock().as_ref().map(|x| x.subset_rows(ridx));
+        self.obsm.lock().as_ref().map(|x| x.subset(ridx));
+        self.obsp.lock().as_ref().map(|x| x.subset(ridx));
+        self.var.lock().as_ref().map(|x| x.subset_cols(cidx));
+        self.varm.lock().as_ref().map(|x| x.subset(cidx));
+        self.varp.lock().as_ref().map(|x| x.subset(cidx));
         self.set_n_obs(ridx.len());
         self.set_n_vars(cidx.len());
     }
@@ -381,14 +382,14 @@ impl std::fmt::Display for AnnDataSet {
             self.anndatas.keys().map(|x| x.as_str()).intersperse(", ").collect::<String>(),
         )?;
 
-        if let Some(obs) = self.annotation.obs.lock().unwrap().as_ref() {
+        if let Some(obs) = self.annotation.obs.lock().as_ref() {
             write!(
                 f,
                 "\n    obs: {}",
                 obs.get_column_names().unwrap().join(", "),
             )?;
         }
-        if let Some(var) = self.annotation.var.lock().unwrap().as_ref() {
+        if let Some(var) = self.annotation.var.lock().as_ref() {
             write!(
                 f,
                 "\n    var: {}",
@@ -399,8 +400,8 @@ impl std::fmt::Display for AnnDataSet {
         macro_rules! fmt_item {
             ($($item:ident),*) => {
                 $(
-                if let Some($item) = self.annotation.$item.lock().unwrap().as_ref() {
-                    let data: String = $item.data.lock().unwrap().keys().
+                if let Some($item) = self.annotation.$item.lock().as_ref() {
+                    let data: String = $item.data.lock().keys().
                         map(|x| x.as_str()).intersperse(", ").collect();
                     if !data.is_empty() {
                         write!(f, "\n    {}: {}", stringify!($item), data)?;
@@ -420,7 +421,7 @@ macro_rules! def_accessor {
         paste! {
             $(
                 pub fn [<get_ $field>](&self) -> ElementGuard<'_, $get_type> {
-                    ElementGuard(self.annotation.$field.lock().unwrap())
+                    ElementGuard(self.annotation.$field.lock())
                 }
 
                 pub fn [<set_ $field>](&mut self, $field: $set_type) -> Result<()> {
@@ -452,7 +453,7 @@ impl AnnDataSet {
         }
 
         if let Some(obs) = anndatas.values()
-            .map(|x| x.obs.lock().unwrap().as_ref().map(|d| d.read().unwrap()[0].clone()))
+            .map(|x| x.obs.lock().as_ref().map(|d| d.read().unwrap()[0].clone()))
             .collect::<Option<Vec<_>>>()
         {
             annotation.set_obs(Some(&DataFrame::new(vec![
@@ -467,7 +468,7 @@ impl AnnDataSet {
                 ),
             ]).unwrap()))?;
         }
-        if let Some(var) = anndatas.values().next().unwrap().var.lock().unwrap().as_ref() {
+        if let Some(var) = anndatas.values().next().unwrap().var.lock().as_ref() {
             annotation.set_var(Some(&DataFrame::new(vec![var.read()?[0].clone()]).unwrap()))?;
         }
         
@@ -486,7 +487,7 @@ impl AnnDataSet {
 
     pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
         let annotation = AnnData::read(file)?;
-        let df: Box<DataFrame> = annotation.get_uns().data.lock().unwrap()
+        let df: Box<DataFrame> = annotation.get_uns().data.lock()
             .get("AnnDataSet").unwrap().read()?.into_any().downcast().unwrap();
         let keys = df.column("keys").unwrap().utf8().unwrap();
         let filenames = df.column("file_path").unwrap().utf8().unwrap();

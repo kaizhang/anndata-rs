@@ -71,7 +71,11 @@ def test_chunk(tmp_path):
     adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
     adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
-    adata = AnnDataSet([("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path))
+    adata = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)],
+        h5ad(tmp_path),
+        "batch"
+    )
 
     s = merged.sum(axis = 0)
     s_ = np.zeros_like(s)
@@ -93,7 +97,11 @@ def test_anndataset(tmp_path):
     adata2 = AnnData(X=data2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=data3, filename=h5ad(tmp_path))
 
-    dataset = AnnDataSet([("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path))
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)],
+        h5ad(tmp_path),
+        "batch"
+    )
 
     idx = np.random.randint(0, 100, 50)
     np.testing.assert_array_equal(merged[idx, :], dataset.X.get_rows(idx))
@@ -105,7 +113,11 @@ def test_anndataset(tmp_path):
     adata1 = AnnData(X=data1, filename=h5ad(tmp_path))
     adata2 = AnnData(X=data2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=data3, filename=h5ad(tmp_path))
-    dataset = AnnDataSet([("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path))
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)],
+        h5ad(tmp_path),
+        "batch"
+    )
     idx = np.random.randint(0, 3000, 1000)
     np.testing.assert_array_equal(merged[idx, :].todense(), dataset.X.get_rows(idx).todense())
  

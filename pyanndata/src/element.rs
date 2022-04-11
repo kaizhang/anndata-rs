@@ -32,7 +32,7 @@ impl PyElem {
     fn disable_cache(&self) { self.0.disable_cache() }
 
     fn is_scalar(&self) -> bool {
-        match self.0.0.lock().unwrap().dtype {
+        match self.0.0.lock().dtype {
             DataType::Scalar(_) => true,
             _ => false,
         }
@@ -96,7 +96,7 @@ impl PyMatrixElem {
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        to_py_data2(py, self.0.0.lock().unwrap().read_rows(idx.as_slice()).unwrap())
+        to_py_data2(py, self.0.0.lock().read_rows(idx.as_slice()).unwrap())
     }
 
     fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
@@ -157,7 +157,7 @@ pub struct PyElemCollection(pub(crate) ElemCollection);
 #[pymethods]
 impl PyElemCollection {
     pub fn keys(&self) -> Vec<String> {
-        self.0.data.lock().unwrap().keys().map(|x| x.to_string()).collect()
+        self.0.data.lock().keys().map(|x| x.to_string()).collect()
     }
 
     fn __contains__(&self, key: &str) -> bool {
@@ -165,7 +165,7 @@ impl PyElemCollection {
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
-        match self.0.data.lock().unwrap().get(key) {
+        match self.0.data.lock().get(key) {
             None => Ok(None),
             Some(x) => Ok(Some(to_py_data1(py, x.read().unwrap())?)),
         }
@@ -188,7 +188,7 @@ pub struct PyAxisArrays(pub(crate) AxisArrays);
 #[pymethods]
 impl PyAxisArrays {
     pub fn keys(&self) -> Vec<String> {
-        self.0.data.lock().unwrap().keys().map(|x| x.to_string()).collect()
+        self.0.data.lock().keys().map(|x| x.to_string()).collect()
     }
 
     fn __contains__(&self, key: &str) -> bool {
@@ -196,7 +196,7 @@ impl PyAxisArrays {
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
-        match self.0.data.lock().unwrap().get(key) {
+        match self.0.data.lock().get(key) {
             None => Ok(None),
             Some(x) => Ok(Some(to_py_data2(py, x.read().unwrap())?)),
         }

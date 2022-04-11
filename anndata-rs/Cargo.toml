@@ -11,12 +11,13 @@ homepage = "https://github.com/"
 
 [dependencies]
 flate2 = "1.0"
-indexmap = "1.8.1"
+indexmap = "1.8"
 itertools = "0.8"
-hdf5 = "0.8.1"
-ndarray = "0.15.4"
-nalgebra-sparse = "0.6.0"
-dyn-clone = "1.0.5"
-downcast-rs = "1.2.0"
-polars = { version = "0.20.0", features = ["ndarray", "dtype-categorical"] }
-paste = "1.0.7"
+hdf5 = "0.8"
+ndarray = "0.15"
+nalgebra-sparse = "0.6"
+dyn-clone = "1.0"
+downcast-rs = "1.2"
+polars = { version = "0.20", features = ["ndarray", "dtype-categorical"] }
+paste = "1.0"
+parking_lot = "0.12"
