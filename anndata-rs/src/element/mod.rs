@@ -8,5 +8,5 @@ mod element;
 mod collection;
 
 pub use base::{RawElem, RawMatrixElem};
-pub use element::{ElemTrait, Elem, MatrixElem, DataFrameElem, Stacked};
+pub use element::{Slot, Inner, ElemTrait, Elem, MatrixElem, DataFrameElem, Stacked};
 pub use collection::{ElemCollection, AxisArrays, Axis, StackedAxisArrays};

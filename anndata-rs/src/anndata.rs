@@ -1,14 +1,10 @@
 use crate::{
     anndata_trait::*,
-    element::{
-        ElemTrait, MatrixElem, DataFrameElem,
-        ElemCollection, AxisArrays, Axis, Stacked,
-        StackedAxisArrays,
-    },
+    element::*,
 };
 
 use std::sync::Arc;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::{File, Result}; 
 use polars::prelude::{NamedFrom, DataFrame, Series};
@@ -23,38 +19,15 @@ pub struct AnnData {
     pub(crate) file: File,
     pub n_obs: Arc<Mutex<usize>>,
     pub n_vars: Arc<Mutex<usize>>,
-    pub x: Arc<Mutex<Option<MatrixElem>>>,
-    pub(crate) obs: Arc<Mutex<Option<DataFrameElem>>>,
-    pub(crate) obsm: Arc<Mutex<Option<AxisArrays>>>,
-    pub(crate) obsp: Arc<Mutex<Option<AxisArrays>>>,
-    pub(crate) var: Arc<Mutex<Option<DataFrameElem>>>,
-    pub(crate) varm: Arc<Mutex<Option<AxisArrays>>>,
-    pub(crate) varp: Arc<Mutex<Option<AxisArrays>>>,
-    pub(crate) uns: Arc<Mutex<Option<ElemCollection>>>,
+    pub(crate) x: MatrixElem,
+    pub(crate) obs: DataFrameElem,
+    pub(crate) obsm: Slot<AxisArrays>,
+    pub(crate) obsp: Slot<AxisArrays>,
+    pub(crate) var: DataFrameElem,
+    pub(crate) varm: Slot<AxisArrays>,
+    pub(crate) varp: Slot<AxisArrays>,
+    pub(crate) uns: Slot<ElemCollection>,
 }
-
-pub struct ElementGuard<'a, T>(pub MutexGuard<'a, Option<T>>);
-
-impl<T> Deref for ElementGuard<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match &self.0.deref() {
-            None => panic!("accessing an empty element"),
-            Some(x) => x,
-        }
-    }
-}
-
-impl<T> DerefMut for ElementGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self.0.deref_mut() {
-            None => panic!("accessing an empty element"),
-            Some(ref mut x) => x,
-        }
-    }
-}
-
 
 impl std::fmt::Display for AnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,10 +40,10 @@ impl std::fmt::Display for AnnData {
         macro_rules! fmt_df {
             ($($df:ident),*) => {
                 $(
-                if let Some($df) = self.$df.lock().as_ref() {
+                if !self.$df.is_empty() {
                     write!(
                         f, "\n    {}: {}", stringify!($df),
-                        $df.get_column_names().unwrap().join(", "),
+                        self.$df.get_column_names().unwrap().join(", "),
                     )?;
                 }
                 )*
@@ -81,8 +54,8 @@ impl std::fmt::Display for AnnData {
         macro_rules! fmt_item {
             ($($item:ident),*) => {
                 $(
-                if let Some($item) = self.$item.lock().as_ref() {
-                    let data: String = $item.data.lock().keys().
+                if let Some($item) = self.$item.inner().0.as_ref() {
+                    let data: String = $item.keys().
                         map(|x| x.as_str()).intersperse(", ").collect();
                     if !data.is_empty() {
                         write!(f, "\n    {}: {}", stringify!($item), data)?;
@@ -97,19 +70,6 @@ impl std::fmt::Display for AnnData {
     }
 }
 
-/// define get_* functions
-macro_rules! anndata_getter {
-    ($get_type:ty, { $($field:ident),* }) => {
-        paste! {
-            $(
-                pub fn [<get_ $field>](&self) -> ElementGuard<'_, $get_type> {
-                    ElementGuard(self.$field.lock())
-                }
-            )*
-        }
-    }
-}
-
 macro_rules! anndata_setter_row {
     ($($field:ident),*) => {
         paste! {
@@ -119,18 +79,18 @@ macro_rules! anndata_setter_row {
                 data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
             ) -> Result<()>
             {
-                let mut guard = self.$field.lock();
+                let mut guard = self.$field.inner();
                 let field = stringify!($field);
-                if guard.is_some() { self.file.unlink(field)?; }
+                if guard.0.is_some() { self.file.unlink(field)?; }
                 match data_ {
-                    None => { *guard = None; },
+                    None => { *guard.0 = None; },
                     Some(data) => {
                         let container = self.file.create_group(field)?;
-                        let item = AxisArrays::new(container, Axis::Row, self.n_obs.clone());
+                        let mut item = AxisArrays::new(container, Axis::Row, self.n_obs.clone());
                         for (key, val) in data.iter() {
-                            item.insert(key, val)?;
+                            item.add_data(key, val)?;
                         }
-                        *guard = Some(item);
+                        *guard.0 = Some(item);
                     },
                 }
                 Ok(())
@@ -149,18 +109,18 @@ macro_rules! anndata_setter_col {
                 data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
             ) -> Result<()>
             {
-                let mut guard = self.$field.lock();
+                let mut guard = self.$field.inner();
                 let field = stringify!($field);
-                if guard.is_some() { self.file.unlink(field)?; }
+                if guard.0.is_some() { self.file.unlink(field)?; }
                 match data_ {
-                    None => { *guard = None; },
+                    None => { *guard.0 = None; },
                     Some(data) => {
                         let container = self.file.create_group(field)?;
-                        let item = AxisArrays::new(container, Axis::Column, self.n_vars.clone());
+                        let mut item = AxisArrays::new(container, Axis::Column, self.n_vars.clone());
                         for (key, val) in data.iter() {
-                            item.insert(key, val)?;
+                            item.add_data(key, val)?;
                         }
-                        *guard = Some(item);
+                        *guard.0 = Some(item);
                     },
                 }
                 Ok(())
@@ -175,13 +135,9 @@ impl AnnData {
 
     pub fn n_vars(&self) -> usize { *self.n_vars.lock().deref() }
 
-    pub fn obs_names(&self) -> Result<Option<Vec<String>>> {
-        self.obs.lock().as_ref().map(|x| x.get_index()).transpose()
-    }
+    pub fn obs_names(&self) -> Result<Vec<String>> { self.obs.get_index() }
 
-    pub fn var_names(&self) -> Result<Option<Vec<String>>> {
-        self.var.lock().as_ref().map(|x| x.get_index()).transpose()
-    }
+    pub fn var_names(&self) -> Result<Vec<String>> { self.var.get_index() }
 
     pub(crate) fn set_n_obs(&self, n: usize) {
         *self.n_obs.lock().deref_mut() = n;
@@ -194,24 +150,33 @@ impl AnnData {
     pub fn filename(&self) -> String { self.file.filename() }
 
     pub fn close(self) -> Result<()> {
-        let _ = std::mem::replace(self.x.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.obs.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.obsm.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.obsp.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.var.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.varm.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.varp.lock().deref_mut(), None);
-        let _ = std::mem::replace(self.uns.lock().deref_mut(), None);
+        macro_rules! close {
+            ($($name:ident),*) => {
+                $(
+                self.$name.inner().0.as_ref().map(|x| x.values().for_each(|x| x.drop()));
+                self.$name.drop();
+                )*
+            };
+        }
+        self.x.drop();
+        self.obs.drop();
+        self.var.drop();
+        self.uns.drop();
+        close!(obsm, obsp, varm, varp);
         self.file.close()
     }
 
-    anndata_getter!(MatrixElem, { x });
-    anndata_getter!(DataFrameElem, { obs, var });
-    anndata_getter!(AxisArrays, { obsm, obsp, varm, varp });
-    anndata_getter!(ElemCollection, { uns });
+    pub fn get_x(&self) -> &MatrixElem { &self.x }
+    pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
+    pub fn get_var(&self) -> &DataFrameElem { &self.var }
+    pub fn get_obsm(&self) -> &Slot<AxisArrays> { &self.obsm }
+    pub fn get_obsp(&self) -> &Slot<AxisArrays> { &self.obsp }
+    pub fn get_varm(&self) -> &Slot<AxisArrays> { &self.varm }
+    pub fn get_varp(&self) -> &Slot<AxisArrays> { &self.varp }
+    pub fn get_uns(&self) -> &Slot<ElemCollection> { &self.uns }
 
     pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
-        let mut x_guard = self.x.lock();
+        let mut x_guard = self.x.inner();
         match data_ {
             Some(data) => {
                 let n = self.n_obs();
@@ -226,25 +191,25 @@ impl AnnData {
                     "Number of variables mismatched, expecting {}, but found {}",
                     m, data.ncols(),
                 );
-                if x_guard.is_some() { self.file.unlink("X")?; }
-                *x_guard = Some(MatrixElem::new(data.write(&self.file, "X")?)?);
+                if x_guard.0.is_some() { self.file.unlink("X")?; }
+                *x_guard.0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
                 self.set_n_obs(data.nrows());
                 self.set_n_vars(data.ncols());
             },
-            None => if x_guard.is_some() {
+            None => if x_guard.0.is_some() {
                 self.file.unlink("X")?;
-                *x_guard = None;
+                *x_guard.0 = None;
             },
         }
         Ok(())
     }
 
     pub fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
-        let mut obs_guard = self.obs.lock();
+        let mut obs_guard = self.obs.inner();
         match obs_ {
-            None => if obs_guard.is_some() {
+            None => if obs_guard.0.is_some() {
                 self.file.unlink("obs")?;
-                *obs_guard = None;
+                *obs_guard.0 = None;
             },
             Some(obs) => {
                 let n = self.n_obs();
@@ -253,10 +218,12 @@ impl AnnData {
                     "Number of observations mismatched, expecting {}, but found {}",
                     n, obs.nrows(),
                 );
-                match obs_guard.as_ref() {
-                    Some(x) => x.update(obs),
+                match obs_guard.0.as_mut() {
+                    Some(x) => x.update(obs)?,
                     None => {
-                        *obs_guard = Some(DataFrameElem::new(obs.write(&self.file, "obs")?)?);
+                        *obs_guard.0 = Some(
+                            RawMatrixElem::new_elem(obs.write(&self.file, "obs")?)?
+                        );
                     },
                 }
                 self.set_n_obs(obs.nrows());
@@ -266,11 +233,11 @@ impl AnnData {
     }
 
     pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
-        let mut var_guard = self.var.lock();
+        let mut var_guard = self.var.inner();
         match var_ {
-            None => if var_guard.is_some() {
+            None => if var_guard.0.is_some() {
                 self.file.unlink("var")?;
-                *var_guard = None;
+                *var_guard.0 = None;
             },
             Some(var) => {
                 let n = self.n_vars();
@@ -279,10 +246,12 @@ impl AnnData {
                     "Number of variables mismatched, expecting {}, but found {}",
                     n, var.nrows(),
                 );
-                match var_guard.as_ref() {
-                    Some(x) => x.update(var),
+                match var_guard.0.as_mut() {
+                    Some(x) => x.update(var)?,
                     None => {
-                        *var_guard = Some(DataFrameElem::new(var.write(&self.file, "var")?)?);
+                        *var_guard.0 = Some(
+                            RawMatrixElem::new_elem(var.write(&self.file, "var")?)?
+                        );
                     },
                 }
                 self.set_n_vars(var.nrows());
@@ -295,17 +264,17 @@ impl AnnData {
     anndata_setter_col!(varm, varp);
 
     pub fn set_uns(&mut self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
-        let mut guard = self.uns.lock();
-        if guard.is_some() { self.file.unlink("uns")?; }
+        let mut guard = self.uns.inner();
+        if guard.0.is_some() { self.file.unlink("uns")?; }
         match uns_ {
-            None => { *guard = None; },
+            None => { *guard.0 = None; },
             Some(uns) => {
                 let container = self.file.create_group("uns")?;
-                let item = ElemCollection::new(container);
+                let mut item = ElemCollection::new(container);
                 for (key, data) in uns.iter() {
-                    item.insert(key, data)?;
+                    item.add_data(key, data)?;
                 }
-                *guard = Some(item);
+                *guard.0 = Some(item);
             },
         }
         Ok(())
@@ -335,45 +304,39 @@ impl AnnData {
             let container = file.create_group("uns")?;
             ElemCollection::new(container)
         };
-        Ok(Self { file, n_obs, n_vars,
-            x: Arc::new(Mutex::new(None)),
-            obs: Arc::new(Mutex::new(None)),
-            obsm: Arc::new(Mutex::new(Some(obsm))),
-            obsp: Arc::new(Mutex::new(Some(obsp))),
-            var: Arc::new(Mutex::new(None)),
-            varm: Arc::new(Mutex::new(Some(varm))),
-            varp: Arc::new(Mutex::new(Some(varp))),
-            uns: Arc::new(Mutex::new(Some(uns))),
+        Ok(Self { file, n_obs, n_vars, x: Slot::empty(), uns: Slot::new(uns),
+            obs: Slot::empty(), obsm: Slot::new(obsm), obsp: Slot::new(obsp),
+            var: Slot::empty(), varm: Slot::new(varm), varp: Slot::new(varp),
         })
     }
 
     pub fn subset_obs(&self, idx: &[usize])
     {
-        self.x.lock().as_ref().map(|x| x.subset_rows(idx));
-        self.obs.lock().as_ref().map(|x| x.subset_rows(idx));
-        self.obsm.lock().as_ref().map(|x| x.subset(idx));
-        self.obsp.lock().as_ref().map(|x| x.subset(idx));
+        self.x.inner().0.as_mut().map(|x| x.subset_rows(idx));
+        self.obs.inner().0.as_mut().map(|x| x.subset_rows(idx));
+        self.obsm.inner().0.as_mut().map(|x| x.subset(idx));
+        self.obsp.inner().0.as_mut().map(|x| x.subset(idx));
         self.set_n_obs(idx.len());
     }
 
     pub fn subset_var(&self, idx: &[usize])
     {
-        self.x.lock().as_ref().map(|x| x.subset_cols(idx));
-        self.var.lock().as_ref().map(|x| x.subset_cols(idx));
-        self.varm.lock().as_ref().map(|x| x.subset(idx));
-        self.varp.lock().as_ref().map(|x| x.subset(idx));
+        self.x.inner().0.as_mut().map(|x| x.subset_cols(idx));
+        self.var.inner().0.as_mut().map(|x| x.subset_cols(idx));
+        self.varm.inner().0.as_mut().map(|x| x.subset(idx));
+        self.varp.inner().0.as_mut().map(|x| x.subset(idx));
         self.set_n_vars(idx.len());
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize])
     {
-        self.x.lock().as_ref().map(|x| x.subset(ridx, cidx));
-        self.obs.lock().as_ref().map(|x| x.subset_rows(ridx));
-        self.obsm.lock().as_ref().map(|x| x.subset(ridx));
-        self.obsp.lock().as_ref().map(|x| x.subset(ridx));
-        self.var.lock().as_ref().map(|x| x.subset_cols(cidx));
-        self.varm.lock().as_ref().map(|x| x.subset(cidx));
-        self.varp.lock().as_ref().map(|x| x.subset(cidx));
+        self.x.inner().0.as_mut().map(|x| x.subset(ridx, cidx));
+        self.obs.inner().0.as_mut().map(|x| x.subset_rows(ridx));
+        self.obsm.inner().0.as_mut().map(|x| x.subset(ridx));
+        self.obsp.inner().0.as_mut().map(|x| x.subset(ridx));
+        self.var.inner().0.as_mut().map(|x| x.subset_cols(cidx));
+        self.varm.inner().0.as_mut().map(|x| x.subset(cidx));
+        self.varp.inner().0.as_mut().map(|x| x.subset(cidx));
         self.set_n_obs(ridx.len());
         self.set_n_vars(cidx.len());
     }
@@ -388,7 +351,7 @@ pub struct StackedAnnData {
 impl std::fmt::Display for StackedAnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stacked AnnData objects:")?;
-        let obsm: String = self.obsm.data.lock().keys()
+        let obsm: String = self.obsm.data.keys()
             .map(|x| x.as_str()).intersperse(", ").collect();
         write!(f, "\n    obsm: {}", obsm)?;
         Ok(())
@@ -397,13 +360,19 @@ impl std::fmt::Display for StackedAnnData {
 
 impl StackedAnnData {
     pub fn new(adatas: IndexMap<String, AnnData>) -> Result<Self> {
-        if !adatas.values().map(|x| x.var_names().ok()).all_equal()
+        if !adatas.values().map(|x|
+            if x.var.is_empty() { None } else { x.var_names().ok() }
+            ).all_equal()
         {
             return Err(hdf5::Error::from("var names mismatch"));
         }
         let x = Stacked::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
-        let obsm = StackedAxisArrays::new(&adatas.values()
-            .map(|x| x.obsm.lock().as_ref().unwrap().clone()).collect())?;
+        let obsm = if adatas.values().any(|x| x.obsm.is_empty()) {
+            Ok(StackedAxisArrays { axis: Axis::Row, data: HashMap::new() })
+        } else {
+            let obsm_guard: Vec<_> = adatas.values().map(|x| x.obsm.inner()).collect();
+            StackedAxisArrays::new(obsm_guard.iter().map(|x| x.deref()).collect())
+        }?;
         Ok(Self { anndatas: adatas, x, obsm })
     }
 
@@ -414,12 +383,12 @@ impl StackedAnnData {
 
 pub struct AnnDataSet {
     annotation: AnnData,
-    pub anndatas: Arc<Mutex<Option<StackedAnnData>>>,
+    pub anndatas: Slot<StackedAnnData>,
 }
 
 impl std::fmt::Display for AnnDataSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let adatas = self.anndatas.lock();
+        let adatas = self.anndatas.inner();
         write!(
             f,
             "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
@@ -430,31 +399,27 @@ impl std::fmt::Display for AnnDataSet {
         write!(
             f,
             "\ncontains {} AnnData objects with keys: {}",
-            adatas.as_ref().map_or(0, |x| x.len()),
-            adatas.as_ref().unwrap().keys()
+            adatas.0.as_ref().map_or(0, |x| x.len()),
+            adatas.0.as_ref().unwrap().keys()
                 .map(|x| x.as_str()).intersperse(", ").collect::<String>(),
         )?;
 
-        if let Some(obs) = self.annotation.obs.lock().as_ref() {
-            write!(
-                f,
-                "\n    obs: {}",
-                obs.get_column_names().unwrap().join(", "),
+        if !self.annotation.obs.is_empty() {
+            write!(f, "\n    obs: {}",
+                self.annotation.obs.get_column_names().unwrap().join(", "),
             )?;
         }
-        if let Some(var) = self.annotation.var.lock().as_ref() {
-            write!(
-                f,
-                "\n    var: {}",
-                var.get_column_names().unwrap().join(", "),
+        if !self.annotation.var.is_empty() {
+            write!(f, "\n    var: {}",
+                self.annotation.var.get_column_names().unwrap().join(", "),
             )?;
         }
 
         macro_rules! fmt_item {
             ($($item:ident),*) => {
                 $(
-                if let Some($item) = self.annotation.$item.lock().as_ref() {
-                    let data: String = $item.data.lock().keys().
+                if let Some($item) = self.annotation.$item.inner().0.as_ref() {
+                    let data: String = $item.keys().
                         map(|x| x.as_str()).intersperse(", ").collect();
                     if !data.is_empty() {
                         write!(f, "\n    {}: {}", stringify!($item), data)?;
@@ -463,7 +428,7 @@ impl std::fmt::Display for AnnDataSet {
                 )*
             }
         }
-        fmt_item!(obsm, obsp, varm, varp, uns);
+        fmt_item!(obsm, obsp, varm, varp);
 
         Ok(())
     }
@@ -473,8 +438,8 @@ macro_rules! def_accessor {
     ($get_type:ty, $set_type:ty, { $($field:ident),* }) => {
         paste! {
             $(
-                pub fn [<get_ $field>](&self) -> ElementGuard<'_, $get_type> {
-                    ElementGuard(self.annotation.$field.lock())
+                pub fn [<get_ $field>](&self) -> &Slot<$get_type> {
+                    &self.annotation.$field
                 }
 
                 pub fn [<set_ $field>](&mut self, $field: $set_type) -> Result<()> {
@@ -498,38 +463,44 @@ impl AnnDataSet {
                 Series::new("keys", keys),
                 Series::new("file_path", filenames),
             ]).unwrap());
-            annotation.get_uns().insert("AnnDataSet", &data)?;
+            annotation.get_uns().inner().add_data("AnnDataSet", &data)?;
         }
-
-        if let Some(obs) = anndatas.values()
-            .map(|x| x.obs.lock().as_ref().map(|d| d.read().unwrap()[0].clone()))
-            .collect::<Option<Vec<_>>>()
         {
-            annotation.set_obs(Some(&DataFrame::new(vec![
-                obs.into_iter().reduce(|mut accum, item| {
-                    accum.append(&item).unwrap();
-                    accum
-                }).unwrap().clone(),
-                Series::new(
-                    add_key,
-                    anndatas.iter().map(|(k, v)| vec![k.clone(); v.n_obs()])
-                    .flatten().collect::<Series>(),
-                ),
-            ]).unwrap()))?;
+            let keys = Series::new(
+                add_key,
+                anndatas.iter().map(|(k, v)| vec![k.clone(); v.n_obs()])
+                .flatten().collect::<Series>(),
+            );
+            let df = if anndatas.values().all(|x| x.get_obs().is_empty()) {
+                DataFrame::new(vec![keys]).unwrap()
+            } else {
+                DataFrame::new(vec![
+                    Series::new(
+                        anndatas.values().next().unwrap().obs.get_column_names()?[0].as_str(),
+                        anndatas.values().map(|x| x.obs.get_index().unwrap())
+                            .flatten().collect::<Series>(),
+                    ),
+                    keys,
+                ]).unwrap()
+            };
+            annotation.set_obs(Some(&df))?;
         }
-        if let Some(var) = anndatas.values().next().unwrap().var.lock().as_ref() {
-            annotation.set_var(Some(&DataFrame::new(vec![var.read()?[0].clone()]).unwrap()))?;
+        {
+            let var = anndatas.values().next().unwrap().get_var();
+            if !var.is_empty() {
+                annotation.set_var(Some(&DataFrame::new(vec![
+                    var.read()?[0].clone()
+                ]).unwrap()))?;
+            }
         }
-
-        let stacked = Some(StackedAnnData::new(anndatas)?);
-
-        Ok(Self { annotation, anndatas: Arc::new(Mutex::new(stacked)), })
+        let stacked = StackedAnnData::new(anndatas)?;
+        Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
     pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
         let annotation = AnnData::read(file)?;
-        let df: Box<DataFrame> = annotation.get_uns().data.lock()
-            .get("AnnDataSet").unwrap().read()?.into_any().downcast().unwrap();
+        let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
+            .read()?.into_any().downcast().unwrap();
         let keys = df.column("keys").unwrap().utf8().unwrap();
         let filenames = df.column("file_path").unwrap().utf8().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
@@ -539,7 +510,7 @@ impl AnnDataSet {
             }).collect::<Result<IndexMap<_, _>>>()?;
         Ok(Self {
             annotation,
-            anndatas: Arc::new(Mutex::new(Some(StackedAnnData::new(anndatas)?))),
+            anndatas: Slot::new(StackedAnnData::new(anndatas)?),
         })
     }
 
@@ -547,16 +518,16 @@ impl AnnDataSet {
 
     pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
 
-    pub fn obs_names(&self) -> Result<Option<Vec<String>>> {
+    pub fn obs_names(&self) -> Result<Vec<String>> {
         self.annotation.obs_names()
     }
 
-    pub fn var_names(&self) -> Result<Option<Vec<String>>> {
+    pub fn var_names(&self) -> Result<Vec<String>> {
         self.annotation.var_names()
     }
 
     def_accessor!(
-        DataFrameElem,
+        RawMatrixElem<DataFrame>,
         Option<&DataFrame>,
         { obs, var }
     );
@@ -575,7 +546,7 @@ impl AnnDataSet {
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
-        if let Some(anndatas) = std::mem::replace(self.anndatas.lock().deref_mut(), None) {
+        if let Some(anndatas) = self.anndatas.extract() {
             for ann in anndatas.anndatas.into_values() { ann.close()?; }
         }
         Ok(())

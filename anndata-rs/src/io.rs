@@ -1,7 +1,7 @@
 use crate::{
     anndata::AnnData,
     anndata_trait::*,
-    element::{ElemTrait, MatrixElem, DataFrameElem, ElemCollection, AxisArrays, Axis},
+    element::*,
     iterator::IndexedCsrIterator,
 };
 
@@ -19,17 +19,17 @@ impl AnnData {
 
         // Read X
         let x = if file.link_exists("X") {
-            let x = MatrixElem::new(DataContainer::open(&file, "X")?)?;
+            let x = RawMatrixElem::new(DataContainer::open(&file, "X")?)?;
             *n_obs.lock() = x.nrows();
             *n_vars.lock() = x.ncols();
-            Arc::new(Mutex::new(Some(x)))
+            Slot::new(x)
         } else {
-            Arc::new(Mutex::new(None))
+            Slot::empty()
         };
 
         // Read obs
         let obs = if file.link_exists("obs") {
-            let obs = DataFrameElem::new(DataContainer::open(&file, "obs")?)?;
+            let obs = DataFrameElem::new_elem(DataContainer::open(&file, "obs")?)?;
             let n = *n_obs.lock().deref();
             if n == 0 {
                 *n_obs.lock() = obs.nrows();
@@ -39,14 +39,14 @@ impl AnnData {
                     n, obs.nrows(),
                 );
             }
-            Arc::new(Mutex::new(Some(obs)))
+            obs
         } else {
-            Arc::new(Mutex::new(None))
+            Slot::empty()
         };
 
         // Read var
         let var = if file.link_exists("var") {
-            let var = DataFrameElem::new(DataContainer::open(&file, "var")?)?;
+            let var = DataFrameElem::new_elem(DataContainer::open(&file, "var")?)?;
             let n = *n_vars.lock().deref();
             if n == 0 {
                 *n_vars.lock() = var.ncols();
@@ -56,9 +56,9 @@ impl AnnData {
                     n, var.ncols(),
                 );
             }
-            Arc::new(Mutex::new(Some(var)))
+            var
         } else {
-            Arc::new(Mutex::new(None))
+            Slot::empty()
         };
 
         /// define get_* functions
@@ -69,7 +69,7 @@ impl AnnData {
                     let data = file.group(field)
                         .map_or(file.create_group(field).ok(), Some)
                         .map($closure);
-                    Arc::new(Mutex::new(data))
+                    Slot(Arc::new(Mutex::new(data)))
                 };
             }
         }
@@ -86,14 +86,14 @@ impl AnnData {
     {
         let file = File::create(filename)?;
 
-        self.x.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
-        self.obs.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
-        self.var.lock().as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
-        self.obsm.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
-        self.obsp.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
-        self.varm.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
-        self.varp.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
-        self.uns.lock().as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+        self.get_x().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
+        self.get_obs().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
+        self.get_var().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
+        self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
+        self.get_obsp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
+        self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
+        self.get_varp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
+        self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
         Ok(())
     }
 

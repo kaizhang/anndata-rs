@@ -217,7 +217,7 @@ impl AnnData {
     where
         I: RowIterator,
     {
-        let mut x_guard = self.x.lock();
+        let mut x_guard = self.get_x().inner();
  
         if self.n_vars() == 0 { self.set_n_vars(data.ncols()); }
         assert!(
@@ -226,7 +226,7 @@ impl AnnData {
             self.n_vars(), data.ncols(),
         );
 
-        if x_guard.is_some() { self.file.unlink("X")?; }
+        if x_guard.0.is_some() { self.file.unlink("X")?; }
 
         let (container, nrows) = data.write(&self.file, "X")?;
         if self.n_obs() == 0 { self.set_n_obs(nrows); }
@@ -235,7 +235,7 @@ impl AnnData {
             "Number of observations mismatched, expecting {}, but found {}",
             self.n_obs(), nrows,
         );
-        *x_guard = Some(MatrixElem::new(container)?);
+        *x_guard.0 = Some(RawMatrixElem::new(container)?);
         Ok(())
     }
 }
@@ -245,22 +245,25 @@ impl AxisArrays {
     where
         I: RowIterator,
     {
-        let mut size_guard = self.size.lock();
-        let mut n = *size_guard;
+        let container = {
+            let mut size_guard = self.size.lock();
+            let mut n = *size_guard;
 
-        if self.contains_key(key) { self.container.unlink(key)?; } 
-        let (container, nrows) = data.write(&self.container, key)?;
+            if self.contains_key(key) { self.container.unlink(key)?; } 
+            let (container, nrows) = data.write(&self.container, key)?;
 
-        if n == 0 { n = nrows; }
-        assert!(
-            n == nrows,
-            "Number of observations mismatched, expecting {}, but found {}",
-            n, nrows,
-        );
+            if n == 0 { n = nrows; }
+            assert!(
+                n == nrows,
+                "Number of observations mismatched, expecting {}, but found {}",
+                n, nrows,
+            );
+            *size_guard = n;
+            container
+        };
  
-        let elem = MatrixElem::new(container)?;
-        self.data.lock().insert(key.to_string(), elem);
-        *size_guard = n;
+        let elem = MatrixElem::new_elem(container)?;
+        self.insert(key.to_string(), elem);
         Ok(())
     }
 }
@@ -376,7 +379,7 @@ impl Iterator for ChunkedMatrix {
             let i = self.current_index;
             let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
             self.current_index = j;
-            let data = self.elem.0.lock().read_dyn_row_slice(i..j).unwrap();
+            let data = self.elem.inner().read_dyn_row_slice(i..j).unwrap();
             Some(data)
         }
     }

@@ -7,11 +7,7 @@ use crate::utils::conversion::{
 
 use anndata_rs::{
     anndata_trait::DataType,
-    element::{
-        ElemTrait, Stacked,
-        Elem, MatrixElem, DataFrameElem,
-        ElemCollection, AxisArrays, StackedAxisArrays,
-    },
+    element::*,
 };
 use pyo3::{
     prelude::*,
@@ -32,7 +28,7 @@ impl PyElem {
     fn disable_cache(&self) { self.0.disable_cache() }
 
     fn is_scalar(&self) -> bool {
-        match self.0.0.lock().dtype {
+        match self.0.dtype() {
             DataType::Scalar(_) => true,
             _ => false,
         }
@@ -60,20 +56,20 @@ pub struct PyMatrixElem(pub(crate) MatrixElem);
 
 #[pymethods]
 impl PyMatrixElem {
-    fn enable_cache(&mut self) { self.0.enable_cache() }
+    fn enable_cache(&mut self) { self.0.inner().enable_cache() }
 
-    fn disable_cache(&mut self) { self.0.disable_cache() }
+    fn disable_cache(&mut self) { self.0.inner().disable_cache() }
 
     #[getter]
-    fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
+    fn shape(&self) -> (usize, usize) { (self.0.inner().nrows(), self.0.inner().ncols()) }
 
     // TODO: efficient partial data reading
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if subscript.eq(py.eval("...", None, None)?)? ||
             subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-            to_py_data2(py, self.0.read().unwrap())
+            to_py_data2(py, self.0.inner().read().unwrap())
         } else {
-            let data = to_py_data2(py, self.0.read().unwrap())?;
+            let data = to_py_data2(py, self.0.inner().read().unwrap())?;
             data.call_method1(py, "__getitem__", (subscript,))
         }
     }
@@ -89,14 +85,15 @@ impl PyMatrixElem {
         replace: bool,
         seed: u64,
     ) -> PyResult<PyObject> {
-        let length = self.0.nrows();
+        let guard = self.0.inner();
+        let length = guard.nrows();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
             std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        to_py_data2(py, self.0.0.lock().read_rows(idx.as_slice()).unwrap())
+        to_py_data2(py, guard.read_rows(idx.as_slice()).unwrap())
     }
 
     fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
@@ -159,27 +156,27 @@ impl PyDataFrameElem {
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyElemCollection(pub(crate) ElemCollection);
+pub struct PyElemCollection(pub(crate) Slot<ElemCollection>);
 
 #[pymethods]
 impl PyElemCollection {
     pub fn keys(&self) -> Vec<String> {
-        self.0.data.lock().keys().map(|x| x.to_string()).collect()
+        self.0.inner().keys().map(|x| x.to_string()).collect()
     }
 
     fn __contains__(&self, key: &str) -> bool {
-        self.0.contains_key(key)
+        self.0.inner().contains_key(key)
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
-        match self.0.data.lock().get(key) {
+        match self.0.inner().get_mut(key) {
             None => Ok(None),
             Some(x) => Ok(Some(to_py_data1(py, x.read().unwrap())?)),
         }
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.insert(key, &to_rust_data1(py, data)?).unwrap();
+        self.0.inner().0.as_mut().unwrap().add_data(key, &to_rust_data1(py, data)?).unwrap();
         Ok(())
     }
 
@@ -190,27 +187,27 @@ impl PyElemCollection {
 
 #[pyclass]
 #[repr(transparent)]
-pub struct PyAxisArrays(pub(crate) AxisArrays);
+pub struct PyAxisArrays(pub(crate) Slot<AxisArrays>);
 
 #[pymethods]
 impl PyAxisArrays {
     pub fn keys(&self) -> Vec<String> {
-        self.0.data.lock().keys().map(|x| x.to_string()).collect()
+        self.0.inner().keys().map(|x| x.to_string()).collect()
     }
 
     fn __contains__(&self, key: &str) -> bool {
-        self.0.contains_key(key)
+        self.0.inner().contains_key(key)
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
-        match self.0.data.lock().get(key) {
+        match self.0.inner().get(key) {
             None => Ok(None),
             Some(x) => Ok(Some(to_py_data2(py, x.read().unwrap())?)),
         }
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.insert(key, &to_rust_data2(py, data)?).unwrap();
+        self.0.inner().0.as_mut().unwrap().add_data(key, &to_rust_data2(py, data)?).unwrap();
         Ok(())
     }
 
@@ -226,7 +223,7 @@ pub struct PyStackedAxisArrays(pub(crate) StackedAxisArrays);
 #[pymethods]
 impl PyStackedAxisArrays {
     pub fn keys(&self) -> Vec<String> {
-        self.0.data.lock().keys().map(|x| x.to_string()).collect()
+        self.0.data.keys().map(|x| x.to_string()).collect()
     }
 
     fn __contains__(&self, key: &str) -> bool {
@@ -234,7 +231,7 @@ impl PyStackedAxisArrays {
     }
 
     fn __getitem__(&self, key: &str) -> PyResult<Option<PyStackedMatrixElem>> {
-        match self.0.data.lock().get(key) {
+        match self.0.data.get(key) {
             None => Ok(None),
             Some(x) => Ok(Some(PyStackedMatrixElem(x.clone()))),
         }

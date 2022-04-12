@@ -10,11 +10,31 @@ pub struct RawElem<T: ?Sized> {
     pub(crate) element: Option<Box<T>>,
 }
 
+impl<T> std::fmt::Display for RawElem<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} element, cache_enabled: {}, cached: {}",
+            self.dtype,
+            if self.cache_enabled { "yes" } else { "no" },
+            if self.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
+impl std::fmt::Display for RawElem<dyn DataIO> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} element, cache_enabled: {}, cached: {}",
+            self.dtype,
+            if self.cache_enabled { "yes" } else { "no" },
+            if self.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
 impl<T> RawElem<T>
 where
     T: DataIO + Clone,
 {
-    pub fn read_elem(&mut self) -> Result<T> { 
+    pub fn read(&mut self) -> Result<T> { 
         match &self.element {
             Some(data) => Ok((*data.as_ref()).clone()),
             None => {
@@ -27,7 +47,7 @@ where
         }
     }
 
-    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
         match &self.element {
             Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
@@ -52,7 +72,7 @@ impl RawElem<dyn DataIO>
         Ok(Self { dtype, cache_enabled: false, element: None, container })
     }
 
-    pub fn read_dyn_elem(&mut self) -> Result<Box<dyn DataIO>> {
+    pub fn read(&mut self) -> Result<Box<dyn DataIO>> {
         match &self.element {
             Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
             None => {
@@ -65,7 +85,7 @@ impl RawElem<dyn DataIO>
         }
     }
 
-    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
         match &self.element {
             Some(data) => data.write(location, name)?,
             None => read_dyn_data(&self.container)?.write(location, name)?,
@@ -90,9 +110,29 @@ impl RawElem<dyn DataIO>
 }
 
 pub struct RawMatrixElem<T: ?Sized> {
-    pub nrows: usize,
-    pub ncols: usize,
+    nrows: usize,
+    ncols: usize,
     pub inner: RawElem<T>,
+}
+
+impl<T> std::fmt::Display for RawMatrixElem<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} element, cache_enabled: {}, cached: {}",
+            self.inner.dtype,
+            if self.inner.cache_enabled { "yes" } else { "no" },
+            if self.inner.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
+impl std::fmt::Display for RawMatrixElem<dyn DataPartialIO> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} element, cache_enabled: {}, cached: {}",
+            self.inner.dtype,
+            if self.inner.cache_enabled { "yes" } else { "no" },
+            if self.inner.element.is_some() { "yes" } else { "no" },
+        )
+    }
 }
 
 impl<T> RawMatrixElem<T>
@@ -100,6 +140,9 @@ where
     T: DataPartialIO + Clone,
 {
     pub fn dtype(&self) -> DataType { self.inner.dtype.clone() }
+
+    pub fn nrows(&self) -> usize { self.nrows }
+    pub fn ncols(&self) -> usize { self.ncols }
 
     pub fn new_elem(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
@@ -134,10 +177,10 @@ where
         }
     }
 
-    pub fn read_elem(&mut self) -> Result<T> { self.inner.read_elem() }
+    pub fn read(&mut self) -> Result<T> { self.inner.read() }
 
-    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
-        self.inner.write_elem(location, name)
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
+        self.inner.write(location, name)
     }
 
     pub fn subset_rows(&mut self, idx: &[usize]) -> Result<()> {
@@ -217,6 +260,9 @@ impl RawMatrixElem<dyn DataPartialIO>
         self.inner.cache_enabled = false;
     }
 
+    pub fn nrows(&self) -> usize { self.nrows }
+    pub fn ncols(&self) -> usize { self.ncols }
+
     pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
         read_dyn_data_subset(&self.inner.container, Some(idx), None)
     }
@@ -233,7 +279,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx))
     }
 
-    pub fn read_dyn_elem(&mut self) -> Result<Box<dyn DataPartialIO>> {
+    pub fn read(&mut self) -> Result<Box<dyn DataPartialIO>> {
         match &self.inner.element {
             Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
             None => {
@@ -246,7 +292,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         }
     }
 
-    pub fn write_elem(&self, location: &Group, name: &str) -> Result<()> {
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
         match &self.inner.element {
             Some(data) => data.write(location, name)?,
             None => read_dyn_data_subset(&self.inner.container, None, None)?

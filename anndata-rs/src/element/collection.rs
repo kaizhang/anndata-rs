@@ -1,52 +1,53 @@
 use crate::{
     anndata_trait::*,
-    element::{Stacked, Elem, MatrixElem, ElemTrait},
+    element::*,
 };
 
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::{Result, Group}; 
-use itertools::Itertools;
 use std::collections::HashSet;
+use std::ops::{Deref, DerefMut};
+use itertools::Itertools;
 
-#[derive(Clone)]
 pub struct ElemCollection {
-    pub(crate) container: Group,
-    pub data: Arc<Mutex<HashMap<String, Elem>>>,
+    container: Group,
+    data: HashMap<String, RawElem<dyn DataIO>>,
+}
+
+impl Deref for ElemCollection {
+    type Target = HashMap<String, RawElem<dyn DataIO>>;
+
+    fn deref(&self) -> &Self::Target { &self.data }
+}
+
+impl DerefMut for ElemCollection {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 impl ElemCollection {
     pub fn new(container: Group) -> Self {
-        let data = Arc::new(Mutex::new(get_all_data(&container).map(|(k, v)|
-            (k, Elem::new(v).unwrap())
-        ).collect()));
+        let data = get_all_data(&container).map(|(k, v)|
+            (k, RawElem::new(v).unwrap())
+        ).collect();
         Self { container, data }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.data.lock().is_empty()
-    }
-
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.data.lock().contains_key(key)
-    }
-
-    pub fn insert(&self, key: &str, data: &Box<dyn DataIO>) -> Result<()> {
-        let mut data_guard = self.data.lock();
-        match data_guard.get(key) {
+    pub fn add_data(&mut self, key: &str, data: &Box<dyn DataIO>) -> Result<()> {
+        match self.data.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
-                let elem = Elem::new(container)?;
-                data_guard.insert(key.to_string(), elem);
+                let elem = RawElem::new(container)?;
+                self.data.insert(key.to_string(), elem);
             }
-            Some(elem) => elem.update(data),
+            Some(elem) => elem.update(data)?,
         }
         Ok(())
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.lock().iter() {
+        for (key, val) in self.data.iter() {
             val.write(location, key)?;
         }
         Ok(())
@@ -55,7 +56,7 @@ impl ElemCollection {
 
 impl std::fmt::Display for ElemCollection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let keys = self.data.lock().keys().map(|x| x.to_string())
+        let keys = self.data.keys().map(|x| x.to_string())
             .collect::<Vec<_>>().join(", ");
         write!(f, "Dict with keys: {}", keys)
     }
@@ -68,12 +69,21 @@ pub enum Axis {
     Both,
 }
 
-#[derive(Clone)]
 pub struct AxisArrays {
-    pub container: Group,
+    pub(crate) container: Group,
     pub size: Arc<Mutex<usize>>,   // shared global reference
     pub axis: Axis,
-    pub data: Arc<Mutex<HashMap<String, MatrixElem>>>,
+    data: HashMap<String, MatrixElem>,
+}
+
+impl Deref for AxisArrays {
+    type Target = HashMap<String, MatrixElem>;
+
+    fn deref(&self) -> &Self::Target { &self.data }
+}
+
+impl DerefMut for AxisArrays {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 macro_rules! check_dims {
@@ -113,7 +123,7 @@ impl std::fmt::Display for AxisArrays {
             Axis::Column => "column",
             Axis::Both => "square",
         };
-        let keys = self.data.lock().keys().map(|x| x.to_string())
+        let keys = self.keys().map(|x| x.to_string())
             .collect::<Vec<_>>().join(", ");
         write!(f, "AxisArrays ({}) with keys: {}", ty, keys)
     }
@@ -125,8 +135,8 @@ impl AxisArrays {
         axis: Axis,
         size: Arc<Mutex<usize>>,
     ) -> Self {
-        let data: HashMap<String, MatrixElem> = get_all_data(&group).map(|(k, v)|
-            (k, MatrixElem::new(v).unwrap())
+        let data: HashMap<_, _> = get_all_data(&group).map(|(k, v)|
+            (k, MatrixElem::new_elem(v).unwrap())
         ).collect();
         {
             let mut size_guard = size.lock();
@@ -138,48 +148,41 @@ impl AxisArrays {
             }
             *size_guard = n;
         }
-        Self { container: group, size, axis, data: Arc::new(Mutex::new(data))}
+        Self { container: group, size, axis, data }
     }
     
     pub fn size(&self) -> usize { *self.size.lock() }
 
-    pub fn is_empty(&self) -> bool {
-        self.data.lock().is_empty()
-    }
-
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.data.lock().contains_key(key)
-    }
-
-    pub fn insert(&self, key: &str, data: &Box<dyn DataPartialIO>) -> Result<()> {
-        let mut size_guard = self.size.lock();
-        let mut n = *size_guard;
-        if let Some(s) = check_dims!(n, data, self.axis) {
-            n = s;
+    pub fn add_data(&mut self, key: &str, data: &Box<dyn DataPartialIO>) -> Result<()> {
+        {
+            let mut size_guard = self.size.lock();
+            let mut n = *size_guard;
+            if let Some(s) = check_dims!(n, data, self.axis) {
+                n = s;
+            }
+            *size_guard = n;
         }
-        let mut data_guard = self.data.lock();
-        match data_guard.get(key) {
+        match self.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
-                let elem = MatrixElem::new(container)?;
-                data_guard.insert(key.to_string(), elem);
+                let elem = MatrixElem::new_elem(container)?;
+                self.data.insert(key.to_string(), elem);
             }
-            Some(elem) => elem.update(data),
+            Some(elem) => elem.inner().update(data)?,
         }
-        *size_guard = n;
         Ok(())
     }
     
-    pub(crate) fn subset(&self, idx: &[usize]) {
+    pub(crate) fn subset(&mut self, idx: &[usize]) {
         match self.axis {
-            Axis::Row => self.data.lock().values_mut().for_each(|x| x.subset_rows(idx)),
-            Axis::Column => self.data.lock().values_mut().for_each(|x| x.subset_cols(idx)),
-            Axis::Both => self.data.lock().values_mut().for_each(|x| x.subset(idx, idx)),
+            Axis::Row => self.data.values_mut().for_each(|x| x.inner().subset_rows(idx).unwrap()),
+            Axis::Column => self.data.values_mut().for_each(|x| x.inner().subset_cols(idx).unwrap()),
+            Axis::Both => self.data.values_mut().for_each(|x| x.inner().subset(idx, idx).unwrap()),
         }
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.lock().iter() {
+        for (key, val) in self.data.iter() {
             val.write(location, key)?;
         }
         Ok(())
@@ -199,7 +202,7 @@ fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
 #[derive(Clone)]
 pub struct StackedAxisArrays {
     pub axis: Axis,
-    pub data: Arc<Mutex<HashMap<String, Stacked<MatrixElem>>>>,
+    pub data: HashMap<String, Stacked<MatrixElem>>,
 }
 
 impl std::fmt::Display for StackedAxisArrays {
@@ -209,14 +212,14 @@ impl std::fmt::Display for StackedAxisArrays {
             Axis::Column => "column",
             Axis::Both => "square",
         };
-        let keys = self.data.lock().keys().map(|x| x.to_string())
+        let keys = self.data.keys().map(|x| x.to_string())
             .collect::<Vec<_>>().join(", ");
         write!(f, "Stacked AxisArrays ({}) with keys: {}", ty, keys)
     }
 }
 
 impl StackedAxisArrays {
-    pub fn new(arrays: &Vec<AxisArrays>) -> Result<Self> {
+    pub fn new(arrays: Vec<&AxisArrays>) -> Result<Self> {
         if arrays.is_empty() {
             return Err(hdf5::Error::from("input is empty"));
         }
@@ -224,18 +227,18 @@ impl StackedAxisArrays {
             return Err(hdf5::Error::from("arrays must have same axis"));
         }
         let keys = intersections(arrays.iter()
-            .map(|x| x.data.lock().keys().map(Clone::clone).collect()).collect()
+            .map(|x| x.keys().map(Clone::clone).collect()).collect()
         );
         let data = keys.into_iter().map(|k| {
             let elems = arrays.iter()
-                .map(|x| x.data.lock().get(&k).unwrap().clone()).collect();
+                .map(|x| x.get(&k).unwrap().clone()).collect();
             Ok((k, Stacked::new(elems)?))
         }).collect::<Result<HashMap<_, _>>>()?;
-        Ok(Self { axis: arrays[0].axis, data: Arc::new(Mutex::new(data)) })
+        Ok(Self { axis: arrays[0].axis, data })
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
-        self.data.lock().contains_key(key)
+        self.data.contains_key(key)
     }
 }
 

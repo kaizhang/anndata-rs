@@ -9,43 +9,136 @@ use crate::{
 use polars::frame::DataFrame;
 use hdf5::{Result, Group}; 
 use std::sync::Arc;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use itertools::Itertools;
 use ndarray::{ArrayD, Axis};
 use nalgebra_sparse::CsrMatrix;
+use std::ops::{Deref, DerefMut};
 
-#[derive(Clone)]
-pub struct Elem(pub Arc<Mutex<RawElem<dyn DataIO>>>);
+pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
-impl std::fmt::Display for Elem {
+impl<T> Clone for Slot<T> {
+    fn clone(&self) -> Self { Slot(self.0.clone()) }
+}
+
+impl<T> std::fmt::Display for Slot<T>
+where
+    T: std::fmt::Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elem = self.0.lock();
-        write!(f, "Elem with {}, cache_enabled: {}, cached: {}",
-            elem.dtype,
-            if elem.cache_enabled { "yes" } else { "no" },
-            if elem.element.is_some() { "yes" } else { "no" },
-        )
+        if self.is_empty() {
+            write!(f, "Empty or closed slot")
+        } else {
+            write!(f, "{}", self.inner().deref())
+        }
     }
 }
 
-#[derive(Clone)]
-pub struct MatrixElem(pub Arc<Mutex<RawMatrixElem<dyn DataPartialIO>>>);
+impl<T> Slot<T> {
+    pub fn new(x: T) -> Self { Slot(Arc::new(Mutex::new(Some(x)))) }
+
+    pub fn empty() -> Self { Slot(Arc::new(Mutex::new(None))) }
+
+    pub fn is_empty(&self) -> bool { self.0.lock().is_none() }
+
+    pub fn inner(&self) -> Inner<'_, T> { Inner(self.0.lock()) }
+
+    pub fn extract(&self) -> Option<T> {
+        std::mem::replace(self.0.lock().deref_mut(), None)
+    } 
+
+    pub fn drop(&self) { let _ = self.extract(); } 
+}
+
+pub struct Inner<'a, T>(pub MutexGuard<'a, Option<T>>);
+
+impl<T> Deref for Inner<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.0.deref() {
+            None => panic!("accessing an empty slot"),
+            Some(x) => x,
+        }
+    }
+}
+
+impl<T> DerefMut for Inner<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self.0.deref_mut() {
+            None => panic!("accessing an empty slot"),
+            Some(ref mut x) => x,
+        }
+    }
+}
+
+
+pub trait ElemTrait {
+    type Data;
+
+    fn dtype(&self) -> DataType;
+
+    fn is_empty(&self) -> bool;
+
+    fn new_elem(container: DataContainer) -> Result<Self> where Self: Sized;
+
+    fn read(&self) -> Result<Self::Data>;
+
+    fn write(&self, location: &Group, name: &str) -> Result<()>;
+
+    fn update(&self, data: &Self::Data);
+
+    fn enable_cache(&self);
+
+    fn disable_cache(&self);
+}
+
+pub type Elem = Slot<RawElem<dyn DataIO>>;
+
+impl ElemTrait for Elem {
+    type Data = Box<dyn DataIO>;
+
+    fn dtype(&self) -> DataType { self.inner().dtype.clone() }
+
+    fn is_empty(&self) -> bool { self.inner().0.is_none() }
+
+    fn new_elem(container: DataContainer) -> Result<Self> {
+        let elem = RawElem::new(container)?;
+        Ok(Self(Arc::new(Mutex::new(Some(elem)))))
+    }
+
+    fn read(&self) -> Result<Self::Data> { self.inner().read() }
+
+    fn write(&self, location: &Group, name: &str) -> Result<()> {
+        self.inner().write(location, name)
+    }
+
+    fn update(&self, data: &Self::Data) {
+        self.inner().update(data).unwrap();
+    }
+
+    fn enable_cache(&self) { self.inner().enable_cache(); }
+
+    fn disable_cache(&self) { self.inner().disable_cache(); }
+}
+
+pub type MatrixElem = Slot<RawMatrixElem<dyn DataPartialIO>>;
 
 impl MatrixElem {
-    pub fn nrows(&self) -> usize { self.0.lock().nrows }
+    pub fn nrows(&self) -> usize { self.inner().nrows() }
 
-    pub fn ncols(&self) -> usize { self.0.lock().ncols }
+    pub fn ncols(&self) -> usize { self.inner().ncols() }
 
     pub fn subset_rows(&self, idx: &[usize]) {
-        self.0.lock().subset_rows(idx).unwrap();
+        self.inner().subset_rows(idx).unwrap();
     }
 
     pub fn subset_cols(&self, idx: &[usize]) {
-        self.0.lock().subset_cols(idx).unwrap();
+        self.inner().subset_cols(idx).unwrap();
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize]) {
-        self.0.lock().subset(ridx, cidx).unwrap();
+        self.inner().subset(ridx, cidx).unwrap();
     }
 
     pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
@@ -58,51 +151,37 @@ impl MatrixElem {
     }
 }
 
-impl std::fmt::Display for MatrixElem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elem = self.0.lock();
-        write!(f, "{} x {} MatrixElem with {}, cache_enabled: {}, cached: {}",
-            elem.nrows,
-            elem.ncols,
-            elem.inner.dtype,
-            if elem.inner.cache_enabled { "yes" } else { "no" },
-            if elem.inner.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-#[derive(Clone)]
-pub struct DataFrameElem(pub Arc<Mutex<RawMatrixElem<DataFrame>>>);
+pub type DataFrameElem = Slot<RawMatrixElem<DataFrame>>;
 
 impl DataFrameElem {
-    pub fn new(container: DataContainer) -> Result<Self> {
+    pub fn new_elem(container: DataContainer) -> Result<Self> {
         let mut elem = RawMatrixElem::<DataFrame>::new_elem(container)?;
         elem.enable_cache();
-        Ok(Self(Arc::new(Mutex::new(elem))))
+        Ok(Slot::new(elem))
     }
 
     pub fn enable_cache(&self) {
-        self.0.lock().enable_cache();
+        self.inner().enable_cache();
     }
 
     pub fn disable_cache(&self) {
-        self.0.lock().disable_cache();
+        self.inner().disable_cache();
     }
 
     pub fn read(&self) -> Result<DataFrame> {
-        self.0.lock().read_elem()
+        self.inner().read()
     }
 
     pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.0.lock().write_elem(location, name)
+        self.inner().write(location, name)
     }
 
     pub fn update(&self, data: &DataFrame) {
-        self.0.lock().update(data).unwrap()
+        self.inner().update(data).unwrap()
     }
 
     pub fn get_column_names(&self) -> Result<Vec<String>> {
-        let elem = self.0.lock();
+        let elem = self.inner();
         match &elem.inner.element {
             Some(el) => Ok(el.get_column_names_owned()),
             None => {
@@ -115,7 +194,7 @@ impl DataFrameElem {
     }
 
     pub fn get_index(&self) -> Result<Vec<String>> {
-        let elem = self.0.lock();
+        let elem = self.inner();
         match &elem.inner.element {
             Some(el) => Ok(el[0].utf8().unwrap().into_iter()
                 .map(|s| s.unwrap().to_string()).collect()),
@@ -128,33 +207,23 @@ impl DataFrameElem {
     }
 
     pub fn nrows(&self) -> usize {
-        self.0.lock().nrows
+        self.inner().nrows()
     }
 
     pub fn ncols(&self) -> usize {
-        self.0.lock().ncols
+        self.inner().ncols()
     }
 
     pub fn subset_rows(&self, idx: &[usize]) {
-        self.0.lock().subset_rows(idx).unwrap();
+        self.inner().subset_rows(idx).unwrap();
     }
 
     pub fn subset_cols(&self, idx: &[usize]) {
-        self.0.lock().subset_cols(idx).unwrap();
+        self.inner().subset_cols(idx).unwrap();
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize]) {
-        self.0.lock().subset(ridx, cidx).unwrap();
-    }
-}
-
-impl std::fmt::Display for DataFrameElem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elem = self.0.lock();
-        write!(f, "DataFrameElem, cache_enabled: {}, cached: {}",
-            if elem.inner.cache_enabled { "yes" } else { "no" },
-            if elem.inner.element.is_some() { "yes" } else { "no" },
-        )
+        self.inner().subset(ridx, cidx).unwrap();
     }
 }
 
@@ -208,7 +277,7 @@ impl Stacked<MatrixElem>
             .enumerate().sorted_by_key(|x| x.1.0).into_iter()
             .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
                 let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
-                (ori_idx, self.elems[key].0.lock().read_rows(inner_idx.as_slice()))
+                (ori_idx, self.elems[key].inner().read_rows(inner_idx.as_slice()))
             }).unzip();
         concat_matrices(
             ori_idx.into_iter().flatten().collect(),
@@ -284,78 +353,33 @@ fn concat_csr<T: Clone>(index: &[usize], mats: Vec<Box<CsrMatrix<T>>>) -> CsrMat
     CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
 }
 
-pub trait ElemTrait {
-    type Data;
-
-    fn dtype(&self) -> DataType;
-
-    fn new(container: DataContainer) -> Result<Self> where Self: Sized;
-
-    fn read(&self) -> Result<Self::Data>;
-
-    fn write(&self, location: &Group, name: &str) -> Result<()>;
-
-    fn update(&self, data: &Self::Data);
-
-    fn enable_cache(&self);
-
-    fn disable_cache(&self);
-}
-
-impl ElemTrait for Elem {
-    type Data = Box<dyn DataIO>;
-
-    fn dtype(&self) -> DataType {
-        self.0.lock().dtype.clone()
-    }
-
-    fn new(container: DataContainer) -> Result<Self> {
-        let elem = RawElem::new(container)?;
-        Ok(Self(Arc::new(Mutex::new(elem))))
-    }
-
-    fn read(&self) -> Result<Self::Data> {
-        self.0.lock().read_dyn_elem()
-    }
-
-    fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.0.lock().write_elem(location, name)
-    }
-
-    fn update(&self, data: &Self::Data) {
-        self.0.lock().update(data).unwrap();
-    }
-
-    fn enable_cache(&self) { self.0.lock().enable_cache(); }
-
-    fn disable_cache(&self) { self.0.lock().disable_cache(); }
-}
-
 impl ElemTrait for MatrixElem {
     type Data = Box<dyn DataPartialIO>;
 
     fn dtype(&self) -> DataType {
-        self.0.lock().inner.dtype.clone()
+        self.inner().inner.dtype.clone()
     }
 
-    fn new(container: DataContainer) -> Result<Self> {
+    fn is_empty(&self) -> bool { todo!() }
+
+    fn new_elem(container: DataContainer) -> Result<Self> {
         let elem = RawMatrixElem::new(container)?;
-        Ok(Self(Arc::new(Mutex::new(elem))))
+        Ok(Slot::new(elem))
     }
 
-    fn enable_cache(&self) { self.0.lock().enable_cache(); }
+    fn enable_cache(&self) { self.inner().enable_cache(); }
 
-    fn disable_cache(&self) { self.0.lock().disable_cache(); }
+    fn disable_cache(&self) { self.inner().disable_cache(); }
 
     fn read(&self) -> Result<Self::Data> {
-        self.0.lock().read_dyn_elem()
+        self.inner().read()
     }
 
     fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.0.lock().write_elem(location, name)
+        self.inner().write(location, name)
     }
 
     fn update(&self, data: &Self::Data) {
-        self.0.lock().update(data).unwrap();
+        self.inner().update(data).unwrap();
     }
 }
