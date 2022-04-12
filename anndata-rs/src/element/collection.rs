@@ -1,12 +1,14 @@
 use crate::{
     anndata_trait::*,
-    element::{Elem, MatrixElem, ElemTrait},
+    element::{Stacked, Elem, MatrixElem, ElemTrait},
 };
 
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::{Result, Group}; 
+use itertools::Itertools;
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct ElemCollection {
@@ -59,7 +61,7 @@ impl std::fmt::Display for ElemCollection {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Axis {
     Row,
     Column,
@@ -138,6 +140,8 @@ impl AxisArrays {
         }
         Self { container: group, size, axis, data: Arc::new(Mutex::new(data))}
     }
+    
+    pub fn size(&self) -> usize { *self.size.lock() }
 
     pub fn is_empty(&self) -> bool {
         self.data.lock().is_empty()
@@ -190,4 +194,58 @@ fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
     ).chain(group.datasets().unwrap().into_iter().map(move |x|
         (get_name(x.name()), DataContainer::H5Dataset(x))
     ))
+}
+
+#[derive(Clone)]
+pub struct StackedAxisArrays {
+    pub axis: Axis,
+    pub data: Arc<Mutex<HashMap<String, Stacked<MatrixElem>>>>,
+}
+
+impl std::fmt::Display for StackedAxisArrays {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ty = match self.axis {
+            Axis::Row => "row",
+            Axis::Column => "column",
+            Axis::Both => "square",
+        };
+        let keys = self.data.lock().keys().map(|x| x.to_string())
+            .collect::<Vec<_>>().join(", ");
+        write!(f, "Stacked AxisArrays ({}) with keys: {}", ty, keys)
+    }
+}
+
+impl StackedAxisArrays {
+    pub fn new(arrays: &Vec<AxisArrays>) -> Result<Self> {
+        if arrays.is_empty() {
+            return Err(hdf5::Error::from("input is empty"));
+        }
+        if !arrays.iter().map(|x| x.axis).all_equal() {
+            return Err(hdf5::Error::from("arrays must have same axis"));
+        }
+        let keys = intersections(arrays.iter()
+            .map(|x| x.data.lock().keys().map(Clone::clone).collect()).collect()
+        );
+        let data = keys.into_iter().map(|k| {
+            let elems = arrays.iter()
+                .map(|x| x.data.lock().get(&k).unwrap().clone()).collect();
+            Ok((k, Stacked::new(elems)?))
+        }).collect::<Result<HashMap<_, _>>>()?;
+        Ok(Self { axis: arrays[0].axis, data: Arc::new(Mutex::new(data)) })
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.data.lock().contains_key(key)
+    }
+}
+
+fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
+    {
+        let (intersection, others) = sets.split_at_mut(1);
+        let intersection = &mut intersection[0];
+        for other in others {
+            intersection.retain(|e| other.contains(e));
+        }
+    }
+    sets[0].clone()
 }

@@ -3,12 +3,13 @@ use crate::{
     element::{
         ElemTrait, MatrixElem, DataFrameElem,
         ElemCollection, AxisArrays, Axis, Stacked,
+        StackedAxisArrays,
     },
 };
 
 use std::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use hdf5::{File, Result}; 
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
@@ -174,6 +175,14 @@ impl AnnData {
 
     pub fn n_vars(&self) -> usize { *self.n_vars.lock().deref() }
 
+    pub fn obs_names(&self) -> Result<Option<Vec<String>>> {
+        self.obs.lock().as_ref().map(|x| x.get_index()).transpose()
+    }
+
+    pub fn var_names(&self) -> Result<Option<Vec<String>>> {
+        self.var.lock().as_ref().map(|x| x.get_index()).transpose()
+    }
+
     pub(crate) fn set_n_obs(&self, n: usize) {
         *self.n_obs.lock().deref_mut() = n;
     }
@@ -184,7 +193,17 @@ impl AnnData {
 
     pub fn filename(&self) -> String { self.file.filename() }
 
-    pub fn close(self) -> Result<()> { self.file.close() }
+    pub fn close(self) -> Result<()> {
+        let _ = std::mem::replace(self.x.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.obs.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.obsm.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.obsp.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.var.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.varm.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.varp.lock().deref_mut(), None);
+        let _ = std::mem::replace(self.uns.lock().deref_mut(), None);
+        self.file.close()
+    }
 
     anndata_getter!(MatrixElem, { x });
     anndata_getter!(DataFrameElem, { obs, var });
@@ -360,14 +379,47 @@ impl AnnData {
     }
 }
 
+pub struct StackedAnnData {
+    anndatas: IndexMap<String, AnnData>,
+    pub x: Stacked<MatrixElem>,
+    pub obsm: StackedAxisArrays,
+}
+
+impl std::fmt::Display for StackedAnnData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Stacked AnnData objects:")?;
+        let obsm: String = self.obsm.data.lock().keys()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        write!(f, "\n    obsm: {}", obsm)?;
+        Ok(())
+    }
+}
+
+impl StackedAnnData {
+    pub fn new(adatas: IndexMap<String, AnnData>) -> Result<Self> {
+        if !adatas.values().map(|x| x.var_names().ok()).all_equal()
+        {
+            return Err(hdf5::Error::from("var names mismatch"));
+        }
+        let x = Stacked::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
+        let obsm = StackedAxisArrays::new(&adatas.values()
+            .map(|x| x.obsm.lock().as_ref().unwrap().clone()).collect())?;
+        Ok(Self { anndatas: adatas, x, obsm })
+    }
+
+    pub fn len(&self) -> usize { self.anndatas.len() }
+
+    pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData> { self.anndatas.keys() }
+}
+
 pub struct AnnDataSet {
     annotation: AnnData,
-    pub x: Stacked<MatrixElem>,
-    pub anndatas: IndexMap<String, AnnData>,
+    pub anndatas: Arc<Mutex<Option<StackedAnnData>>>,
 }
 
 impl std::fmt::Display for AnnDataSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let adatas = self.anndatas.lock();
         write!(
             f,
             "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
@@ -378,8 +430,9 @@ impl std::fmt::Display for AnnDataSet {
         write!(
             f,
             "\ncontains {} AnnData objects with keys: {}",
-            self.anndatas.len(),
-            self.anndatas.keys().map(|x| x.as_str()).intersperse(", ").collect::<String>(),
+            adatas.as_ref().map_or(0, |x| x.len()),
+            adatas.as_ref().unwrap().keys()
+                .map(|x| x.as_str()).intersperse(", ").collect::<String>(),
         )?;
 
         if let Some(obs) = self.annotation.obs.lock().as_ref() {
@@ -434,10 +487,6 @@ macro_rules! def_accessor {
 
 impl AnnDataSet {
     pub fn new(anndatas: IndexMap<String, AnnData>, filename: &str, add_key: &str) -> Result<Self> {
-        //if !anndatas.values().map(|x| x.var.read().unwrap().unwrap()[0]).all_equal() {
-        //    panic!("var not equal");
-        //}
-
         let n_obs = anndatas.values().map(|x| x.n_obs()).sum();
         let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
 
@@ -471,18 +520,10 @@ impl AnnDataSet {
         if let Some(var) = anndatas.values().next().unwrap().var.lock().as_ref() {
             annotation.set_var(Some(&DataFrame::new(vec![var.read()?[0].clone()]).unwrap()))?;
         }
-        
-        /*
-        let obs = intersections(anndatas.values().map(|x|
-                x.obs.read().unwrap().unwrap().get_column_names().into_iter()
-                .map(|s| s.to_string()).collect()).collect());
-        let obsm = intersections(anndatas.values().map(
-                |x| x.obsm.data.lock().unwrap().keys().map(Clone::clone).collect()).collect());
-        */
 
-        let x = Stacked::new(anndatas.values().map(|x| x.get_x().clone()).collect())?;
+        let stacked = Some(StackedAnnData::new(anndatas)?);
 
-        Ok(Self { annotation, x, anndatas })
+        Ok(Self { annotation, anndatas: Arc::new(Mutex::new(stacked)), })
     }
 
     pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
@@ -496,13 +537,23 @@ impl AnnDataSet {
                 let f = adata_files.get(k.unwrap()).map_or(v.unwrap(), |x| *x);
                 Ok((k.unwrap().to_string(), AnnData::read(File::open(f)?)?))
             }).collect::<Result<IndexMap<_, _>>>()?;
-        let x = Stacked::new(anndatas.values().map(|x| x.get_x().clone()).collect())?;
-        Ok(Self { annotation, x, anndatas })
+        Ok(Self {
+            annotation,
+            anndatas: Arc::new(Mutex::new(Some(StackedAnnData::new(anndatas)?))),
+        })
     }
 
     pub fn n_obs(&self) -> usize { self.annotation.n_obs() }
 
     pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
+
+    pub fn obs_names(&self) -> Result<Option<Vec<String>>> {
+        self.annotation.obs_names()
+    }
+
+    pub fn var_names(&self) -> Result<Option<Vec<String>>> {
+        self.annotation.var_names()
+    }
 
     def_accessor!(
         DataFrameElem,
@@ -524,20 +575,9 @@ impl AnnDataSet {
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
-        for ann in self.anndatas.into_values() {
-            ann.close()?;
+        if let Some(anndatas) = std::mem::replace(self.anndatas.lock().deref_mut(), None) {
+            for ann in anndatas.anndatas.into_values() { ann.close()?; }
         }
         Ok(())
     }
-}
-
-fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
-    {
-        let (intersection, others) = sets.split_at_mut(1);
-        let intersection = &mut intersection[0];
-        for other in others {
-            intersection.retain(|e| other.contains(e));
-        }
-    }
-    sets[0].clone()
 }

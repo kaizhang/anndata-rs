@@ -2,7 +2,7 @@ use crate::{
     anndata_trait::*,
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
-    utils::hdf5::{read_str_vec_attr, read_str_attr},
+    utils::hdf5::{read_str_vec_attr, read_str_attr, read_str_vec},
     utils::macros::{proc_csr_data, proc_arr_data},
 };
 
@@ -111,6 +111,19 @@ impl DataFrameElem {
                 r.insert(0, read_str_attr(grp, "_index")?);
                 Ok(r)
             }
+        }
+    }
+
+    pub fn get_index(&self) -> Result<Vec<String>> {
+        let elem = self.0.lock();
+        match &elem.inner.element {
+            Some(el) => Ok(el[0].utf8().unwrap().into_iter()
+                .map(|s| s.unwrap().to_string()).collect()),
+            None => {
+                let grp = elem.inner.container.get_group_ref()?;
+                let index = read_str_attr(grp, "_index")?;
+                read_str_vec(&grp.dataset(index.as_str())?)
+            },
         }
     }
 

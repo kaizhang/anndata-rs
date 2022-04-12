@@ -1,7 +1,7 @@
 use crate::element::{
     PyElemCollection, PyAxisArrays,
     PyMatrixElem, PyDataFrameElem,
-    PyStackedMatrixElem,
+    PyStackedMatrixElem, PyStackedAxisArrays,
 };
 
 use crate::utils::{
@@ -189,18 +189,12 @@ impl AnnData {
 
     #[getter]
     fn var_names(&self) -> Option<Vec<String>> {
-        self.inner().get_var().0.as_ref().map(|x|
-            x.read().unwrap()[0].utf8().unwrap().into_iter()
-            .map(|s| s.unwrap().to_string()).collect()
-        )
+        self.inner().var_names().unwrap()
     }
 
     #[getter]
     fn obs_names(&self) -> Option<Vec<String>> {
-        self.inner().get_obs().0.as_ref().map(|x|
-            x.read().unwrap()[0].utf8().unwrap().into_iter()
-            .map(|s| s.unwrap().to_string()).collect()
-        )
+        self.inner().obs_names().unwrap()
     }
 
     #[getter(X)]
@@ -308,6 +302,28 @@ def_arr_accessor!(
     { obsm, obsp, varm, varp }
 );
 
+
+#[pyclass]
+#[repr(transparent)]
+pub struct StackedAnnData(Arc<Mutex<Option<anndata::StackedAnnData>>>);
+
+#[pymethods]
+impl StackedAnnData {
+    #[getter(obsm)]
+    fn get_obsm(&self) -> PyStackedAxisArrays {
+        PyStackedAxisArrays(self.0.lock().as_ref().unwrap().obsm.clone())
+    }
+
+    fn __repr__(&self) -> String {
+        match self.0.lock().as_ref() {
+            None => String::new(),
+            Some(x) => format!("{}", x),
+        }
+    }
+
+    fn __str__(&self) -> String { self.__repr__() }
+}
+
 #[pyclass]
 #[repr(transparent)]
 pub struct AnnDataSet(Arc<Mutex<Option<anndata::AnnDataSet>>>);
@@ -363,23 +379,17 @@ impl AnnDataSet {
 
     #[getter]
     fn var_names(&self) -> Option<Vec<String>> {
-        self.inner().get_var().0.as_ref().map(|x|
-            x.read().unwrap()[0].utf8().unwrap().into_iter()
-            .map(|s| s.unwrap().to_string()).collect()
-        )
+        self.inner().var_names().unwrap()
     }
 
     #[getter]
     fn obs_names(&self) -> Option<Vec<String>> {
-        self.inner().get_obs().0.as_ref().map(|x|
-            x.read().unwrap()[0].utf8().unwrap().into_iter()
-            .map(|s| s.unwrap().to_string()).collect()
-        )
+        self.inner().obs_names().unwrap()
     }
 
     #[getter(X)]
     fn get_x(&self) -> PyStackedMatrixElem {
-        PyStackedMatrixElem(self.inner().x.clone())
+        PyStackedMatrixElem(self.inner().anndatas.lock().as_ref().unwrap().x.clone())
     }
 
     #[getter(uns)]
@@ -399,6 +409,11 @@ impl AnnDataSet {
         ).collect()).transpose();
         self.inner().set_uns(data?.as_ref()).unwrap();
         Ok(())
+    }
+
+    #[getter(adatas)]
+    fn adatas(&self) -> StackedAnnData {
+        StackedAnnData(self.inner().anndatas.clone())
     }
 
     fn close(&self) {
@@ -497,10 +512,10 @@ pub fn create_dataset(files: Vec<(String, &str)>, storage: &str, add_key: &str) 
 
 
 #[pyfunction(anndatas = "None", mode = "\"r+\"")]
-#[pyo3(text_signature = "(filename, anndatas, mode)")]
+#[pyo3(text_signature = "(filename, data_files, mode)")]
 pub fn read_dataset(
     filename: &str,
-    anndatas: Option<HashMap<&str, &str>>,
+    data_files: Option<HashMap<&str, &str>>,
     mode: &str,
 ) -> AnnDataSet {
     let file = match mode {
@@ -508,5 +523,5 @@ pub fn read_dataset(
         "r+" => hdf5::File::open_rw(filename).unwrap(),
         _ => panic!("Unkown mode"),
     };
-    AnnDataSet::wrap(anndata::AnnDataSet::read(file, anndatas).unwrap())
+    AnnDataSet::wrap(anndata::AnnDataSet::read(file, data_files).unwrap())
 }

@@ -10,7 +10,7 @@ use anndata_rs::{
     element::{
         ElemTrait, Stacked,
         Elem, MatrixElem, DataFrameElem,
-        ElemCollection, AxisArrays,
+        ElemCollection, AxisArrays, StackedAxisArrays,
     },
 };
 use pyo3::{
@@ -218,6 +218,34 @@ impl PyAxisArrays {
 
     fn __str__(&self) -> String { self.__repr__() }
 }
+
+#[pyclass]
+#[repr(transparent)]
+pub struct PyStackedAxisArrays(pub(crate) StackedAxisArrays);
+
+#[pymethods]
+impl PyStackedAxisArrays {
+    pub fn keys(&self) -> Vec<String> {
+        self.0.data.lock().keys().map(|x| x.to_string()).collect()
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
+    fn __getitem__(&self, key: &str) -> PyResult<Option<PyStackedMatrixElem>> {
+        match self.0.data.lock().get(key) {
+            None => Ok(None),
+            Some(x) => Ok(Some(PyStackedMatrixElem(x.clone()))),
+        }
+    }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
+}
+
+
 
 #[pyclass]
 #[repr(transparent)]
