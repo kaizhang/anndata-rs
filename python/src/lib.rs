@@ -6,7 +6,7 @@ use pyo3::{
 };
 
 #[pymodule]
-fn anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AnnData>().unwrap();
     m.add_class::<AnnDataSet>().unwrap();
 

@@ -1,0 +1,25 @@
+name: Continuous integration
+
+on: [push, pull_request]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Install dependency
+      run: |
+        sudo apt-get install -y libhdf5-serial-dev
+        sudo pip install --upgrade pip
+        pip install --user pytest
+
+    - name: Build and test package
+      run: |
+        cd ${GITHUB_WORKSPACE}/python && \
+          pip install --user . --use-feature=in-tree-build
+        pytest ${GITHUB_WORKSPACE}/python/tests

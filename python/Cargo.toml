@@ -18,4 +18,5 @@ version = "0.16.2"
 features = ["extension-module", "multiple-pymethods"]
 
 [lib]
+name = "_anndata_rs"
 crate-type = ["cdylib"]

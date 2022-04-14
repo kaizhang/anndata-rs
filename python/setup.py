@@ -9,7 +9,7 @@ setup(
     author_email='kai@kzhang.org',
     license='MIT',
     version="0.1.0",
-    rust_extensions=[RustExtension("anndata_rs", binding=Binding.PyO3)],
+    rust_extensions=[RustExtension("_anndata_rs", binding=Binding.PyO3)],
     packages=[
         "anndata_rs",
     ],
