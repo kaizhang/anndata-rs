@@ -1,10 +1,10 @@
 use std::{error, fmt, io};
+use thiserror::Error;
 
-
-#[derive(Debug)]
-pub enum Error {
-    IO(io::Error),
-    HDF5(hdf5::Error),
+#[derive(Error, Debug)]
+pub enum AnnDataError {
+    Io(#[from] io::Error),
+    Hdf5(#[from] hdf5::Error),
     Internal(String),
 }
 

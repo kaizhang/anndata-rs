@@ -6,12 +6,32 @@ use crate::{
 };
 
 use itertools::Itertools;
-use std::sync::Arc;
 use parking_lot::Mutex;
-use hdf5::{File, Result}; 
-use std::ops::Deref;
+use hdf5::File; 
+use anyhow::Result;
+use std::{
+    ops::Deref, path::PathBuf, sync::Arc,
+};
+use polars::{
+    frame::DataFrame, series::Series, prelude::NamedFrom, prelude::SerReader,
+};
 
 impl AnnData {
+    pub fn write(&self, filename: &str) -> Result<()>
+    {
+        let file = File::create(filename)?;
+
+        self.get_x().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
+        self.get_obs().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
+        self.get_var().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
+        self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
+        self.get_obsp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
+        self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
+        self.get_varp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
+        self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+        Ok(())
+    }
+
     pub fn read(file: File) -> Result<Self>
     {
         let n_obs = Arc::new(Mutex::new(0));
@@ -82,22 +102,7 @@ impl AnnData {
         Ok(Self { file, n_obs, n_vars, x, obs, obsm, obsp, var, varm, varp, uns })
     }
 
-    pub fn write(&self, filename: &str) -> Result<()>
-    {
-        let file = File::create(filename)?;
-
-        self.get_x().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
-        self.get_obs().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
-        self.get_var().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
-        self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
-        self.get_obsp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
-        self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
-        self.get_varp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
-        self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
-        Ok(())
-    }
-
-    pub fn read_matrix_market<R>(&self,
+    pub fn import_matrix_market<R>(&self,
         reader: &mut R,
         sorted: bool,
     ) -> Result<()>
@@ -138,5 +143,35 @@ impl AnnData {
                 &crate::utils::io::read_matrix_market_from_bufread(reader).unwrap()
             ))
         }
+    }
+
+    pub fn import_csv<P>(&self,
+        path: P,
+        has_header: bool,
+        index_column: Option<usize>,
+        delimiter: u8,
+    ) -> Result<()>
+    where
+        P: Into<PathBuf>,
+    {
+        let mut df = polars::prelude::CsvReader::from_path(path)?
+            .has_header(has_header)
+            .with_delimiter(delimiter)
+            .finish()?;
+        let mut colnames = df.get_column_names_owned();
+        if let Some(idx_col) = index_column {
+            let series = df.drop_in_place(&colnames.remove(idx_col))?;
+            self.set_obs(Some(&DataFrame::new(vec![series])?))?;
+        }
+        if has_header {
+            self.set_var(Some(
+                &DataFrame::new(vec![Series::new("Index", colnames)])?
+            ))?;
+        }
+        let data: Box<dyn DataPartialIO> = Box::new(
+            df.to_ndarray::<polars::datatypes::Float64Type>()?.into_dyn()
+        );
+        self.set_x(Some(&data))?;
+        Ok(())
     }
 }

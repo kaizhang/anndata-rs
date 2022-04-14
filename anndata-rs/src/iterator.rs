@@ -7,7 +7,8 @@ use crate::{
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
 use ndarray::{s, arr1, Array, Array1};
-use hdf5::{Dataset, Group, H5Type, Result};
+use hdf5::{Dataset, Group, H5Type};
+use anyhow::Result;
 use itertools::Itertools;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;

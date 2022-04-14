@@ -97,6 +97,18 @@ impl AnnData {
     pub fn wrap(anndata: anndata::AnnData) -> Self {
         AnnData(Slot::new(anndata))
     }
+
+    fn import_mtx(&self, filename: &str, sorted: bool) {
+        if crate::utils::is_gzipped(filename) {
+            let f = std::fs::File::open(filename).unwrap();
+            let mut reader = std::io::BufReader::new(flate2::read::MultiGzDecoder::new(f));
+            self.0.inner().import_matrix_market(&mut reader, sorted).unwrap();
+        } else {
+            let f = std::fs::File::open(filename).unwrap();
+            let mut reader = std::io::BufReader::new(f);
+            self.0.inner().import_matrix_market(&mut reader, sorted).unwrap();
+        }
+    }
 }
 
 #[pymethods]
@@ -234,18 +246,6 @@ impl AnnData {
     }
 
     fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
-
-    fn import_mtx(&self, filename: &str, sorted: bool) {
-        if crate::utils::is_gzipped(filename) {
-            let f = std::fs::File::open(filename).unwrap();
-            let mut reader = std::io::BufReader::new(flate2::read::MultiGzDecoder::new(f));
-            self.0.inner().read_matrix_market(&mut reader, sorted).unwrap();
-        } else {
-            let f = std::fs::File::open(filename).unwrap();
-            let mut reader = std::io::BufReader::new(f);
-            self.0.inner().read_matrix_market(&mut reader, sorted).unwrap();
-        }
-    }
 
     fn __repr__(&self) -> String {
         if self.is_closed() {
@@ -421,6 +421,22 @@ pub fn read_mtx<'py>(py: Python<'py>, filename: &str, storage: &str, sorted: boo
     anndata.import_mtx(filename, sorted);
     Ok(anndata)
 }
+
+#[pyfunction(has_header = true, index_column = "None", delimiter = "b','")]
+#[pyo3(text_signature = "(filename, storage, has_header, index_column, delimiter)")]
+pub fn read_csv(
+    filename: &str,
+    storage: &str,
+    has_header: bool,
+    index_column: Option<usize>,
+    delimiter: u8,
+) -> AnnData
+{
+    let anndata = anndata::AnnData::new(storage, 0, 0).unwrap();
+    anndata.import_csv(filename, has_header, index_column, delimiter).unwrap();
+    AnnData::wrap(anndata)
+}
+
 
 /// Read and stack vertically multiple `.h5ad`-formatted hdf5 files.
 ///

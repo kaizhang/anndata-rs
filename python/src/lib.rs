@@ -1,4 +1,4 @@
-use pyanndata::{element, AnnData, AnnDataSet, read, read_mtx, read_dataset, create_dataset};
+use pyanndata::*;
 
 use pyo3::{
     prelude::*,
@@ -9,12 +9,10 @@ use pyo3::{
 fn anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AnnData>().unwrap();
     m.add_class::<AnnDataSet>().unwrap();
-    m.add_class::<element::PyElem>().unwrap();
-    m.add_class::<element::PyMatrixElem>().unwrap();
-    m.add_class::<element::PyDataFrameElem>().unwrap();
 
-    m.add_function(wrap_pyfunction!(read_mtx, m)?)?;
     m.add_function(wrap_pyfunction!(read, m)?)?;
+    m.add_function(wrap_pyfunction!(read_mtx, m)?)?;
+    m.add_function(wrap_pyfunction!(read_csv, m)?)?;
     m.add_function(wrap_pyfunction!(create_dataset, m)?)?;
     m.add_function(wrap_pyfunction!(read_dataset, m)?)?;
     Ok(())

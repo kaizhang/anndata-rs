@@ -61,7 +61,10 @@ impl PyMatrixElem {
     fn disable_cache(&mut self) { self.0.inner().disable_cache() }
 
     #[getter]
-    fn shape(&self) -> (usize, usize) { (self.0.inner().nrows(), self.0.inner().ncols()) }
+    fn shape(&self) -> (usize, usize) {
+        let guard = self.0.inner();
+        (guard.nrows(), guard.ncols())
+    }
 
     // TODO: efficient partial data reading
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {

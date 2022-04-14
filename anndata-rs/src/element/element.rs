@@ -43,6 +43,10 @@ impl<T> Slot<T> {
 
     pub fn inner(&self) -> Inner<'_, T> { Inner(self.0.lock()) }
 
+    pub fn insert(&self, data: T) -> Option<T> {
+        std::mem::replace(self.0.lock().deref_mut(), Some(data))
+    }
+
     pub fn extract(&self) -> Option<T> {
         std::mem::replace(self.0.lock().deref_mut(), None)
     } 

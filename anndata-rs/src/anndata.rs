@@ -6,7 +6,8 @@ use crate::{
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use hdf5::{File, Result}; 
+use hdf5::File; 
+use anyhow::{anyhow, Result};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -135,9 +136,9 @@ impl AnnData {
 
     pub fn n_vars(&self) -> usize { *self.n_vars.lock().deref() }
 
-    pub fn obs_names(&self) -> Result<Vec<String>> { self.obs.get_index() }
+    pub fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
 
-    pub fn var_names(&self) -> Result<Vec<String>> { self.var.get_index() }
+    pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
 
     pub(crate) fn set_n_obs(&self, n: usize) {
         *self.n_obs.lock().deref_mut() = n;
@@ -163,7 +164,8 @@ impl AnnData {
         self.var.drop();
         self.uns.drop();
         close!(obsm, obsp, varm, varp);
-        self.file.close()
+        self.file.close()?;
+        Ok(())
     }
 
     pub fn get_x(&self) -> &MatrixElem { &self.x }
@@ -221,9 +223,11 @@ impl AnnData {
                 match obs_guard.0.as_mut() {
                     Some(x) => x.update(obs)?,
                     None => {
-                        *obs_guard.0 = Some(
-                            RawMatrixElem::new_elem(obs.write(&self.file, "obs")?)?
-                        );
+                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
+                            obs.write(&self.file, "obs")?
+                        )?;
+                        elem.enable_cache();
+                        *obs_guard.0 = Some(elem);
                     },
                 }
                 self.set_n_obs(obs.nrows());
@@ -249,9 +253,11 @@ impl AnnData {
                 match var_guard.0.as_mut() {
                     Some(x) => x.update(var)?,
                     None => {
-                        *var_guard.0 = Some(
-                            RawMatrixElem::new_elem(var.write(&self.file, "var")?)?
-                        );
+                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
+                            var.write(&self.file, "var")?
+                        )?;
+                        elem.enable_cache();
+                        *var_guard.0 = Some(elem);
                     },
                 }
                 self.set_n_vars(var.nrows());
@@ -364,7 +370,7 @@ impl StackedAnnData {
             if x.var.is_empty() { None } else { x.var_names().ok() }
             ).all_equal()
         {
-            return Err(hdf5::Error::from("var names mismatch"));
+            return Err(anyhow!("var names mismatch"));
         }
         let x = Stacked::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
         let obsm = if adatas.values().any(|x| x.obsm.is_empty()) {

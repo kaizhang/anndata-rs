@@ -17,8 +17,9 @@ def test_creation(tmp_path):
     # some test objects that we use below
     adata_dense = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
     file = adata_dense.filename
-    del adata_dense
-    adata_dense = read(file, mode="r")
+    adata_dense.close()
+    adata_dense = read(file, mode="r+")
+    adata_dense.uns['x'] = 0.2
 
     adata_sparse = AnnData(
         filename = h5ad(tmp_path),
