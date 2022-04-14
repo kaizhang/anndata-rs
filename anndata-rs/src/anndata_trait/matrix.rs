@@ -147,6 +147,28 @@ where
         container.get_group_ref().unwrap().attr("shape").unwrap()
             .read_1d().unwrap().to_vec()[1]
     }
+
+    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Self
+    where Self: Sized + ReadData,
+    {
+        let group = container.get_group_ref().unwrap();
+        let mut indptr: Vec<usize> = group.dataset("indptr").unwrap()
+            .read_slice_1d(slice.start..slice.end+1).unwrap().to_vec();
+        let lo = indptr[0];
+        let hi = indptr[indptr.len() - 1];
+        let data: Vec<T> = group.dataset("data").unwrap()
+            .read_slice_1d(lo..hi).unwrap().to_vec();
+        let indices: Vec<usize> = group.dataset("indices").unwrap()
+            .read_slice_1d(lo..hi).unwrap().to_vec();
+        indptr.iter_mut().for_each(|x| *x -= lo);
+        CsrMatrix::try_from_csr_data(
+            indptr.len() - 1,
+            Self::get_ncols(container),
+            indptr,
+            indices,
+            data
+        ).unwrap()
+    }
 }
 
 fn create_csr_from_rows<I, T>(iter: I, num_col: usize) -> CsrMatrix<T>
