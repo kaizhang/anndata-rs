@@ -209,7 +209,7 @@ where
     T: H5Type + Copy,
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
-        let dataset = location.new_dataset::<T>().deflate(COMPRESSION).create(name)?;
+        let dataset = location.new_dataset::<T>().create(name)?;
         create_str_attr(&*dataset, "encoding-type", "scalar")?;
         dataset.write_scalar(&self.0)?;
         Ok(DataContainer::H5Dataset(dataset))
@@ -232,7 +232,7 @@ where
 
 impl WriteData for String {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
-        let dataset = location.new_dataset::<VarLenUnicode>().deflate(COMPRESSION).create(name)?;
+        let dataset = location.new_dataset::<VarLenUnicode>().create(name)?;
         create_str_attr(&*dataset, "encoding-type", "scalar")?;
         let value: VarLenUnicode = self.parse().unwrap();
         dataset.write_scalar(&value)?;
@@ -581,19 +581,6 @@ mod data_io_test {
             let file = File::create(&path).unwrap();
             func(file)
         })
-    }
-
-    #[test]
-    fn test_hdf5_read_write_scalar() {
-        with_tmp_file::<Result<_>, _>(|file| {
-            let val: f64 = 0.2;
-            let dataset = file.new_dataset::<f64>().deflate(3).create("foo")?;
-            dataset.write_scalar(&val)?;
-            let val_back = dataset.read_scalar()?;
-            assert_eq!(val, val_back);
-            Ok(())
-        })
-        .unwrap()
     }
 
     #[test]
