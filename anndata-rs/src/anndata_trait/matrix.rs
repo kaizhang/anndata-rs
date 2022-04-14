@@ -1,6 +1,5 @@
 use crate::{
     anndata_trait::data::{DataContainer, ReadData},
-    anndata_trait::DataIO,
     utils::hdf5::read_str_attr,
 };
 

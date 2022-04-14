@@ -10,8 +10,6 @@ use ndarray::{s, arr1, Array, Array1};
 use hdf5::{Dataset, Group, H5Type};
 use anyhow::Result;
 use itertools::Itertools;
-use hdf5::types::TypeDescriptor::*;
-use hdf5::types::IntSize;
 
 pub trait RowIterator {
     fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)>;
@@ -296,6 +294,7 @@ where
     }
 }
 
+/*
 impl RawMatrixElem<dyn DataPartialIO>
 {
     pub fn into_csr_u32_iter<'a>(
@@ -314,6 +313,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         }
     }
 }
+*/
 
 pub enum CsrRowsIterator<'a, T> {
     Memory((CsrRowIter<'a, T>, usize)),
