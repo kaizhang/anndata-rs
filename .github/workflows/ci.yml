@@ -20,7 +20,7 @@ jobs:
 
     - name: Build and test package
       run: |
-        cd ${GITHUB_WORKSPACE}/anndata-core && cargo test --all --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata-rs && cargo test --all --no-fail-fast
         cd ${GITHUB_WORKSPACE}/python && \
           pip install --user . --use-feature=in-tree-build
         pytest ${GITHUB_WORKSPACE}/python/tests
