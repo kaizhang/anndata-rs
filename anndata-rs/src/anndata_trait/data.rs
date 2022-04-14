@@ -596,6 +596,18 @@ mod data_io_test {
         .unwrap()
     }
 
+    fn test_hdf5_read_write_scalar2() {
+        with_tmp_file::<Result<_>, _>(|file| {
+            let val: f64 = 0.2;
+            let dataset = file.new_dataset::<f64>().create("foo")?;
+            dataset.write_scalar(&val)?;
+            let val_back = dataset.read_scalar()?;
+            assert_eq!(val, val_back);
+            Ok(())
+        })
+        .unwrap()
+    }
+
     #[test]
     fn test_scalar() -> Result<()> {
         with_tmp_file::<Result<_>, _>(|file| {
