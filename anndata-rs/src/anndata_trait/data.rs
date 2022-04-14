@@ -596,6 +596,7 @@ mod data_io_test {
         .unwrap()
     }
 
+    #[test]
     fn test_hdf5_read_write_scalar2() {
         with_tmp_file::<Result<_>, _>(|file| {
             let val: f64 = 0.2;
