@@ -23,7 +23,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct StrVector(Vec<String>);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scalar<T>(pub T);
 
 #[derive(Debug, Clone)]
@@ -557,4 +557,19 @@ where
     fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
     fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
     fn version(&self) -> &str { "0.2.0" }
+}
+
+#[cfg(test)]
+mod data_io_test {
+    use super::*;
+
+    #[test]
+    fn test_scalar() -> Result<()> {
+        let value = Scalar(0.2);
+        let group = hdf5::File::create("test.h5")?.create_group("test")?;
+        let container = value.write(&group, "data")?;
+        let value_read = Scalar::read(&container)?;
+        assert_eq!(value, value_read);
+        Ok(())
+    }
 }
