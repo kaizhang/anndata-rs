@@ -562,14 +562,49 @@ where
 #[cfg(test)]
 mod data_io_test {
     use super::*;
+    use hdf5::*;
+    use tempfile::tempdir;
+    use std::path::PathBuf;
+
+    pub fn with_tmp_dir<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        func(path)
+    }
+
+    fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        with_tmp_dir(|dir| func(dir.join("foo.h5")))
+    }
+
+    fn with_tmp_file<T, F: Fn(File) -> T>(func: F) -> T {
+        with_tmp_path(|path| {
+            let file = File::create(&path).unwrap();
+            func(file)
+        })
+    }
+
+    #[test]
+    fn test_hdf5_read_write_scalar() {
+        with_tmp_file::<Result<_>, _>(|file| {
+            let val: f64 = 0.2;
+            let dataset = file.new_dataset::<f64>().deflate(3).create("foo")?;
+            dataset.write_scalar(&val)?;
+            let val_back = dataset.read_scalar()?;
+            assert_eq!(val, val_back);
+            Ok(())
+        })
+        .unwrap()
+    }
 
     #[test]
     fn test_scalar() -> Result<()> {
-        let value = Scalar(0.2);
-        let group = hdf5::File::create("test.h5")?.create_group("test")?;
-        let container = value.write(&group, "data")?;
-        let value_read = Scalar::read(&container)?;
-        assert_eq!(value, value_read);
-        Ok(())
+        with_tmp_file::<Result<_>, _>(|file| {
+            let value = Scalar(0.2);
+            let group = file.create_group("test")?;
+            let container = value.write(&group, "data")?;
+            let value_read = Scalar::read(&container)?;
+            assert_eq!(value, value_read);
+            Ok(())
+        })
     }
 }
