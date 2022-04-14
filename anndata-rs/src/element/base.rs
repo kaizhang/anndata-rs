@@ -159,21 +159,21 @@ where
     pub fn read_rows(&self, idx: &[usize]) -> T {
         match &self.inner.element {
             Some(data) => data.get_rows(idx),
-            None => ReadRows::read_rows(&self.inner.container, idx),
+            None => MatrixIO::read_rows(&self.inner.container, idx),
         }
     }
 
     pub fn read_columns(&self, idx: &[usize]) -> T {
         match &self.inner.element {
             Some(data) => data.get_columns(idx),
-            None => ReadCols::read_columns(&self.inner.container, idx),
+            None => MatrixIO::read_columns(&self.inner.container, idx),
         }
     }
 
     pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> T {
         match &self.inner.element {
             Some(data) => data.subset(ridx, cidx),
-            None => ReadPartial::read_partial(&self.inner.container, ridx, cidx),
+            None => MatrixIO::read_partial(&self.inner.container, ridx, cidx),
         }
     }
 

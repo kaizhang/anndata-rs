@@ -1,8 +1,8 @@
 mod data;
-mod subsetting;
+mod matrix;
 
 pub use data::*;
-pub use subsetting::*;
+pub use matrix::*;
 
 use ndarray::ArrayD;
 use hdf5::Result;
@@ -19,12 +19,8 @@ pub trait DataIO: Send + Sync + DynClone + Downcast + WriteData + ReadData {}
 impl_downcast!(DataIO);
 impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
 
-pub trait DataPartialIO: DataIO + DataSubset2D + ReadPartial {}
-impl<T> DataPartialIO for T where T: DataIO + DataSubset2D + ReadPartial {}
-
-pub trait WritePartialData: DataSubset2D + WriteData {}
-impl<T> WritePartialData for T where T: DataSubset2D + WriteData {}
-
+pub trait DataPartialIO: DataIO + MatrixIO {}
+impl<T> DataPartialIO for T where T: DataIO + MatrixIO {}
 
 macro_rules! dyn_data_reader {
     ($get_type:expr, $reader:expr) => {
@@ -156,11 +152,11 @@ pub fn read_dyn_data_subset(
         match ridx {
             None => match cidx {
                 None => ReadData::read(container).unwrap(),
-                Some(j) => ReadCols::read_columns(container, j),
+                Some(j) => MatrixIO::read_columns(container, j),
             },
             Some(i) => match cidx {
-                None => ReadRows::read_rows(container, i),
-                Some(j) => ReadPartial::read_partial(container, i, j),
+                None => MatrixIO::read_rows(container, i),
+                Some(j) => MatrixIO::read_partial(container, i, j),
             },
         }
     }
@@ -174,7 +170,7 @@ pub fn read_dyn_row_slice(
 ) -> Result<Box<dyn DataPartialIO>> {
     dyn_data_reader!(
         container.get_encoding_type()?,
-        ReadRows::read_row_slice(container, slice)
+        MatrixIO::read_row_slice(container, slice)
     )
 }
 
@@ -190,9 +186,9 @@ macro_rules! size_reader {
 }
 
 pub fn get_nrows(container: &DataContainer) -> usize {
-    size_reader!(container, DataSubsetRow, container_nrows)
+    size_reader!(container, MatrixIO, get_nrows)
 }
  
 pub fn get_ncols(container: &DataContainer) -> usize {
-    size_reader!(container, DataSubsetCol, container_ncols)
+    size_reader!(container, MatrixIO, get_ncols)
 }
