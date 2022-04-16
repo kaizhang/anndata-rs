@@ -140,12 +140,30 @@ impl AnnData {
 
     pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
 
-    pub(crate) fn set_n_obs(&self, n: usize) {
-        *self.n_obs.lock().deref_mut() = n;
+    pub fn set_n_obs(&self, n: usize) {
+        let mut n_obs = self.n_obs.lock();
+        if *n_obs != n {
+            let obs_is_empty = self.obs.is_empty() && self.x.is_empty()
+                && self.obsm.is_empty() && self.obsp.is_empty();
+            if obs_is_empty {
+                *n_obs = n;
+            } else {
+                panic!("obs, obsm, obsp, X must be empty so that we can change n_obs");
+            }
+        }
     }
 
-    pub(crate) fn set_n_vars(&self, n: usize) {
-        *self.n_vars.lock().deref_mut() = n;
+    pub fn set_n_vars(&self, n: usize) {
+        let mut n_vars = self.n_vars.lock();
+        if *n_vars != n {
+            let var_is_empty = self.var.is_empty() && self.x.is_empty()
+                && self.varm.is_empty() && self.varp.is_empty();
+            if var_is_empty {
+                *n_vars = n;
+            } else {
+                panic!("var, varm, varp, X must be empty so that we can change n_vars");
+            }
+        }
     }
 
     pub fn filename(&self) -> String { self.file.filename() }
@@ -181,22 +199,10 @@ impl AnnData {
         let mut x_guard = self.x.inner();
         match data_ {
             Some(data) => {
-                let n = self.n_obs();
-                let m = self.n_vars();
-                assert!(
-                    n == 0 || n == data.nrows(),
-                    "Number of observations mismatched, expecting {}, but found {}",
-                    n, data.nrows(),
-                );
-                assert!(
-                    m == 0 || m == data.ncols(),
-                    "Number of variables mismatched, expecting {}, but found {}",
-                    m, data.ncols(),
-                );
-                if x_guard.0.is_some() { self.file.unlink("X")?; }
-                *x_guard.0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
                 self.set_n_obs(data.nrows());
                 self.set_n_vars(data.ncols());
+                if x_guard.0.is_some() { self.file.unlink("X")?; }
+                *x_guard.0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
             },
             None => if x_guard.0.is_some() {
                 self.file.unlink("X")?;
@@ -214,12 +220,7 @@ impl AnnData {
                 *obs_guard.0 = None;
             },
             Some(obs) => {
-                let n = self.n_obs();
-                assert!(
-                    n == 0 || n == obs.nrows(),
-                    "Number of observations mismatched, expecting {}, but found {}",
-                    n, obs.nrows(),
-                );
+                self.set_n_obs(obs.nrows());
                 match obs_guard.0.as_mut() {
                     Some(x) => x.update(obs)?,
                     None => {
@@ -230,7 +231,6 @@ impl AnnData {
                         *obs_guard.0 = Some(elem);
                     },
                 }
-                self.set_n_obs(obs.nrows());
             },
         }
         Ok(())
@@ -244,12 +244,7 @@ impl AnnData {
                 *var_guard.0 = None;
             },
             Some(var) => {
-                let n = self.n_vars();
-                assert!(
-                    n == 0 || n == var.nrows(),
-                    "Number of variables mismatched, expecting {}, but found {}",
-                    n, var.nrows(),
-                );
+                self.set_n_vars(var.nrows());
                 match var_guard.0.as_mut() {
                     Some(x) => x.update(var)?,
                     None => {
@@ -260,7 +255,6 @@ impl AnnData {
                         *var_guard.0 = Some(elem);
                     },
                 }
-                self.set_n_vars(var.nrows());
             },
         }
         Ok(())
@@ -322,7 +316,7 @@ impl AnnData {
         self.obs.inner().0.as_mut().map(|x| x.subset_rows(idx));
         self.obsm.inner().0.as_mut().map(|x| x.subset(idx));
         self.obsp.inner().0.as_mut().map(|x| x.subset(idx));
-        self.set_n_obs(idx.len());
+        *self.n_obs.lock() = idx.len();
     }
 
     pub fn subset_var(&self, idx: &[usize])
@@ -331,7 +325,7 @@ impl AnnData {
         self.var.inner().0.as_mut().map(|x| x.subset_cols(idx));
         self.varm.inner().0.as_mut().map(|x| x.subset(idx));
         self.varp.inner().0.as_mut().map(|x| x.subset(idx));
-        self.set_n_vars(idx.len());
+        *self.n_vars.lock() = idx.len();
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize])
@@ -343,8 +337,8 @@ impl AnnData {
         self.var.inner().0.as_mut().map(|x| x.subset_cols(cidx));
         self.varm.inner().0.as_mut().map(|x| x.subset(cidx));
         self.varp.inner().0.as_mut().map(|x| x.subset(cidx));
-        self.set_n_obs(ridx.len());
-        self.set_n_vars(cidx.len());
+        *self.n_obs.lock() = ridx.len();
+        *self.n_vars.lock() = cidx.len();
     }
 }
 

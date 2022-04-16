@@ -216,24 +216,11 @@ impl AnnData {
     where
         I: RowIterator,
     {
+        self.set_n_vars(data.ncols());
         let mut x_guard = self.get_x().inner();
- 
-        if self.n_vars() == 0 { self.set_n_vars(data.ncols()); }
-        assert!(
-            self.n_vars() == data.ncols(),
-            "Number of variables mismatched, expecting {}, but found {}",
-            self.n_vars(), data.ncols(),
-        );
-
         if x_guard.0.is_some() { self.file.unlink("X")?; }
-
         let (container, nrows) = data.write(&self.file, "X")?;
-        if self.n_obs() == 0 { self.set_n_obs(nrows); }
-        assert!(
-            self.n_obs() == nrows,
-            "Number of observations mismatched, expecting {}, but found {}",
-            self.n_obs(), nrows,
-        );
+        self.set_n_obs(nrows);
         *x_guard.0 = Some(RawMatrixElem::new(container)?);
         Ok(())
     }

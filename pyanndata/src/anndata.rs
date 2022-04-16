@@ -162,8 +162,14 @@ impl AnnData {
     #[getter]
     fn n_obs(&self) -> usize { self.0.inner().n_obs() }
 
+    #[setter(n_obs)]
+    fn set_n_obs(&self, n: usize) { self.0.inner().set_n_obs(n) }
+
     #[getter]
     fn n_vars(&self) -> usize { self.0.inner().n_vars() }
+
+    #[setter(n_vars)]
+    fn set_n_vars(&self, n: usize) { self.0.inner().set_n_vars(n) }
 
     #[getter]
     fn var_names(&self) -> Vec<String> {
