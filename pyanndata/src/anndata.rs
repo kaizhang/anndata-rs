@@ -285,6 +285,7 @@ impl StackedAnnData {
 
 #[pyclass]
 #[repr(transparent)]
+#[derive(Clone)]
 pub struct AnnDataSet(pub Slot<anndata::AnnDataSet>);
 
 impl AnnDataSet {

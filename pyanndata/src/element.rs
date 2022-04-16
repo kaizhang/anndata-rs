@@ -76,7 +76,7 @@ impl PyMatrixElem {
             data.call_method1(py, "__getitem__", (subscript,))
         }
     }
- 
+
     #[args(
         replace = true,
         seed = 2022,
@@ -206,6 +206,13 @@ impl PyAxisArrays {
         match self.0.inner().get(key) {
             None => Ok(None),
             Some(x) => Ok(Some(to_py_data2(py, x.read().unwrap())?)),
+        }
+    }
+
+    fn el(&self, key: &str) -> PyResult<Option<PyMatrixElem>> {
+        match self.0.inner().get(key) {
+            None => Ok(None),
+            Some(x) => Ok(Some(PyMatrixElem(x.clone()))),
         }
     }
 

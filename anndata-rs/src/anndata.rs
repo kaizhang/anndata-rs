@@ -385,6 +385,10 @@ impl StackedAnnData {
     pub fn len(&self) -> usize { self.anndatas.len() }
 
     pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData> { self.anndatas.keys() }
+
+    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> {
+        self.anndatas.iter()
+    }
 }
 
 pub struct AnnDataSet {
@@ -458,10 +462,13 @@ macro_rules! def_accessor {
 
 impl AnnDataSet {
     pub fn new(anndatas: IndexMap<String, AnnData>, filename: &str, add_key: &str) -> Result<Self> {
+        // Compute n_obs and n_vars
         let n_obs = anndatas.values().map(|x| x.n_obs()).sum();
         let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
 
         let annotation = AnnData::new(filename, n_obs, n_vars)?;
+
+        // Set UNS. UNS includes children anndata locations.
         {
             let (keys, filenames): (Vec<_>, Vec<_>) = anndatas.iter()
                 .map(|(k, v)| (k.clone(), v.filename())).unzip();
@@ -471,6 +478,8 @@ impl AnnDataSet {
             ]).unwrap());
             annotation.get_uns().inner().add_data("AnnDataSet", &data)?;
         }
+
+        // Set OBS.
         {
             let keys = Series::new(
                 add_key,
@@ -491,6 +500,8 @@ impl AnnDataSet {
             };
             annotation.set_obs(Some(&df))?;
         }
+
+        // Set VAR.
         {
             let var = anndatas.values().next().unwrap().get_var();
             if !var.is_empty() {
