@@ -13,7 +13,7 @@ use hdf5::{
 };
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::{
-    prelude::{NamedFromOwned, NamedFrom, IntoSeries},
+    prelude::{NamedFromOwned, IntoSeries},
     series::Series,
     datatypes::CategoricalChunkedBuilder,
     frame::DataFrame,
@@ -204,6 +204,9 @@ pub trait ReadData {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Scalar
+////////////////////////////////////////////////////////////////////////////////
 impl<T> WriteData for Scalar<T>
 where
     T: H5Type + Copy,
@@ -230,6 +233,9 @@ where
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// String
+////////////////////////////////////////////////////////////////////////////////
 impl WriteData for String {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = location.new_dataset::<VarLenUnicode>().create(name)?;
@@ -252,6 +258,9 @@ impl ReadData for String {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// CategoricalArray
+////////////////////////////////////////////////////////////////////////////////
 impl WriteData for CategoricalArray {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
@@ -283,13 +292,16 @@ impl ReadData for CategoricalArray {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// CsrMatrix
+////////////////////////////////////////////////////////////////////////////////
 impl<T> WriteData for CsrMatrix<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
-        let chunk_size = 100000;
+        let chunk_size = self.nnz().min(100000);
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
@@ -349,6 +361,9 @@ where
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Array
+////////////////////////////////////////////////////////////////////////////////
 impl<T> WriteData for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
@@ -378,6 +393,9 @@ where
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Vector
+////////////////////////////////////////////////////////////////////////////////
 impl<T> WriteData for Vec<T>
 where
     T: H5Type + Clone + Send + Sync,
@@ -408,6 +426,9 @@ where
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// StrVector
+////////////////////////////////////////////////////////////////////////////////
 impl WriteData for StrVector
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
@@ -434,6 +455,9 @@ impl ReadData for StrVector {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// DataFrame
+////////////////////////////////////////////////////////////////////////////////
 impl WriteData for DataFrame {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
@@ -448,44 +472,7 @@ impl WriteData for DataFrame {
             .skip(1).map(|x| x.parse().unwrap()).collect();
         group.new_attr_builder().with_data(&columns).create("column-order")?;
 
-        for series in self.iter() {
-            let name = series.name();
-            match series.dtype() {
-                polars::datatypes::DataType::UInt8 =>
-                    series.u8().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::UInt16 =>
-                    series.u16().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::UInt32 =>
-                    series.u32().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::UInt64 =>
-                    series.u64().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::Int32 =>
-                    series.i32().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::Int64 =>
-                    series.i64().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::Float32 => 
-                    series.f32().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::Float64 => 
-                    series.f64().unwrap().to_ndarray().unwrap().write(&group, name),
-                polars::datatypes::DataType::Boolean => 
-                    series.bool().unwrap().into_iter().flatten().collect::<Vec<_>>().write(&group, name),
-                polars::datatypes::DataType::Utf8 => {
-                    let vec: Vec<VarLenUnicode> = series.utf8().unwrap()
-                        .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
-                    let dataset = group.new_dataset_builder().deflate(COMPRESSION)
-                        .with_data(vec.as_slice()).create(name)?;
-                    create_str_attr(&*dataset, "encoding-type", "string-array")?;
-                    create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
-                    Ok(DataContainer::H5Dataset(dataset))
-                },
-                polars::datatypes::DataType::Categorical(_) => series
-                    .categorical().unwrap().iter_str().map(|x| x.unwrap())
-                    .collect::<CategoricalArray>().write(&group, name),
-                other => Err(hdf5::Error::Internal(
-                    format!("Not implemented: writing Series of type '{:?}'", other)
-                )),
-            }?;
-        }
+        self.iter().try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
 
         Ok(DataContainer::H5Group(group))
     }
@@ -507,40 +494,92 @@ impl ReadData for DataFrame {
 
         std::iter::once(index).chain(columns).map(|x| {
             let name = x.as_str();
-            let data = DataContainer::open(group, name)?;
-            match data.get_encoding_type()? {
-                DataType::Array(Unsigned(IntSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<u32>::read(&data)?)),
-                DataType::Array(Unsigned(IntSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<u64>::read(&data)?)),
-                DataType::Array(Integer(IntSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<i32>::read(&data)?)),
-                DataType::Array(Integer(IntSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<i64>::read(&data)?)),
-                DataType::Array(Float(FloatSize::U4)) =>
-                    Ok(Series::from_vec(name, Vec::<f32>::read(&data)?)),
-                DataType::Array(Float(FloatSize::U8)) =>
-                    Ok(Series::from_vec(name, Vec::<f64>::read(&data)?)),
-                DataType::Array(Boolean) =>
-                    Ok(Series::new(name, Vec::<bool>::read(&data)?.as_slice())),
-                DataType::Array(VarLenUnicode) =>
-                    Ok(Series::new(name, read_str_vec(data.get_dataset_ref()?)?.as_slice())),
-                DataType::Categorical => {
-                    let arr = CategoricalArray::read(&data).unwrap();
-                    let mut builder = CategoricalChunkedBuilder::new(name, arr.codes.len());
-                    builder.drain_iter(arr.codes.into_iter()
-                        .map(|i| Some(arr.categories[i as usize].as_str()))
-                    );
-                    Ok(builder.finish().into_series())
-                },
-                unknown => Err(hdf5::Error::Internal(
-                    format!("Not implemented: reading Series from type '{:?}'", unknown)
-                )),
-            }
+            let mut series = Series::read(&DataContainer::open(group, name)?)?;
+            series.rename(name);
+            Ok(series)
         }).collect()
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Series
+////////////////////////////////////////////////////////////////////////////////
+impl WriteData for Series {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        match self.dtype() {
+            polars::datatypes::DataType::UInt8 =>
+                self.u8().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::UInt16 =>
+                self.u16().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::UInt32 =>
+                self.u32().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::UInt64 =>
+                self.u64().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Int32 =>
+                self.i32().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Int64 =>
+                self.i64().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Float32 => 
+                self.f32().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Float64 => 
+                self.f64().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Boolean => 
+                self.bool().unwrap().into_iter().flatten().collect::<Vec<_>>().write(location, name),
+            polars::datatypes::DataType::Utf8 => {
+                let vec: Vec<VarLenUnicode> = self.utf8().unwrap()
+                    .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
+                let dataset = location.new_dataset_builder().deflate(COMPRESSION)
+                    .with_data(vec.as_slice()).create(name)?;
+                create_str_attr(&*dataset, "encoding-type", "string-array")?;
+                create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
+                Ok(DataContainer::H5Dataset(dataset))
+            },
+            polars::datatypes::DataType::Categorical(_) => self
+                .categorical().unwrap().iter_str().map(|x| x.unwrap())
+                .collect::<CategoricalArray>().write(location, name),
+            other => Err(hdf5::Error::Internal(
+                format!("Not implemented: writing Series of type '{:?}'", other)
+            )),
+        }
+    }
+
+    fn get_dtype(&self) -> DataType { todo!() }
+    fn dtype() -> DataType { todo!() }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl ReadData for Series {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        macro_rules! _into_series {
+            ($x:expr) => { Ok($x.iter().collect::<Series>()) };
+        }
+
+        match container.get_encoding_type()? {
+            DataType::Array(VarLenUnicode) =>
+                Ok(read_str_vec(container.get_dataset_ref()?)?.into_iter().collect()),
+            DataType::Array(ty) => crate::utils::macros::proc_arr_data!(
+                ty,
+                ReadData::read(container)?,
+                _into_series
+            ),
+            DataType::Categorical => {
+                let arr = CategoricalArray::read(container).unwrap();
+                let mut builder = CategoricalChunkedBuilder::new("", arr.codes.len());
+                builder.drain_iter(arr.codes.into_iter()
+                    .map(|i| Some(arr.categories[i as usize].as_str()))
+                );
+                Ok(builder.finish().into_series())
+            },
+            unknown => Err(hdf5::Error::Internal(
+                format!("Not implemented: reading Series from type '{:?}'", unknown)
+            )),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ArrayView
+////////////////////////////////////////////////////////////////////////////////
 impl<'a, T, D> WriteData for ArrayView<'a, T, D>
 where
     D: Dimension,

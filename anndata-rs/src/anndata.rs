@@ -13,6 +13,7 @@ use std::ops::Deref;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
+use rayon::iter::{ParallelIterator, IntoParallelIterator, IndexedParallelIterator};
 
 #[derive(Clone)]
 pub struct AnnData {
@@ -139,6 +140,31 @@ impl AnnData {
 
     pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
 
+    pub fn get_x(&self) -> &MatrixElem { &self.x }
+    pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
+    pub fn get_var(&self) -> &DataFrameElem { &self.var }
+    pub fn get_obsm(&self) -> &Slot<AxisArrays> { &self.obsm }
+    pub fn get_obsp(&self) -> &Slot<AxisArrays> { &self.obsp }
+    pub fn get_varm(&self) -> &Slot<AxisArrays> { &self.varm }
+    pub fn get_varp(&self) -> &Slot<AxisArrays> { &self.varp }
+    pub fn get_uns(&self) -> &Slot<ElemCollection> { &self.uns }
+
+    pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
+        match data_ {
+            Some(data) => {
+                self.set_n_obs(data.nrows());
+                self.set_n_vars(data.ncols());
+                if !self.x.is_empty() { self.file.unlink("X")?; }
+                *self.x.inner().0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
+            },
+            None => if !self.x.is_empty() {
+                self.file.unlink("X")?;
+                *self.x.inner().0 = None;
+            },
+        }
+        Ok(())
+    }
+
     pub fn set_n_obs(&self, n: usize) {
         let mut n_obs = self.n_obs.lock();
         if *n_obs != n {
@@ -175,61 +201,15 @@ impl AnnData {
         }
     }
 
-    pub fn filename(&self) -> String { self.file.filename() }
-
-    pub fn close(self) -> Result<()> {
-        macro_rules! close {
-            ($($name:ident),*) => {
-                $(
-                self.$name.inner().0.as_ref().map(|x| x.values().for_each(|x| x.drop()));
-                self.$name.drop();
-                )*
-            };
-        }
-        self.x.drop();
-        self.obs.drop();
-        self.var.drop();
-        self.uns.drop();
-        close!(obsm, obsp, varm, varp);
-        self.file.close()?;
-        Ok(())
-    }
-
-    pub fn get_x(&self) -> &MatrixElem { &self.x }
-    pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
-    pub fn get_var(&self) -> &DataFrameElem { &self.var }
-    pub fn get_obsm(&self) -> &Slot<AxisArrays> { &self.obsm }
-    pub fn get_obsp(&self) -> &Slot<AxisArrays> { &self.obsp }
-    pub fn get_varm(&self) -> &Slot<AxisArrays> { &self.varm }
-    pub fn get_varp(&self) -> &Slot<AxisArrays> { &self.varp }
-    pub fn get_uns(&self) -> &Slot<ElemCollection> { &self.uns }
-
-    pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
-        let mut x_guard = self.x.inner();
-        match data_ {
-            Some(data) => {
-                self.set_n_obs(data.nrows());
-                self.set_n_vars(data.ncols());
-                if x_guard.0.is_some() { self.file.unlink("X")?; }
-                *x_guard.0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
-            },
-            None => if x_guard.0.is_some() {
-                self.file.unlink("X")?;
-                *x_guard.0 = None;
-            },
-        }
-        Ok(())
-    }
-
     pub fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
-        let mut obs_guard = self.obs.inner();
         match obs_ {
-            None => if obs_guard.0.is_some() {
+            None => if !self.obs.is_empty() {
                 self.file.unlink("obs")?;
-                *obs_guard.0 = None;
+                *self.obs.inner().0 = None;
             },
             Some(obs) => {
                 self.set_n_obs(obs.nrows());
+                let mut obs_guard = self.obs.inner();
                 match obs_guard.0.as_mut() {
                     Some(x) => x.update(obs)?,
                     None => {
@@ -246,14 +226,14 @@ impl AnnData {
     }
 
     pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
-        let mut var_guard = self.var.inner();
         match var_ {
-            None => if var_guard.0.is_some() {
+            None => if !self.var.is_empty() {
                 self.file.unlink("var")?;
-                *var_guard.0 = None;
+                *self.var.inner().0 = None;
             },
             Some(var) => {
                 self.set_n_vars(var.nrows());
+                let mut var_guard = self.var.inner();
                 match var_guard.0.as_mut() {
                     Some(x) => x.update(var)?,
                     None => {
@@ -317,6 +297,26 @@ impl AnnData {
             obs: Slot::empty(), obsm: Slot::new(obsm), obsp: Slot::new(obsp),
             var: Slot::empty(), varm: Slot::new(varm), varp: Slot::new(varp),
         })
+    }
+
+    pub fn filename(&self) -> String { self.file.filename() }
+
+    pub fn close(self) -> Result<()> {
+        macro_rules! close {
+            ($($name:ident),*) => {
+                $(
+                self.$name.inner().0.as_ref().map(|x| x.values().for_each(|x| x.drop()));
+                self.$name.drop();
+                )*
+            };
+        }
+        self.x.drop();
+        self.obs.drop();
+        self.var.drop();
+        self.uns.drop();
+        close!(obsm, obsp, varm, varp);
+        self.file.close()?;
+        Ok(())
     }
 
     pub fn subset_obs(&self, idx: &[usize])
@@ -521,16 +521,20 @@ impl AnnDataSet {
         let annotation = AnnData::read(file)?;
         let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
             .read()?.into_any().downcast().unwrap();
-        let keys = df.column("keys").unwrap().utf8().unwrap();
-        let filenames = df.column("file_path").unwrap().utf8().unwrap();
+        let keys = df.column("keys").unwrap().utf8().unwrap()
+            .into_iter().collect::<Option<Vec<_>>>().unwrap();
+        let filenames = df.column("file_path").unwrap().utf8()
+            .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
-        let anndatas = keys.into_iter().zip(filenames).map(|(k, v)| {
-                let f = adata_files.get(k.unwrap()).map_or(v.unwrap(), |x| *x);
-                Ok((k.unwrap().to_string(), AnnData::read(File::open(f)?)?))
-            }).collect::<Result<IndexMap<_, _>>>()?;
+        let anndatas = keys.into_par_iter().zip(filenames).map(|(k, v)| {
+                let f = adata_files.get(k).map_or(v, |x| *x);
+                Ok((k.to_string(), AnnData::read(File::open(f)?)?))
+            }).collect::<Result<Vec<_>>>()?;
         Ok(Self {
             annotation,
-            anndatas: Slot::new(StackedAnnData::new(anndatas)?),
+            anndatas: Slot::new(StackedAnnData::new(
+                anndatas.into_iter().collect()
+            )?),
         })
     }
 

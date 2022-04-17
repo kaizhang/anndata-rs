@@ -224,11 +224,10 @@ impl AnnData {
         I: RowIterator,
     {
         self.set_n_vars(data.ncols());
-        let mut x_guard = self.get_x().inner();
-        if x_guard.0.is_some() { self.file.unlink("X")?; }
+        if !self.x.is_empty() { self.file.unlink("X")?; }
         let (container, nrows) = data.write(&self.file, "X")?;
         self.set_n_obs(nrows);
-        *x_guard.0 = Some(RawMatrixElem::new(container)?);
+        *self.x.inner().0 = Some(RawMatrixElem::new(container)?);
         Ok(())
     }
 }

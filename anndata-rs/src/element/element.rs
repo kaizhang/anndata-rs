@@ -307,21 +307,34 @@ impl Stacked<MatrixElem>
 }
 
 fn concat_matrices(index: Vec<usize>, mats: Vec<Box<dyn DataPartialIO>>) -> Result<Box<dyn DataPartialIO>> {
+    macro_rules! _box {
+        ($x:expr) => {
+            Ok(Box::new($x))
+        };
+    }
+
     if !mats.iter().map(|x| x.get_dtype()).all_equal() {
         panic!("type mismatch");
     }
     match mats[0].get_dtype() {
         DataType::Array(ty) => {
-            proc_arr_data!(ty, concat_array(
-                index.as_slice(),
-                mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
-            ))
+            proc_arr_data!(
+                ty,
+                concat_array(
+                    index.as_slice(),
+                    mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
+                ),
+                _box
+            )
         },
         DataType::CsrMatrix(ty) => {
-            proc_csr_data!(ty, concat_csr(
-                index.as_slice(),
-                mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
-            ))
+            proc_csr_data!(
+                ty,
+                concat_csr(
+                    index.as_slice(),
+                    mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
+                )
+            )
         },
         x => panic!("{}", x),
     }

@@ -145,15 +145,16 @@ impl AnnData {
         let mut anndata = AnnData::wrap(anndata::AnnData::new(
             filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)
         ).unwrap());
-       anndata.set_x(py, X)?;
-       anndata.set_obs(py, obs)?;
-       anndata.set_var(py, var)?;
-       anndata.set_obsm(py, obsm)?;
-       anndata.set_obsp(py, obsp)?;
-       anndata.set_varm(py, varm)?;
-       anndata.set_varp(py, varp)?;
-       anndata.set_uns(py, uns)?;
-       Ok(anndata)
+        
+        anndata.set_x(py, X)?;
+        anndata.set_obs(py, obs)?;
+        anndata.set_var(py, var)?;
+        anndata.set_obsm(py, obsm)?;
+        anndata.set_obsp(py, obsp)?;
+        anndata.set_varm(py, varm)?;
+        anndata.set_varp(py, varp)?;
+        anndata.set_uns(py, uns)?;
+        Ok(anndata)
     }
 
     #[getter]
