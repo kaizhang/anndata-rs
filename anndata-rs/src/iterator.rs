@@ -45,51 +45,58 @@ pub struct CsrIterator<I> {
     pub num_cols: usize,
 }
 
+impl<I> CsrIterator<I> {
+    pub fn to_csr_matrix<T>(self) -> CsrMatrix<T>
+    where
+        I: Iterator<Item = Vec<(usize, T)>>,
+    {
+        crate::anndata_trait::create_csr_from_rows(self.iterator, self.num_cols)
+    }
+}
+
 impl<I, D> RowIterator for CsrIterator<I>
 where
-    I: Iterator<Item = Vec<(usize, D)>>,
-    D: H5Type,
+    I: Iterator<Item = Vec<Vec<(usize, D)>>>,
+    D: H5Type + Copy,
 {
-    fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)> {
+    fn write(mut self, location: &Group, name: &str) -> Result<(DataContainer, usize)> {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
         create_str_attr(&group, "h5sparse_format", "csr")?;
-        let chunk_size: usize = 5000;
+        let chunk_size: usize = 50000;
         let data: ResizableVectorData<D> =
             ResizableVectorData::new(&group, "data", chunk_size)?;
-        let mut indptr: Vec<usize> = vec![0];
-        let iter = self.iterator.scan(0, |state, x| {
-            *state = *state + x.len();
-            Some((*state, x))
-        });
+        let mut indptr: Vec<usize> = Vec::new();
 
         if self.num_cols <= (i32::MAX as usize) {
             let indices: ResizableVectorData<i32> =
                 ResizableVectorData::new(&group, "indices", chunk_size)?;
-            for chunk in &iter.chunks(chunk_size) {
-                let (a, b): (Vec<i32>, Vec<D>) = chunk.map(|(x, vec)| {
-                    indptr.push(x);
-                    vec
-                }).flatten().map(|(x, y)| -> (i32, D) {
-                    (x.try_into().unwrap(), y)
-                }).unzip();
-                indices.extend(a.into_iter())?;
-                data.extend(b.into_iter())?;
-            }
+            let nnz: Result<usize> = self.iterator.try_fold(0, |accum, chunk| {
+                data.extend(chunk.iter().flatten().map(|x| x.1))?;
+                indices.extend(
+                    chunk.iter().flatten().map(|x| -> i32 { x.0.try_into().unwrap() })
+                )?;
+                Ok(chunk.iter().fold(accum, |accum_, vec| {
+                    indptr.push(accum_);
+                    accum_ + vec.len()
+                }))
+            });
+            indptr.push(nnz?);
         } else {
             let indices: ResizableVectorData<i64> =
                 ResizableVectorData::new(&group, "indices", chunk_size)?;
-            for chunk in &iter.chunks(chunk_size) {
-                let (a, b): (Vec<i64>, Vec<D>) = chunk.map(|(x, vec)| {
-                    indptr.push(x);
-                    vec
-                }).flatten().map(|(x, y)| -> (i64, D) {
-                    (x.try_into().unwrap(), y)
-                }).unzip();
-                indices.extend(a.into_iter())?;
-                data.extend(b.into_iter())?;
-            }
+            let nnz: Result<usize> = self.iterator.try_fold(0, |accum, chunk| {
+                data.extend(chunk.iter().flatten().map(|x| x.1))?;
+                indices.extend(
+                    chunk.iter().flatten().map(|x| -> i64 { x.0.try_into().unwrap() })
+                )?;
+                Ok(chunk.iter().fold(accum, |accum_, vec| {
+                    indptr.push(accum_);
+                    accum_ + vec.len()
+                }))
+            });
+            indptr.push(nnz?);
         }
 
         let num_rows = indptr.len() - 1;

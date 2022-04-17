@@ -10,7 +10,6 @@ use hdf5::File;
 use anyhow::{anyhow, Result};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
-use std::ops::DerefMut;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
@@ -144,11 +143,16 @@ impl AnnData {
         let mut n_obs = self.n_obs.lock();
         if *n_obs != n {
             let obs_is_empty = self.obs.is_empty() && self.x.is_empty()
-                && self.obsm.is_empty() && self.obsp.is_empty();
+                && (self.obsm.is_empty() || self.obsm.inner().is_empty())
+                && (self.obsp.is_empty() || self.obsp.inner().is_empty());
             if obs_is_empty {
                 *n_obs = n;
             } else {
-                panic!("obs, obsm, obsp, X must be empty so that we can change n_obs");
+                panic!(
+                    "fail to set n_obs to {}: \
+                    obs, obsm, obsp, X must be empty so that we can change n_obs",
+                    n,
+                );
             }
         }
     }
@@ -157,11 +161,16 @@ impl AnnData {
         let mut n_vars = self.n_vars.lock();
         if *n_vars != n {
             let var_is_empty = self.var.is_empty() && self.x.is_empty()
-                && self.varm.is_empty() && self.varp.is_empty();
+                && (self.varm.is_empty() || self.varm.inner().is_empty())
+                && (self.varp.is_empty() || self.varp.inner().is_empty());
             if var_is_empty {
                 *n_vars = n;
             } else {
-                panic!("var, varm, varp, X must be empty so that we can change n_vars");
+                panic!(
+                    "fail to set n_vars to {}: \
+                    var, varm, varp, X must be empty so that we can change n_vars",
+                    n,
+                );
             }
         }
     }

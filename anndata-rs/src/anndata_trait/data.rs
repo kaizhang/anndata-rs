@@ -289,13 +289,14 @@ where
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
+        let chunk_size = 100000;
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
         group.new_attr_builder()
             .with_data(&[self.nrows(), self.ncols()]).create("shape")?;
-        group.new_dataset_builder().deflate(COMPRESSION)
+        group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
             .with_data(self.values()).create("data")?;
 
         let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
@@ -310,9 +311,9 @@ where
         let try_convert_indices: Option<Vec<i32>> = self.col_indices().iter()
             .map(|x| (*x).try_into().ok()).collect();
         match try_convert_indices {
-            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION)
+            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
                 .with_data(vec.as_slice()).create("indices")?,
-            _ => group.new_dataset_builder().deflate(COMPRESSION)
+            _ => group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
                 .with_data(self.col_indices()).create("indices")?,
         };
 
@@ -584,7 +585,7 @@ mod data_io_test {
     }
 
     #[test]
-    fn test_hdf5_read_write_scalar2() {
+    fn test_hdf5_read_write_scalar() {
         with_tmp_file::<Result<_>, _>(|file| {
             let val: f64 = 0.2;
             let dataset = file.new_dataset::<f64>().create("foo")?;

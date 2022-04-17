@@ -170,10 +170,9 @@ where
     }
 }
 
-fn create_csr_from_rows<I, T>(iter: I, num_col: usize) -> CsrMatrix<T>
+pub(crate) fn create_csr_from_rows<I, T>(iter: I, num_col: usize) -> CsrMatrix<T>
 where
     I: Iterator<Item = Vec<(usize, T)>>,
-    T: H5Type,
 {
     let mut data: Vec<T> = Vec::new();
     let mut indices: Vec<usize> = Vec::new();
