@@ -58,3 +58,21 @@ def test_creation(tmp_path):
     #assert adata.X is None
     #assert adata.shape == shape
     #assert "test" in adata.uns
+
+def test_type(tmp_path):
+    adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
+    """
+    scalar_types = [
+        "int8", "int16", "int32", "int64",
+        "uint8", "uint16", "uint32", "uint64",
+        "float32", "float64",
+    ]
+    for ty in scalar_types:
+        x = getattr(np, ty)(10)
+        adata.uns[ty] = x
+        assert adata.uns[ty] == x
+    """
+
+    x = "test"
+    adata.uns["str"] = x
+    assert adata.uns["str"] == x

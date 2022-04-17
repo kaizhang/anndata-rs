@@ -6,7 +6,8 @@ use crate::{
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use hdf5::{Result, Group}; 
+use hdf5::Group; 
+use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
@@ -221,10 +222,10 @@ impl std::fmt::Display for StackedAxisArrays {
 impl StackedAxisArrays {
     pub fn new(arrays: Vec<&AxisArrays>) -> Result<Self> {
         if arrays.is_empty() {
-            return Err(hdf5::Error::from("input is empty"));
+            return Err(anyhow!("input is empty"));
         }
         if !arrays.iter().map(|x| x.axis).all_equal() {
-            return Err(hdf5::Error::from("arrays must have same axis"));
+            return Err(anyhow!("arrays must have same axis"));
         }
         let keys = intersections(arrays.iter()
             .map(|x| x.keys().map(Clone::clone).collect()).collect()

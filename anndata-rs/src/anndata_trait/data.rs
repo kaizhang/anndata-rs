@@ -8,12 +8,12 @@ use crate::{
 use std::fmt;
 use ndarray::{Array1, ArrayD, ArrayView, Dimension};
 use hdf5::{
-    H5Type, Result, Group, Dataset,
-    types::{TypeDescriptor, VarLenUnicode, IntSize, FloatSize, TypeDescriptor::*}
+    H5Type, Group, Dataset, Result,
+    types::{TypeDescriptor, VarLenUnicode, TypeDescriptor::*}
 };
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::{
-    prelude::{NamedFromOwned, IntoSeries},
+    prelude::IntoSeries,
     series::Series,
     datatypes::CategoricalChunkedBuilder,
     frame::DataFrame,
@@ -557,10 +557,11 @@ impl ReadData for Series {
         match container.get_encoding_type()? {
             DataType::Array(VarLenUnicode) =>
                 Ok(read_str_vec(container.get_dataset_ref()?)?.into_iter().collect()),
-            DataType::Array(ty) => crate::utils::macros::proc_arr_data!(
+            DataType::Array(ty) => crate::utils::macros::proc_numeric_data!(
                 ty,
                 ReadData::read(container)?,
-                _into_series
+                _into_series,
+                ArrayD
             ),
             DataType::Categorical => {
                 let arr = CategoricalArray::read(container).unwrap();

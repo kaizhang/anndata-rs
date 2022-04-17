@@ -3,11 +3,12 @@ use crate::{
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
     utils::hdf5::{read_str_vec_attr, read_str_attr, read_str_vec},
-    utils::macros::{proc_csr_data, proc_arr_data},
+    utils::macros::{proc_numeric_data, _box},
 };
 
-use polars::frame::DataFrame;
-use hdf5::{Result, Group}; 
+use polars::{frame::DataFrame, series::Series};
+use hdf5::Group; 
+use anyhow::Result;
 use std::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
 use itertools::Itertools;
@@ -184,6 +185,21 @@ impl DataFrameElem {
         self.inner().update(data).unwrap()
     }
 
+    pub fn column(&self, name: &str) -> Result<Series> {
+        let elem = self.inner();
+        match &elem.inner.element {
+            Some(el) => Ok(el.column(name)?.clone()),
+            None => {
+                let grp = elem.inner.container.get_group_ref()?;
+                Ok(ReadData::read(&DataContainer::open(grp, name)?)?)
+                /*
+                let mut r = read_str_vec_attr(grp, "column-order")?;
+                r.insert(0, read_str_attr(grp, "_index")?);
+                */
+            }
+        }
+    }
+
     pub fn get_column_names(&self) -> Result<Vec<String>> {
         let elem = self.inner();
         match &elem.inner.element {
@@ -205,7 +221,7 @@ impl DataFrameElem {
             None => {
                 let grp = elem.inner.container.get_group_ref()?;
                 let index = read_str_attr(grp, "_index")?;
-                read_str_vec(&grp.dataset(index.as_str())?)
+                Ok(read_str_vec(&grp.dataset(index.as_str())?)?)
             },
         }
     }
@@ -307,33 +323,30 @@ impl Stacked<MatrixElem>
 }
 
 fn concat_matrices(index: Vec<usize>, mats: Vec<Box<dyn DataPartialIO>>) -> Result<Box<dyn DataPartialIO>> {
-    macro_rules! _box {
-        ($x:expr) => {
-            Ok(Box::new($x))
-        };
-    }
-
     if !mats.iter().map(|x| x.get_dtype()).all_equal() {
         panic!("type mismatch");
     }
     match mats[0].get_dtype() {
         DataType::Array(ty) => {
-            proc_arr_data!(
+            proc_numeric_data!(
                 ty,
                 concat_array(
                     index.as_slice(),
                     mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
                 ),
-                _box
+                _box,
+                ArrayD
             )
         },
         DataType::CsrMatrix(ty) => {
-            proc_csr_data!(
+            proc_numeric_data!(
                 ty,
                 concat_csr(
                     index.as_slice(),
                     mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
-                )
+                ),
+                _box,
+                CsrMatrix
             )
         },
         x => panic!("{}", x),

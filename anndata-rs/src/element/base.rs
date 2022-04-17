@@ -1,7 +1,8 @@
 use crate::anndata_trait::*;
 
 use std::boxed::Box;
-use hdf5::{Result, Group}; 
+use hdf5::Group; 
+use anyhow::Result;
 
 pub struct RawElem<T: ?Sized> {
     pub dtype: DataType,

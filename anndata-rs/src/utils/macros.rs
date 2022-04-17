@@ -1,48 +1,72 @@
-macro_rules! proc_arr_data {
+/*
+macro_rules! proc_scalar_data {
     ($dtype:expr, $reader:expr, $fun:ident) => {
+        match dtype {
+            DataType::Scalar(Integer(IntSize::U1)) => Ok(Box::new(Scalar::<i8>::read(container)?)),
+            DataType::Scalar(Integer(IntSize::U2)) => Ok(Box::new(Scalar::<i16>::read(container)?)),
+            DataType::Scalar(Integer(IntSize::U4)) => Ok(Box::new(Scalar::<i32>::read(container)?)),
+            DataType::Scalar(Integer(IntSize::U8)) => Ok(Box::new(Scalar::<i64>::read(container)?)),
+
+            DataType::Scalar(Unsigned(IntSize::U1)) => Ok(Box::new(Scalar::<u8>::read(container)?)),
+            DataType::Scalar(Unsigned(IntSize::U2)) => Ok(Box::new(Scalar::<u16>::read(container)?)),
+            DataType::Scalar(Unsigned(IntSize::U4)) => Ok(Box::new(Scalar::<u32>::read(container)?)),
+            DataType::Scalar(Unsigned(IntSize::U8)) => Ok(Box::new(Scalar::<u64>::read(container)?)),
+
+            DataType::Scalar(Float(FloatSize::U4)) => Ok(Box::new(Scalar::<f32>::read(container)?)),
+            DataType::Scalar(Float(FloatSize::U8)) => Ok(Box::new(Scalar::<f64>::read(container)?)),
+
+            DataType::Scalar(VarLenUnicode) => Ok(Box::new(String::read(container)?)),
+            DataType::Scalar(Boolean) => Ok(Box::new(Scalar::<bool>::read(container)?)),
+        }
+    };
+}
+*/
+
+macro_rules! proc_numeric_data {
+    ($dtype:expr, $reader:expr, $fun:ident, $ty:tt) => {
         match $dtype {
             hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U1) => {
-                let mat: ArrayD<i8> = $reader;
+                let mat: $ty<i8> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U2) => {
-                let mat: ArrayD<i16> = $reader;
+                let mat: $ty<i16> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U4) => {
-                let mat: ArrayD<i32> = $reader;
+                let mat: $ty<i32> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U8) => {
-                let mat: ArrayD<i64> = $reader;
+                let mat: $ty<i64> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U1) => {
-                let mat: ArrayD<u8> = $reader;
+                let mat: $ty<u8> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U2) => {
-                let mat: ArrayD<u16> = $reader;
+                let mat: $ty<u16> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U4) => {
-                let mat: ArrayD<u32> = $reader;
+                let mat: $ty<u32> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U8) => {
-                let mat: ArrayD<u64> = $reader;
+                let mat: $ty<u64> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Float(hdf5::types::FloatSize::U4) => {
-                let mat: ArrayD<f32> = $reader;
+                let mat: $ty<f32> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Float(hdf5::types::FloatSize::U8) => {
-                let mat: ArrayD<f64> = $reader;
+                let mat: $ty<f64> = $reader;
                 $fun!(mat)
             },
             hdf5::types::TypeDescriptor::Boolean => {
-                let mat: ArrayD<bool> = $reader;
+                let mat: $ty<bool> = $reader;
                 $fun!(mat)
             },
             other => panic!("type {} is not supported", other),
@@ -50,57 +74,9 @@ macro_rules! proc_arr_data {
     }
 }
 
-macro_rules! proc_csr_data {
-    ($dtype:expr, $reader:expr) => {
-        match $dtype {
-            hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U1) => {
-                let mat: CsrMatrix<i8> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U2) => {
-                let mat: CsrMatrix<i16> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U4) => {
-                let mat: CsrMatrix<i32> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Integer(hdf5::types::IntSize::U8) => {
-                let mat: CsrMatrix<i64> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U1) => {
-                let mat: CsrMatrix<u8> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U2) => {
-                let mat: CsrMatrix<u16> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U4) => {
-                let mat: CsrMatrix<u32> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Unsigned(hdf5::types::IntSize::U8) => {
-                let mat: CsrMatrix<u64> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Float(hdf5::types::FloatSize::U4) => {
-                let mat: CsrMatrix<f32> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Float(hdf5::types::FloatSize::U8) => {
-                let mat: CsrMatrix<f64> = $reader;
-                Ok(Box::new(mat))
-            },
-            hdf5::types::TypeDescriptor::Boolean => {
-                let mat: CsrMatrix<bool> = $reader;
-                Ok(Box::new(mat))
-            },
-            other => panic!("type {} is not supported", other),
-        }
-    }
+macro_rules! _box {
+    ($x:expr) => { Ok(Box::new($x)) };
 }
 
-pub(crate) use proc_arr_data;
-pub(crate) use proc_csr_data;
+pub(crate) use proc_numeric_data;
+pub(crate) use _box;
