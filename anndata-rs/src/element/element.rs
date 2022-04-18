@@ -7,8 +7,9 @@ use crate::{
 };
 
 use polars::{frame::DataFrame, series::Series};
+use std::collections::HashSet;
 use hdf5::Group; 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
 use itertools::Itertools;
@@ -255,6 +256,16 @@ pub struct Stacked<T> {
     accum: Vec<usize>,
 }
 
+impl<T> Stacked<T> {
+    /// convert index to adata index and inner element index
+    fn normalize_index(&self, i: usize) -> (usize, usize) {
+        match self.accum.binary_search(&i) {
+            Ok(i_) => (i_, 0),
+            Err(i_) => (i_ - 1, i - self.accum[i_ - 1]),
+        }
+    }
+}
+
 impl std::fmt::Display for Stacked<MatrixElem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} x {} stacked elements ({}) with {}",
@@ -268,20 +279,12 @@ impl std::fmt::Display for Stacked<MatrixElem> {
 
 impl Stacked<MatrixElem>
 {
-    /// convert index to adata index and inner element index
-    fn normalize_index(&self, i: usize) -> (usize, usize) {
-        match self.accum.binary_search(&i) {
-            Ok(i_) => (i_, 0),
-            Err(i_) => (i_ - 1, i - self.accum[i_ - 1]),
-        }
-    }
-
     pub fn new(elems: Vec<MatrixElem>) -> Result<Self> {
         if !elems.iter().map(|x| x.dtype()).all_equal() {
-            panic!("dtype not equal");
+            return Err(anyhow!("dtype not equal"));
         }
         if !elems.iter().map(|x| x.ncols()).all_equal() {
-            panic!("num cols mismatch");
+            return Err(anyhow!("number of columns mismatch"));
         }
         let ncols = elems.iter().next().map(|x| x.ncols()).unwrap_or(0);
         let accum: Vec<usize> = std::iter::once(0).chain(elems.iter().scan(0, |state, x| {
@@ -312,7 +315,7 @@ impl Stacked<MatrixElem>
             n_mat: self.elems.len(),
         }
     }
- 
+
     pub fn enable_cache(&self) {
         self.elems.iter().for_each(|x| x.enable_cache())
     }
@@ -411,5 +414,58 @@ impl ElemTrait for MatrixElem {
 
     fn update(&self, data: &Self::Data) {
         self.inner().update(data).unwrap();
+    }
+}
+
+
+#[derive(Clone)]
+pub struct StackedDataFrame {
+    pub nrows: usize,
+    pub keys: HashSet<String>,
+    pub elems: Arc<Vec<DataFrameElem>>,
+}
+
+impl std::fmt::Display for StackedDataFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let keys: String = self.keys.iter().map(|x| x.as_str()).intersperse(", ").collect();
+        write!(f, "stacked dataframe with columns: {}", keys)
+    }
+}
+
+impl StackedDataFrame {
+    pub fn new(elems: Vec<DataFrameElem>) -> Result<Self> {
+        let nrows = elems.iter().map(|x| x.nrows()).sum();
+        let keys: Result<HashSet<String>> = elems.iter()
+            .map(|x| Ok(x.get_column_names()?.into_iter().collect::<HashSet<String>>()))
+            .reduce(|accum, item| match (accum, item) {
+                (Ok(mut x), Ok(y)) => {
+                    x.retain(|e| y.contains(e));
+                    Ok(x)
+                },
+                (Err(e), _) => Err(e),
+                (_, Err(e)) => Err(e),
+            }).unwrap_or(Ok(HashSet::new()));
+        Ok(Self { nrows, keys: keys?, elems: Arc::new(elems) })
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            nrows: 0,
+            keys: HashSet::new(),
+            elems: Arc::new(Vec::new()),
+        }
+    }
+
+    pub fn column(&self, name: &str) -> Result<Series> {
+        if self.keys.contains(name) {
+            let mut series = self.elems.iter().map(|x| x.column(name))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(series.iter_mut().reduce(|accum, item| {
+                accum.append(item).unwrap();
+                accum
+            }).unwrap().clone())
+        } else {
+            return Err(anyhow!("key is not present"));
+        }
     }
 }

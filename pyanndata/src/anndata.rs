@@ -280,6 +280,11 @@ pub struct StackedAnnData(pub Slot<anndata::StackedAnnData>);
 
 #[pymethods]
 impl StackedAnnData {
+    #[getter(obs)]
+    fn get_obs(&self) -> PyStackedDataFrame {
+        PyStackedDataFrame(self.0.inner().obs.clone())
+    }
+
     #[getter(obsm)]
     fn get_obsm(&self) -> PyStackedAxisArrays {
         PyStackedAxisArrays(self.0.inner().obsm.clone())

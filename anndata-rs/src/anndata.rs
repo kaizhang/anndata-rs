@@ -354,12 +354,16 @@ impl AnnData {
 pub struct StackedAnnData {
     anndatas: IndexMap<String, AnnData>,
     pub x: Stacked<MatrixElem>,
+    pub obs: StackedDataFrame,
     pub obsm: StackedAxisArrays,
 }
 
 impl std::fmt::Display for StackedAnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stacked AnnData objects:")?;
+        let obs: String = self.obs.keys.iter()
+            .map(|x| x.as_str()).intersperse(", ").collect();
+        write!(f, "\n    obs: {}", obs)?;
         let obsm: String = self.obsm.data.keys()
             .map(|x| x.as_str()).intersperse(", ").collect();
         write!(f, "\n    obsm: {}", obsm)?;
@@ -376,13 +380,20 @@ impl StackedAnnData {
             return Err(anyhow!("var names mismatch"));
         }
         let x = Stacked::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
+
+        let obs = if adatas.values().any(|x| x.obs.is_empty()) {
+            Ok(StackedDataFrame::empty())
+        } else {
+            StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
+        }?;
+
         let obsm = if adatas.values().any(|x| x.obsm.is_empty()) {
             Ok(StackedAxisArrays { axis: Axis::Row, data: HashMap::new() })
         } else {
             let obsm_guard: Vec<_> = adatas.values().map(|x| x.obsm.inner()).collect();
             StackedAxisArrays::new(obsm_guard.iter().map(|x| x.deref()).collect())
         }?;
-        Ok(Self { anndatas: adatas, x, obsm })
+        Ok(Self { anndatas: adatas, x, obs, obsm })
     }
 
     pub fn len(&self) -> usize { self.anndatas.len() }

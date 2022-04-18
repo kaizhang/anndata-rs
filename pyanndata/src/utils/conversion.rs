@@ -145,6 +145,13 @@ pub fn to_py_df(mut df: DataFrame) -> PyResult<PyObject> {
     Ok(df.to_object(py))
 }
 
+pub fn to_py_series(series: Series) -> PyResult<PyObject> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    to_py_df(series.into_frame())?.call_method1(py, "select_at_idx", (0, ))?
+        .call_method0(py, "to_numpy")
+}
+
 fn array_to_rust(obj: &PyAny) -> PyResult<ArrayRef> {
     // prepare a pointer to receive the Array struct
     let array = Box::new(ffi::ArrowArray::empty());

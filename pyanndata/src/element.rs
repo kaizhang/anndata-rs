@@ -1,6 +1,6 @@
 use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
 use crate::utils::conversion::{
-    to_py_df, to_rust_df,
+    to_py_df, to_rust_df, to_py_series,
     to_py_data1, to_py_data2,
     to_rust_data1, to_rust_data2,
 };
@@ -307,3 +307,21 @@ impl PyStackedMatrixElem {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
+#[pyclass]
+#[repr(transparent)]
+pub struct PyStackedDataFrame(pub(crate) StackedDataFrame);
+
+#[pymethods]
+impl PyStackedDataFrame {
+    fn __getitem__<'py>(&self, key: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if key.is_instance_of::<pyo3::types::PyString>()? {
+            to_py_series(self.0.column(key.extract()?).unwrap())
+        } else {
+            todo!()
+        }
+    }
+
+    fn __repr__(&self) -> String { format!("{}", self.0) }
+
+    fn __str__(&self) -> String { self.__repr__() }
+}
