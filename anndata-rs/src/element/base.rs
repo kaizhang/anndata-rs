@@ -265,19 +265,19 @@ impl RawMatrixElem<dyn DataPartialIO>
     pub fn ncols(&self) -> usize { self.ncols }
 
     pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        read_dyn_data_subset(&self.inner.container, Some(idx), None)
+        Ok(read_dyn_data_subset(&self.inner.container, Some(idx), None)?)
     }
 
     pub fn read_dyn_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
-        read_dyn_row_slice(&self.inner.container, slice)
+        Ok(read_dyn_row_slice(&self.inner.container, slice)?)
     }
 
     pub fn read_columns(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        read_dyn_data_subset(&self.inner.container, None, Some(idx))
+        Ok(read_dyn_data_subset(&self.inner.container, None, Some(idx))?)
     }
 
     pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx))
+        Ok(read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx))?)
     }
 
     pub fn read(&mut self) -> Result<Box<dyn DataPartialIO>> {

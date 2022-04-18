@@ -6,9 +6,10 @@ use pyo3::{
 };
 use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
+use std::collections::HashMap;
 
 use anndata_rs::{
-    anndata_trait::{Scalar, DataIO, DataPartialIO},
+    anndata_trait::{Mapping, Scalar, DataIO, DataPartialIO},
 };
 
 macro_rules! to_rust_arr_macro {
@@ -59,18 +60,6 @@ macro_rules! to_rust_csr_macro {
     }};
 }
 
-macro_rules! to_rust_data_macro {
-    ($py:expr, $obj:expr) => {
-        if isinstance_of_arr($py, $obj)? {
-            to_rust_arr_macro!($obj)
-        } else if isinstance_of_csr($py, $obj)? {
-            to_rust_csr_macro!($obj)
-        } else {
-            panic!("Cannot convert Python type \"{}\" to Rust data", $obj.get_type())
-        }
-    }
-}
-
 pub fn to_rust_data1<'py>(
     py: Python<'py>,
     obj: &'py PyAny,
@@ -88,6 +77,11 @@ pub fn to_rust_data1<'py>(
         Ok(Box::new(Scalar(obj.extract::<i64>()?)))
     } else if obj.is_instance_of::<pyo3::types::PyFloat>()? {
         Ok(Box::new(Scalar(obj.extract::<f64>()?)))
+    } else if obj.is_instance_of::<pyo3::types::PyDict>()? {
+        let data: HashMap<String, &'py PyAny> = obj.extract()?;
+        let mapping = data.into_iter().map(|(k, v)| Ok((k, to_rust_data1(py, v)?)))
+            .collect::<PyResult<HashMap<_, _>>>()?;
+        Ok(Box::new(Mapping(mapping)))
     } else {
         panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
     }
@@ -98,5 +92,11 @@ pub fn to_rust_data2<'py>(
     obj: &'py PyAny,
 ) -> PyResult<Box<dyn DataPartialIO>>
 {
-    to_rust_data_macro!(py, obj)
+    if isinstance_of_arr(py, obj)? {
+        to_rust_arr_macro!(obj)
+    } else if isinstance_of_csr(py, obj)? {
+        to_rust_csr_macro!(obj)
+    } else {
+        panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
+    }
 }

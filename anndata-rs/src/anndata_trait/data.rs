@@ -1,5 +1,5 @@
 use crate::{
-    anndata_trait::DataIO,
+    anndata_trait::{DataIO, read_dyn_data},
     utils::hdf5::{
         create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION
     },
@@ -32,8 +32,6 @@ pub struct CategoricalArray {
     categories: Vec<String>,
 }
 
-pub struct Collection(pub HashMap<String, Box<dyn DataIO>>);
-
 impl<'a> FromIterator<&'a str> for CategoricalArray {
     fn from_iter<T>(iter: T) -> Self
     where
@@ -64,6 +62,7 @@ impl<'a> FromIterator<&'a str> for CategoricalArray {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
+    Mapping,
     CsrMatrix(TypeDescriptor),
     CscMatrix(TypeDescriptor),
     Array(TypeDescriptor),
@@ -100,15 +99,19 @@ impl DataContainer {
         }
     }
 
-    fn _encoding_type(&self) -> Result<String> {
+    fn _encoding_type(&self) -> String {
         match self {
-            Self::H5Group(group) => read_str_attr(group, "encoding-type"),
-            Self::H5Dataset(dataset) => read_str_attr(dataset, "encoding-type"),
+            Self::H5Group(group) => read_str_attr(group, "encoding-type")
+                .unwrap_or("mapping".to_string()),
+            Self::H5Dataset(dataset) => read_str_attr(dataset, "encoding-type")
+                .unwrap_or("scalar".to_string()),
         }
     }
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
-        match self._encoding_type().unwrap_or("mapping".to_string()).as_ref() {
+        match self._encoding_type().as_ref() {
+            "mapping" => Ok(DataType::Mapping),
+            "string" => Ok(DataType::String),
             "scalar" => {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
@@ -213,7 +216,7 @@ where
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = location.new_dataset::<T>().create(name)?;
-        create_str_attr(&*dataset, "encoding-type", "scalar")?;
+        //create_str_attr(&*dataset, "encoding-type", "scalar")?;
         dataset.write_scalar(&self.0)?;
         Ok(DataContainer::H5Dataset(dataset))
     }
@@ -239,7 +242,7 @@ where
 impl WriteData for String {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = location.new_dataset::<VarLenUnicode>().create(name)?;
-        create_str_attr(&*dataset, "encoding-type", "scalar")?;
+        create_str_attr(&*dataset, "encoding-type", "string")?;
         let value: VarLenUnicode = self.parse().unwrap();
         dataset.write_scalar(&value)?;
         Ok(DataContainer::H5Dataset(dataset))
@@ -348,16 +351,13 @@ where
         let indices: Vec<usize> = dataset.dataset("indices")?.read_1d()?.to_vec();
         let indptr: Vec<usize> = dataset.dataset("indptr")?.read_1d()?.to_vec();
 
-        match container._encoding_type()?.as_str() {
-            "csr_matrix" => Ok(CsrMatrix::try_from_csr_data(
-                shape[0],
-                shape[1],
-                indptr,
-                indices,
-                data,
-            ).unwrap()),
-            _ => Err(hdf5::Error::from("not a csr matrix!")),
-        }
+        Ok(CsrMatrix::try_from_csr_data(
+            shape[0],
+            shape[1],
+            indptr,
+            indices,
+            data,
+        ).unwrap())
     }
 }
 
@@ -557,7 +557,7 @@ impl ReadData for Series {
         match container.get_encoding_type()? {
             DataType::Array(VarLenUnicode) =>
                 Ok(read_str_vec(container.get_dataset_ref()?)?.into_iter().collect()),
-            DataType::Array(ty) => crate::utils::macros::proc_numeric_data!(
+            DataType::Array(ty) => crate::proc_numeric_data!(
                 ty,
                 ReadData::read(container)?,
                 _into_series,
@@ -575,6 +575,38 @@ impl ReadData for Series {
                 format!("Not implemented: reading Series from type '{:?}'", unknown)
             )),
         }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Mapping
+////////////////////////////////////////////////////////////////////////////////
+#[derive(Clone)]
+pub struct Mapping(pub HashMap<String, Box<dyn DataIO>>);
+
+impl WriteData for Mapping {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        let group = location.create_group(name)?;
+
+        self.0.iter().try_for_each(|(k, v)|
+            v.write(&group, k).map(|_| ())
+        )?;
+
+        Ok(DataContainer::H5Group(group))
+    }
+
+    fn get_dtype(&self) -> DataType { DataType::Mapping }
+    fn dtype() -> DataType { DataType::Mapping }
+    fn version(&self) -> &str { "0.2.0" }
+}
+
+impl ReadData for Mapping {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        let group: &Group = container.get_group_ref()?;
+
+        let m: Result<HashMap<_, _>>= get_all_data(group)
+            .map(|(k, c)| Ok((k, read_dyn_data(&c)?))).collect();
+        Ok(Mapping(m?))
     }
 }
 
@@ -598,6 +630,16 @@ where
     fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
     fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
     fn version(&self) -> &str { "0.2.0" }
+}
+
+pub(crate) fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
+    let get_name = |x: String| std::path::Path::new(&x).file_name()
+        .unwrap().to_str().unwrap().to_string();
+    group.groups().unwrap().into_iter().map(move |x|
+        (get_name(x.name()), DataContainer::H5Group(x))
+    ).chain(group.datasets().unwrap().into_iter().map(move |x|
+        (get_name(x.name()), DataContainer::H5Dataset(x))
+    ))
 }
 
 #[cfg(test)]

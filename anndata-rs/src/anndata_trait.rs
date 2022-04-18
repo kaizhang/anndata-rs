@@ -1,13 +1,13 @@
 mod data;
 mod matrix;
 
-use crate::utils::macros::{proc_numeric_data, _box};
+use crate::{proc_numeric_data, _box};
 
 pub use data::*;
 pub use matrix::*;
 
 use ndarray::ArrayD;
-use anyhow::Result;
+use hdf5::Result;
 use hdf5::types::TypeDescriptor::*;
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
@@ -17,6 +17,8 @@ use downcast_rs::impl_downcast;
 
 pub trait DataIO: Send + Sync + DynClone + Downcast + WriteData + ReadData {}
 impl_downcast!(DataIO);
+dyn_clone::clone_trait_object!(DataIO);
+
 impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
 
 pub trait DataPartialIO: DataIO + MatrixIO {}
@@ -25,8 +27,9 @@ impl<T> DataPartialIO for T where T: DataIO + MatrixIO {}
 pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
     let dtype = container.get_encoding_type()?;
     match dtype {
-        DataType::Scalar(VarLenUnicode) => Ok(Box::new(String::read(container)?)),
+        DataType::String => Ok(Box::new(String::read(container)?)),
         DataType::DataFrame => Ok(Box::new(DataFrame::read(container)?)),
+        DataType::Mapping => Ok(Box::new(Mapping::read(container)?)),
         DataType::Scalar(ty) => proc_numeric_data!(
             ty, ReadData::read(container)?, _box, Scalar
         ),

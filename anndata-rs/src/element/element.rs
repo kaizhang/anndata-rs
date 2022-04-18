@@ -1,9 +1,9 @@
 use crate::{
+    proc_numeric_data, _box,
     anndata_trait::*,
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
     utils::hdf5::{read_str_vec_attr, read_str_attr, read_str_vec},
-    utils::macros::{proc_numeric_data, _box},
 };
 
 use polars::{frame::DataFrame, series::Series};

@@ -190,16 +190,6 @@ impl AxisArrays {
     }
 }
 
-fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
-    let get_name = |x: String| std::path::Path::new(&x).file_name()
-        .unwrap().to_str().unwrap().to_string();
-    group.groups().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Group(x))
-    ).chain(group.datasets().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Dataset(x))
-    ))
-}
-
 #[derive(Clone)]
 pub struct StackedAxisArrays {
     pub axis: Axis,

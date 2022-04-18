@@ -76,3 +76,11 @@ def test_type(tmp_path):
     x = "test"
     adata.uns["str"] = x
     assert adata.uns["str"] == x
+
+    x = {
+        "a": 1,
+        "b": 2.0,
+        "c": {"1": 2, "2": 5},
+        "d": "test",
+    }
+    adata.uns["dict"] = x

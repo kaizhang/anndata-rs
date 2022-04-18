@@ -1,27 +1,4 @@
-/*
-macro_rules! proc_scalar_data {
-    ($dtype:expr, $reader:expr, $fun:ident) => {
-        match dtype {
-            DataType::Scalar(Integer(IntSize::U1)) => Ok(Box::new(Scalar::<i8>::read(container)?)),
-            DataType::Scalar(Integer(IntSize::U2)) => Ok(Box::new(Scalar::<i16>::read(container)?)),
-            DataType::Scalar(Integer(IntSize::U4)) => Ok(Box::new(Scalar::<i32>::read(container)?)),
-            DataType::Scalar(Integer(IntSize::U8)) => Ok(Box::new(Scalar::<i64>::read(container)?)),
-
-            DataType::Scalar(Unsigned(IntSize::U1)) => Ok(Box::new(Scalar::<u8>::read(container)?)),
-            DataType::Scalar(Unsigned(IntSize::U2)) => Ok(Box::new(Scalar::<u16>::read(container)?)),
-            DataType::Scalar(Unsigned(IntSize::U4)) => Ok(Box::new(Scalar::<u32>::read(container)?)),
-            DataType::Scalar(Unsigned(IntSize::U8)) => Ok(Box::new(Scalar::<u64>::read(container)?)),
-
-            DataType::Scalar(Float(FloatSize::U4)) => Ok(Box::new(Scalar::<f32>::read(container)?)),
-            DataType::Scalar(Float(FloatSize::U8)) => Ok(Box::new(Scalar::<f64>::read(container)?)),
-
-            DataType::Scalar(VarLenUnicode) => Ok(Box::new(String::read(container)?)),
-            DataType::Scalar(Boolean) => Ok(Box::new(Scalar::<bool>::read(container)?)),
-        }
-    };
-}
-*/
-
+#[macro_export]
 macro_rules! proc_numeric_data {
     ($dtype:expr, $reader:expr, $fun:ident, $ty:tt) => {
         match $dtype {
@@ -74,9 +51,7 @@ macro_rules! proc_numeric_data {
     }
 }
 
+#[macro_export]
 macro_rules! _box {
     ($x:expr) => { Ok(Box::new($x)) };
 }
-
-pub(crate) use proc_numeric_data;
-pub(crate) use _box;
