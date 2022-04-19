@@ -12,52 +12,23 @@ use anndata_rs::{
     anndata_trait::{Mapping, Scalar, DataIO, DataPartialIO},
 };
 
-macro_rules! to_rust_arr_macro {
-    ($obj:expr) => {
-        Ok(match $obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
-            "float64" => Box::new($obj.extract::<PyReadonlyArrayDyn<f64>>()?.to_owned_array()),
-            "float32" => Box::new($obj.extract::<PyReadonlyArrayDyn<f32>>()?.to_owned_array()),
-            "int64" => Box::new($obj.extract::<PyReadonlyArrayDyn<i64>>()?.to_owned_array()),
-            "int32" => Box::new($obj.extract::<PyReadonlyArrayDyn<i32>>()?.to_owned_array()),
-            dtype => panic!("Converting array type {} is not implemented", dtype),
-        })
+macro_rules! proc_py_numeric {
+    ($obj:expr, $reader:expr, $fun:ident, $ty:tt) => {
+        match $obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+            "int8" => { let mat: $ty<i8> = $reader; $fun!(mat) },
+            "int16" => { let mat: $ty<i16> = $reader; $fun!(mat) },
+            "int32" => { let mat: $ty<i32> = $reader; $fun!(mat) },
+            "int64" => { let mat: $ty<i64> = $reader; $fun!(mat) },
+            "uint8" => { let mat: $ty<u8> = $reader; $fun!(mat) },
+            "uint16" => { let mat: $ty<u16> = $reader; $fun!(mat) },
+            "uint32" => { let mat: $ty<u32> = $reader; $fun!(mat) },
+            "uint64" => { let mat: $ty<u64> = $reader; $fun!(mat) },
+            "float32" => { let mat: $ty<f32> = $reader; $fun!(mat) },
+            "float64" => { let mat: $ty<f64> = $reader; $fun!(mat) },
+            "bool" => { let mat: $ty<bool> = $reader; $fun!(mat) },
+            other => panic!("converting python type '{}' is not supported", other),
+        }
     }
-}
-
-macro_rules! to_rust_csr_macro {
-    ($obj:expr) => {{
-        let shape: Vec<usize> = $obj.getattr("shape")?.extract()?;
-        let indices = $obj.getattr("indices")?
-            .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-            .map(|x| (*x).try_into().unwrap()).collect();
-        let indptr = $obj.getattr("indptr")?
-            .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-            .map(|x| (*x).try_into().unwrap()).collect();
-
-        Ok(match $obj.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
-            "float64" => {
-                let data = $obj.getattr("data")?
-                    .extract::<PyReadonlyArrayDyn<f64>>()?.to_vec().unwrap();
-                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
-            },
-            "float32" => {
-                let data = $obj.getattr("data")?
-                    .extract::<PyReadonlyArrayDyn<f32>>()?.to_vec().unwrap();
-                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
-            },
-            "int64" => {
-                let data = $obj.getattr("data")?
-                    .extract::<PyReadonlyArrayDyn<i64>>()?.to_vec().unwrap();
-                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
-            },
-            "int32" => {
-                let data = $obj.getattr("data")?
-                    .extract::<PyReadonlyArrayDyn<i32>>()?.to_vec().unwrap();
-                Box::new(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
-            },
-            dtype => panic!("Converting csr type {} is not supported", dtype),
-        })
-    }};
 }
 
 pub fn to_rust_data1<'py>(
@@ -65,10 +36,27 @@ pub fn to_rust_data1<'py>(
     obj: &'py PyAny,
 ) -> PyResult<Box<dyn DataIO>>
 {
+    macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
+
+    macro_rules! _csr {
+        ($x:expr) => {{
+            let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
+            let indices = obj.getattr("indices")?
+                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+                .map(|x| (*x).try_into().unwrap()).collect();
+            let indptr = obj.getattr("indptr")?
+                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+                .map(|x| (*x).try_into().unwrap()).collect();
+            Ok(Box::new(CsrMatrix::try_from_csr_data(
+                shape[0], shape[1], indptr, indices, $x.to_vec().unwrap()
+            ).unwrap()))
+        }};
+    }
+
     if isinstance_of_arr(py, obj)? {
-        to_rust_arr_macro!(obj)
+        proc_py_numeric!(obj, obj.extract()?, _arr, PyReadonlyArrayDyn)
     } else if isinstance_of_csr(py, obj)? {
-        to_rust_csr_macro!(obj)
+        proc_py_numeric!(obj, obj.getattr("data")?.extract()?,_csr, PyReadonlyArrayDyn)
     } else if obj.is_instance_of::<pyo3::types::PyString>()? {
         Ok(Box::new(obj.extract::<String>()?))
     } else if obj.is_instance_of::<pyo3::types::PyBool>()? {
@@ -92,10 +80,27 @@ pub fn to_rust_data2<'py>(
     obj: &'py PyAny,
 ) -> PyResult<Box<dyn DataPartialIO>>
 {
+    macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
+
+    macro_rules! _csr {
+        ($x:expr) => {{
+            let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
+            let indices = obj.getattr("indices")?
+                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+                .map(|x| (*x).try_into().unwrap()).collect();
+            let indptr = obj.getattr("indptr")?
+                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+                .map(|x| (*x).try_into().unwrap()).collect();
+            Ok(Box::new(CsrMatrix::try_from_csr_data(
+                shape[0], shape[1], indptr, indices, $x.to_vec().unwrap()
+            ).unwrap()))
+        }};
+    }
+
     if isinstance_of_arr(py, obj)? {
-        to_rust_arr_macro!(obj)
+        proc_py_numeric!(obj, obj.extract()?, _arr, PyReadonlyArrayDyn)
     } else if isinstance_of_csr(py, obj)? {
-        to_rust_csr_macro!(obj)
+        proc_py_numeric!(obj, obj.getattr("data")?.extract()?,_csr, PyReadonlyArrayDyn)
     } else {
         panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
     }

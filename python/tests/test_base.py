@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 import uuid
 from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import csr_matrix, issparse, random
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
@@ -61,13 +61,26 @@ def test_creation(tmp_path):
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
-    """
-    scalar_types = [
+
+    dtypes = [
         "int8", "int16", "int32", "int64",
         "uint8", "uint16", "uint32", "uint64",
-        "float32", "float64",
+        "float32", "float64", "bool",
     ]
-    for ty in scalar_types:
+
+    # Array
+    for ty in dtypes:
+        x = np.array([[1, 2, 3], [4, 5, 6]]).astype(ty)
+        adata.uns[ty] = x
+        np.testing.assert_array_equal(adata.uns[ty], x)
+
+    for ty in dtypes:
+        x = random(20, 5, 0.9, format="csr", dtype = ty)
+        adata.uns[ty] = x
+        assert (adata.uns[ty] != x).nnz == 0
+
+    """
+    for ty in dtypes:
         x = getattr(np, ty)(10)
         adata.uns[ty] = x
         assert adata.uns[ty] == x
@@ -84,3 +97,4 @@ def test_type(tmp_path):
         "d": "test",
     }
     adata.uns["dict"] = x
+    assert adata.uns["dict"] == x

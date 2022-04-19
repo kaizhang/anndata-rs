@@ -6,6 +6,7 @@ use pyo3::{
 };
 use numpy::IntoPyArray;
 use nalgebra_sparse::csr::CsrMatrix;
+use std::collections::HashMap;
 use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
@@ -75,7 +76,7 @@ pub fn to_py_data1<'py>(
         DataType::Mapping => Ok(
             (*data.into_any().downcast::<Mapping>().unwrap()).0
                 .into_iter().map(|(k, v)| Ok((k, to_py_data1(py, v)?)))
-                .collect::<PyResult<Vec<_>>>()?.to_object(py)
+                .collect::<PyResult<HashMap<_, _>>>()?.to_object(py)
         ),
         ty => panic!("Cannot convert Rust element \"{}\" to Python object", ty)
     }
