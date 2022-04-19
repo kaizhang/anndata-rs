@@ -8,7 +8,6 @@ pub use matrix::*;
 
 use ndarray::ArrayD;
 use hdf5::Result;
-use hdf5::types::TypeDescriptor::*;
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 use dyn_clone::DynClone;

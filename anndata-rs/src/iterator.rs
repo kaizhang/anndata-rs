@@ -363,6 +363,17 @@ pub struct ChunkedMatrix {
     pub(crate) current_index: usize,
 }
 
+impl ChunkedMatrix {
+    pub fn n_chunks(&self) -> usize {
+        let n = self.size / self.chunk_size;
+        if self.size % self.chunk_size == 0 {
+            n
+        } else {
+            n + 1
+        }
+    }
+}
+
 impl Iterator for ChunkedMatrix {
     type Item = Box<dyn DataPartialIO>;
 
@@ -383,6 +394,12 @@ pub struct StackedChunkedMatrix {
     pub(crate) matrices: Vec<ChunkedMatrix>,
     pub(crate) current_matrix_index: usize,
     pub(crate) n_mat: usize,
+}
+
+impl StackedChunkedMatrix {
+    pub fn n_chunks(&self) -> usize {
+        self.matrices.iter().map(|x| x.n_chunks()).sum()
+    }
 }
 
 impl Iterator for StackedChunkedMatrix {
