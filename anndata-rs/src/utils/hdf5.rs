@@ -1,7 +1,7 @@
 use hdf5::{
     Location, Error, Selection, H5Type, Result, Extent, Group,
     dataset::Dataset,
-    types::VarLenUnicode,
+    types::{VarLenUnicode, VarLenAscii, TypeDescriptor},
 };
 use std::marker::PhantomData;
 use ndarray::{Dimension, Array1, Array, ArrayView};
@@ -18,14 +18,31 @@ pub fn create_str_attr(location: &Location, name: &str, value: &str) -> Result<(
 
 pub fn read_str_attr(location: &Location, name: &str) -> Result<String>
 {
-    let attr: VarLenUnicode = location.attr(name)?.read_scalar()?;
-    Ok(attr.parse().unwrap())
+    let container = location.attr(name)?;
+    match container.dtype()?.to_descriptor()? {
+        TypeDescriptor::VarLenAscii => {
+            let attr: VarLenAscii = container.read_scalar()?;
+            Ok(attr.parse().unwrap())
+        },
+        TypeDescriptor::VarLenUnicode => {
+            let attr: VarLenUnicode = container.read_scalar()?;
+            Ok(attr.parse().unwrap())
+        },
+        ty => {
+            panic!("Cannot read string from type '{}'", ty);
+        },
+    }
 }
 
 pub fn read_str_vec_attr(location: &Location, name: &str) -> Result<Vec<String>>
 {
-    let arr: Array1<VarLenUnicode> = location.attr(name)?.read()?;
-    Ok(arr.into_raw_vec().into_iter().map(|x| x.as_str().to_string()).collect())
+    let container = location.attr(name)?;
+    if container.size() == 0 {
+        Ok(Vec::new())
+    } else {
+        let arr: Array1<VarLenUnicode> = container.read()?;
+        Ok(arr.into_raw_vec().into_iter().map(|x| x.as_str().to_string()).collect())
+    }
 }
 
 pub struct ResizableVectorData<T> {

@@ -352,7 +352,7 @@ fn concat_matrices(index: Vec<usize>, mats: Vec<Box<dyn DataPartialIO>>) -> Resu
                 CsrMatrix
             )
         },
-        x => panic!("{}", x),
+        x => panic!("type '{}' is not a supported matrix format", x),
     }
 }
 
