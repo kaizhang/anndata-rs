@@ -9,6 +9,25 @@ use itertools::Itertools;
 
 pub const COMPRESSION: u8 = 2;
 
+pub fn create_dataset<'d, A, T, D>(
+    location: &Group,
+    name: &str,
+    data: A,
+) -> Result<Dataset>
+where
+    A: Into<ArrayView<'d, T, D>>,
+    T: H5Type,
+    D: Dimension, 
+{
+    let arr = data.into();
+    if arr.len() > 100 {
+        location.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(arr).create(name)
+    } else {
+        location.new_dataset_builder().with_data(arr).create(name)
+    }
+}
+
 pub fn create_str_attr(location: &Location, name: &str, value: &str) -> Result<()>
 {
     let attr = location.new_attr::<VarLenUnicode>().create(name)?;

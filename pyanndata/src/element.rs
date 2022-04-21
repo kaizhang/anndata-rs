@@ -261,7 +261,7 @@ pub struct PyStackedMatrixElem(pub(crate) Stacked<MatrixElem>);
 #[pymethods]
 impl PyStackedMatrixElem {
     #[getter]
-    fn shape(&self) -> (usize, usize) { (self.0.nrows, self.0.ncols) }
+    fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
 
     fn enable_cache(&mut self) { self.0.enable_cache() }
 
@@ -282,7 +282,7 @@ impl PyStackedMatrixElem {
         replace: bool,
         seed: u64,
     ) -> PyResult<PyObject> {
-        let length = self.0.nrows;
+        let length = self.0.nrows();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
             std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
@@ -292,16 +292,16 @@ impl PyStackedMatrixElem {
         to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
     }
 
-    fn get_rows<'py>(
-        &self,
-        py: Python<'py>,
-        indices: &'py PyAny,
-    ) -> PyResult<Py<PyAny>> {
-        let idx = crate::utils::to_indices(py, indices, self.0.nrows)?;
-        to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if subscript.eq(py.eval("...", None, None)?)? ||
+            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
+            to_py_data2(py, self.0.read().unwrap())
+        } else {
+            let idx = crate::utils::to_indices(py, subscript, self.0.nrows())?;
+            to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
+        }
     }
- 
- 
+
     fn __repr__(&self) -> String { format!("{}", self.0) }
 
     fn __str__(&self) -> String { self.__repr__() }

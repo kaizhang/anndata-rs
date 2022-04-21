@@ -189,3 +189,19 @@ where
     indptr.push(n);
     CsrMatrix::try_from_csr_data(indptr.len() - 1, num_col, indptr, indices, data).unwrap()
 }
+
+#[cfg(test)]
+mod dataframe_test {
+    use super::*;
+    use polars::prelude::*;
+
+    #[test]
+    fn test_df() {
+        let s1 = Series::new("Fruit", &["Apple", "Apple", "Pear"]);
+        let s2 = Series::new("Color", &["Red", "Yellow", "Green"]);
+        let df = DataFrame::new(vec![s1, s2]).unwrap();
+        println!("{:?}", df);
+
+        println!("{:?}", df.get_rows(&[]));
+    }
+}

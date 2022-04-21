@@ -28,7 +28,7 @@ impl DerefMut for ElemCollection {
 }
 
 impl ElemCollection {
-    pub fn new(container: Group) -> Self {
+    pub(crate) fn new(container: Group) -> Self {
         let data = get_all_data(&container).map(|(k, v)|
             (k, RawElem::new(v).unwrap())
         ).collect();
@@ -71,9 +71,9 @@ pub enum Axis {
 }
 
 pub struct AxisArrays {
-    pub(crate) container: Group,
-    pub size: Arc<Mutex<usize>>,   // shared global reference
     pub axis: Axis,
+    pub(crate) container: Group,
+    pub(crate) size: Arc<Mutex<usize>>,   // shared global reference
     data: HashMap<String, MatrixElem>,
 }
 
@@ -131,11 +131,7 @@ impl std::fmt::Display for AxisArrays {
 }
 
 impl AxisArrays {
-    pub fn new(
-        group: Group,
-        axis: Axis,
-        size: Arc<Mutex<usize>>,
-    ) -> Self {
+    pub(crate) fn new(group: Group, axis: Axis, size: Arc<Mutex<usize>>) -> Self {
         let data: HashMap<_, _> = get_all_data(&group).map(|(k, v)|
             (k, MatrixElem::new_elem(v).unwrap())
         ).collect();
@@ -210,7 +206,12 @@ impl std::fmt::Display for StackedAxisArrays {
 }
 
 impl StackedAxisArrays {
-    pub fn new(arrays: Vec<&AxisArrays>) -> Result<Self> {
+    pub(crate) fn new(
+        arrays: Vec<&AxisArrays>,
+        nrows: &Arc<Mutex<usize>>,
+        ncols: &Arc<Mutex<usize>>,
+        accum: &Arc<Mutex<AccumLength>>,
+    ) -> Result<Self> {
         if arrays.is_empty() {
             return Err(anyhow!("input is empty"));
         }
@@ -223,7 +224,9 @@ impl StackedAxisArrays {
         let data = keys.into_iter().map(|k| {
             let elems = arrays.iter()
                 .map(|x| x.get(&k).unwrap().clone()).collect();
-            Ok((k, Stacked::new(elems)?))
+            Ok((
+                k, Stacked::new(elems, nrows.clone(), ncols.clone(), accum.clone())?
+            ))
         }).collect::<Result<HashMap<_, _>>>()?;
         Ok(Self { axis: arrays[0].axis, data })
     }

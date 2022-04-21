@@ -39,7 +39,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
                     panic!("dimension mismatched")
                 }
             },
-            _ => {
+            "int64" => {
                 let arr = input.extract::<numpy::PyReadonlyArrayDyn<i64>>()?.to_owned_array();
                 let ndim = arr.ndim();
                 if ndim == 1 {
@@ -48,6 +48,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
                     panic!("dimension mismatched")
                 }
             }
+            ty => panic!("{}", ty),
         }
     } else if input.is_instance_of::<pyo3::types::PyList>()? {
         Ok(input.extract::<Vec<i64>>()?.into_iter().map(|x| x.try_into().unwrap()).collect())

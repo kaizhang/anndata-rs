@@ -1,7 +1,8 @@
 use crate::{
     anndata_trait::{DataIO, read_dyn_data},
     utils::hdf5::{
-        create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, COMPRESSION
+        create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
+        COMPRESSION, create_dataset,
     },
 };
 
@@ -271,12 +272,10 @@ impl WriteData for CategoricalArray {
         create_str_attr(&group, "encoding-version", self.version())?;
         group.new_attr::<bool>().create("ordered")?.write_scalar(&false)?;
 
-        group.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(self.codes.as_slice()).create("codes")?;
+        create_dataset(&group, "codes", self.codes.as_slice())?;
         let cat: Vec<VarLenUnicode> = self.categories.iter()
             .map(|x| x.parse().unwrap()).collect();
-        group.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(cat.as_slice()).create("categories")?;
+        create_dataset(&group, "categories", cat.as_slice())?;
         Ok(DataContainer::H5Group(group))
     }
 
@@ -304,32 +303,26 @@ where
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
-        let chunk_size = self.nnz().min(100000);
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
         group.new_attr_builder()
             .with_data(&[self.nrows(), self.ncols()]).create("shape")?;
-        group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
-            .with_data(self.values()).create("data")?;
+        create_dataset(&group, "data", self.values())?;
 
         let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
             .map(|x| (*x).try_into().ok()).collect();
         match try_convert_indptr {
-            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION)
-                .with_data(vec.as_slice()).create("indptr")?,
-            _ => group.new_dataset_builder().deflate(COMPRESSION)
-                .with_data(self.row_offsets()).create("indptr")?,
+            Some(vec) => create_dataset(&group, "indptr", vec.as_slice())?,
+            _ => create_dataset(&group, "indptr", self.row_offsets())?,
         };
 
         let try_convert_indices: Option<Vec<i32>> = self.col_indices().iter()
             .map(|x| (*x).try_into().ok()).collect();
         match try_convert_indices {
-            Some(vec) => group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
-                .with_data(vec.as_slice()).create("indices")?,
-            _ => group.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
-                .with_data(self.col_indices()).create("indices")?,
+            Some(vec) => create_dataset(&group, "indices", vec.as_slice())?,
+            _ => create_dataset(&group, "indices", self.col_indices())?,
         };
 
         Ok(DataContainer::H5Group(group))
@@ -370,9 +363,7 @@ where
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(&self.as_standard_layout()).create(name)?;
-
+        let dataset = create_dataset(location, name, &self.as_standard_layout())?;
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
         Ok(DataContainer::H5Dataset(dataset))
@@ -402,9 +393,7 @@ where
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(self).create(name)?;
-
+        let dataset = create_dataset(location, name, self)?;
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
         Ok(DataContainer::H5Dataset(dataset))
@@ -435,8 +424,7 @@ impl WriteData for StrVector
     {
         let vec: Vec<VarLenUnicode> = self.0.iter()
             .map(|x| x.as_str().parse().unwrap()).collect();
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(vec.as_slice()).create(name)?;
+        let dataset = create_dataset(location, name, vec.as_slice())?;
 
         create_str_attr(&*dataset, "encoding-type", "string-array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
@@ -528,8 +516,7 @@ impl WriteData for Series {
             polars::datatypes::DataType::Utf8 => {
                 let vec: Vec<VarLenUnicode> = self.utf8().unwrap()
                     .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
-                let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-                    .with_data(vec.as_slice()).create(name)?;
+                let dataset = create_dataset(location, name, vec.as_slice())?;
                 create_str_attr(&*dataset, "encoding-type", "string-array")?;
                 create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
                 Ok(DataContainer::H5Dataset(dataset))
@@ -619,9 +606,7 @@ where
     T: H5Type,
 {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
-        let dataset = location.new_dataset_builder().deflate(COMPRESSION)
-            .with_data(self).create(name)?;
-
+        let dataset = create_dataset(location, name, self)?;
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
         Ok(DataContainer::H5Dataset(dataset))

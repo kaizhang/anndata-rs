@@ -1,9 +1,11 @@
+from hypothesis import given, settings, HealthCheck, strategies as st
+from hypothesis.extra.numpy import *
+import pytest
 from anndata_rs import AnnData, AnnDataSet
 
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import pytest
 import uuid
 from scipy import sparse as sp
 from scipy.sparse import csr_matrix, issparse, random, vstack
@@ -11,6 +13,28 @@ from scipy.sparse import csr_matrix, issparse, random, vstack
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
+
+@given(
+    x = arrays(integer_dtypes(endianness='='), (47, 79)),
+    obsm = arrays(integer_dtypes(endianness='='), (47, 139)),
+    indices = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
+    obs = st.lists(st.integers(min_value=0, max_value=100000), min_size=47, max_size=47),
+)
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_subset2(x, obs, obsm, indices, tmp_path):
+    csr = csr_matrix(obsm)
+    adata = AnnData(
+        X=x,
+        obs = dict(txt=obs),
+        obsm = dict(X_pca=obsm, sparse=csr),
+        filename = h5ad(tmp_path),
+    )
+    adata.subset(indices)
+
+    np.testing.assert_array_equal(adata.X[:], x[indices, :])
+    np.testing.assert_array_equal(adata.obs["txt"], np.array(list(obs[i] for i in indices)))
+    np.testing.assert_array_equal(adata.obsm["X_pca"], obsm[indices, :])
+    np.testing.assert_array_equal(adata.obsm["sparse"].todense(), csr[indices, :].todense())
 
 def test_subset(tmp_path):
     X = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -103,8 +127,9 @@ def test_anndataset(tmp_path):
         "batch"
     )
 
-    idx = np.random.randint(0, 100, 50)
-    np.testing.assert_array_equal(merged[idx, :], dataset.X.get_rows(idx))
+    idx = np.random.randint(0, merged.shape[0], 50)
+    np.testing.assert_array_equal(merged, dataset.X[:])
+    np.testing.assert_array_equal(merged[idx, :], dataset.X[list(idx)])
 
     data1 = random(2000, 500, 0.01, format="csr")
     data2 = random(2231, 500, 0.2, format="csr")
@@ -118,6 +143,28 @@ def test_anndataset(tmp_path):
         h5ad(tmp_path),
         "batch"
     )
-    idx = np.random.randint(0, 3000, 1000)
-    np.testing.assert_array_equal(merged[idx, :].todense(), dataset.X.get_rows(idx).todense())
- 
+    idx = np.random.randint(0, merged.shape[0], 1193)
+    np.testing.assert_array_equal(merged[idx, :].todense(), dataset.X[list(idx)].todense())
+
+@given(
+    x1 = arrays(np.int64, (15, 179)),
+    x2 = arrays(np.int64, (47, 179)),
+    x3 = arrays(np.int64, (77, 179)),
+    idx1 = st.lists(st.integers(min_value=0, max_value=14), min_size=0, max_size=50),
+    idx2 = st.lists(st.integers(min_value=15, max_value=15+46), min_size=0, max_size=50),
+    idx3 = st.lists(st.integers(min_value=15+47, max_value=15+47+76), min_size=0, max_size=50),
+)
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    merged = np.concatenate([x1, x2, x3], axis=0)
+    indices = idx1 + idx2 + idx3
+
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+
+    dataset.subset(indices)
+    np.testing.assert_array_equal(merged[indices, :], dataset.X[:])

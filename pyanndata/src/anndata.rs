@@ -218,24 +218,13 @@ impl AnnData {
     ) -> PyResult<()> {
         let n_obs = self.n_obs();
         let n_vars = self.n_vars();
-        match obs_indices {
-            Some(oidx) => {
-                let i = to_indices(py, oidx, n_obs)?;
-                match var_indices {
-                    Some(vidx) => {
-                        let j = to_indices(py, vidx, n_vars)?;
-                        self.0.inner().subset(i.as_slice(), j.as_slice());
-                    },
-                    None => self.0.inner().subset_obs(i.as_slice()),
-                }
-            },
-            None => {
-               if let Some(vidx) = var_indices {
-                    let j = to_indices(py, vidx, n_vars)?;
-                    self.0.inner().subset_var(j.as_slice());
-               }
-            },
-        }
+        
+        let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
+        let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
+        self.0.inner().subset(
+            i.as_ref().map(Vec::as_slice),
+            j.as_ref().map(Vec::as_slice),
+        );
         Ok(())
     }
             
@@ -357,6 +346,24 @@ impl AnnDataSet {
         Ok(())
     }
 
+    fn subset<'py>(
+        &self,
+        py: Python<'py>,
+        obs_indices: Option<&'py PyAny>,
+        var_indices: Option<&'py PyAny>,
+    ) -> PyResult<()> {
+        let n_obs = self.n_obs();
+        let n_vars = self.n_vars();
+        
+        let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
+        let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
+        self.0.inner().subset(
+            i.as_ref().map(Vec::as_slice),
+            j.as_ref().map(Vec::as_slice),
+        );
+        Ok(())
+    }
+ 
     #[getter(adatas)]
     fn adatas(&self) -> StackedAnnData {
         StackedAnnData(self.0.inner().anndatas.clone())

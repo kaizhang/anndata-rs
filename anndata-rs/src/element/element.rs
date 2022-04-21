@@ -1,5 +1,4 @@
 use crate::{
-    proc_numeric_data, _box,
     anndata_trait::*,
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
@@ -13,9 +12,8 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
 use itertools::Itertools;
-use ndarray::{ArrayD, Axis};
-use nalgebra_sparse::CsrMatrix;
 use std::ops::{Deref, DerefMut};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
@@ -236,41 +234,75 @@ impl DataFrameElem {
     }
 
     pub fn subset_rows(&self, idx: &[usize]) {
-        self.inner().subset_rows(idx).unwrap();
+        self.inner().0.as_mut().map(|x| x.subset_rows(idx).unwrap());
     }
 
     pub fn subset_cols(&self, idx: &[usize]) {
-        self.inner().subset_cols(idx).unwrap();
+        self.inner().0.as_mut().map(|x| x.subset_cols(idx).unwrap());
     }
 
     pub fn subset(&self, ridx: &[usize], cidx: &[usize]) {
-        self.inner().subset(ridx, cidx).unwrap();
+        self.inner().0.as_mut().map(|x| x.subset(ridx, cidx).unwrap());
+    }
+}
+
+/// This struct stores the accumulated lengths of objects in a vector
+pub struct AccumLength(Vec<usize>);
+
+impl AccumLength {
+    /// convert index to adata index and inner element index
+    pub fn normalize_index(&self, i: usize) -> (usize, usize) {
+        match self.0.binary_search(&i) {
+            Ok(i_) => (i_, 0),
+            Err(i_) => (i_ - 1, i - self.0[i_ - 1]),
+        }
+    }
+
+    /// Reorder indices such that consecutive indices come from the same underlying
+    /// element.
+    pub fn sort_index_by_buckets(&self, indices: &mut [usize]) {
+        todo!()
+    }
+
+    pub fn normalize_indices(&self, indices: &[usize]) -> std::collections::HashMap<usize, Vec<usize>> {
+        indices.iter().map(|x| self.normalize_index(*x))
+            .sorted_by_key(|x| x.0).into_iter()
+            .group_by(|x| x.0).into_iter().map(|(key, grp)|
+                (key, grp.map(|x| x.1).collect())
+            ).collect()
+    }
+
+    pub fn size(&self) -> usize { *self.0.last().unwrap_or(&0) }
+}
+
+impl FromIterator<usize> for AccumLength {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = usize>,
+    {
+        let accum: Vec<usize> = std::iter::once(0).chain(
+            iter.into_iter().scan(0, |state, x| {
+                *state = *state + x;
+                Some(*state)
+            })
+        ).collect();
+        AccumLength(accum)
     }
 }
 
 #[derive(Clone)]
 pub struct Stacked<T> {
-    pub nrows: usize,
-    pub ncols: usize,
+    nrows: Arc<Mutex<usize>>,
+    ncols: Arc<Mutex<usize>>,
     pub elems: Arc<Vec<T>>,
-    accum: Vec<usize>,
-}
-
-impl<T> Stacked<T> {
-    /// convert index to adata index and inner element index
-    fn normalize_index(&self, i: usize) -> (usize, usize) {
-        match self.accum.binary_search(&i) {
-            Ok(i_) => (i_, 0),
-            Err(i_) => (i_ - 1, i - self.accum[i_ - 1]),
-        }
-    }
+    pub(crate) accum: Arc<Mutex<AccumLength>>,
 }
 
 impl std::fmt::Display for Stacked<MatrixElem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} x {} stacked elements ({}) with {}",
-            self.nrows,
-            self.ncols,
+            *self.nrows.lock(),
+            *self.ncols.lock(),
             self.elems.len(),
             self.elems[0].dtype(),
         )
@@ -279,33 +311,38 @@ impl std::fmt::Display for Stacked<MatrixElem> {
 
 impl Stacked<MatrixElem>
 {
-    pub fn new(elems: Vec<MatrixElem>) -> Result<Self> {
+    pub(crate) fn new(
+        elems: Vec<MatrixElem>,
+        nrows: Arc<Mutex<usize>>,
+        ncols: Arc<Mutex<usize>>,
+        accum: Arc<Mutex<AccumLength>>,
+    ) -> Result<Self> {
         if !elems.iter().map(|x| x.dtype()).all_equal() {
             return Err(anyhow!("dtype not equal"));
         }
-        if !elems.iter().map(|x| x.ncols()).all_equal() {
-            return Err(anyhow!("number of columns mismatch"));
-        }
-        let ncols = elems.iter().next().map(|x| x.ncols()).unwrap_or(0);
-        let accum: Vec<usize> = std::iter::once(0).chain(elems.iter().scan(0, |state, x| {
-            *state = *state + x.nrows();
-            Some(*state)
-        })).collect();
-        let nrows = *accum.last().unwrap();
         Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
     }
 
+    pub fn nrows(&self) -> usize { *self.nrows.lock() }
+    pub fn ncols(&self) -> usize { *self.ncols.lock() }
+
+    pub fn read(&self) -> Result<Box<dyn DataPartialIO>> {
+        let mats: Result<Vec<_>> = self.elems.par_iter().map(|x| x.read()).collect();
+        Ok(rstack(mats?)?)
+    }
+
     pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        let (ori_idx, rows): (Vec<_>, Vec<_>) = idx.iter().map(|x| self.normalize_index(*x))
+        let accum = self.accum.lock();
+        let (ori_idx, rows): (Vec<_>, Vec<_>) = idx.iter().map(|x| accum.normalize_index(*x))
             .enumerate().sorted_by_key(|x| x.1.0).into_iter()
             .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
                 let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
                 (ori_idx, self.elems[key].inner().read_rows(inner_idx.as_slice()))
             }).unzip();
-        concat_matrices(
-            ori_idx.into_iter().flatten().collect(),
+        Ok(rstack_with_index(
+            ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
             rows.into_iter().collect::<Result<_>>()?
-        )
+        )?)
     }
 
     pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
@@ -323,67 +360,6 @@ impl Stacked<MatrixElem>
     pub fn disable_cache(&self) {
         self.elems.iter().for_each(|x| x.disable_cache())
     }
-}
-
-fn concat_matrices(index: Vec<usize>, mats: Vec<Box<dyn DataPartialIO>>) -> Result<Box<dyn DataPartialIO>> {
-    if !mats.iter().map(|x| x.get_dtype()).all_equal() {
-        panic!("type mismatch");
-    }
-    match mats[0].get_dtype() {
-        DataType::Array(ty) => {
-            proc_numeric_data!(
-                ty,
-                concat_array(
-                    index.as_slice(),
-                    mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
-                ),
-                _box,
-                ArrayD
-            )
-        },
-        DataType::CsrMatrix(ty) => {
-            proc_numeric_data!(
-                ty,
-                concat_csr(
-                    index.as_slice(),
-                    mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
-                ),
-                _box,
-                CsrMatrix
-            )
-        },
-        x => panic!("type '{}' is not a supported matrix format", x),
-    }
-}
-
-fn concat_array<T: Clone>(index: &[usize], mats: Vec<Box<ArrayD<T>>>) -> ArrayD<T> {
-    let merged = mats.into_iter().reduce(|mut accum, other| {
-        accum.as_mut().append(Axis(0), other.view()).unwrap();
-        accum
-    }).unwrap();
-    let new_idx: Vec<_> = index.iter().enumerate().sorted_by_key(|x| *x.1)
-        .map(|x| x.0).collect();
-    merged.select(Axis(0), new_idx.as_slice())
-}
-
-fn concat_csr<T: Clone>(index: &[usize], mats: Vec<Box<CsrMatrix<T>>>) -> CsrMatrix<T> {
-    if !mats.iter().map(|x| x.ncols()).all_equal() {
-        panic!("num cols mismatch");
-    }
-    let num_rows = mats.iter().map(|x| x.nrows()).sum();
-    let num_cols = mats.iter().next().map(|x| x.ncols()).unwrap_or(0);
-    let mut values = Vec::new();
-    let mut col_indices = Vec::new();
-    let mut row_offsets = Vec::new();
-    let nnz = mats.iter().map(|x| x.row_iter()).flatten()
-        .zip(index).sorted_by_key(|x| *x.1).fold(0, |acc, x| {
-            row_offsets.push(acc);
-            values.extend_from_slice(x.0.values());
-            col_indices.extend_from_slice(x.0.col_indices());
-            acc + x.0.nnz()
-        });
-    row_offsets.push(nnz);
-    CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
 }
 
 impl ElemTrait for MatrixElem {
@@ -420,7 +396,6 @@ impl ElemTrait for MatrixElem {
 
 #[derive(Clone)]
 pub struct StackedDataFrame {
-    pub nrows: usize,
     pub keys: HashSet<String>,
     pub elems: Arc<Vec<DataFrameElem>>,
 }
@@ -434,7 +409,6 @@ impl std::fmt::Display for StackedDataFrame {
 
 impl StackedDataFrame {
     pub fn new(elems: Vec<DataFrameElem>) -> Result<Self> {
-        let nrows = elems.iter().map(|x| x.nrows()).sum();
         let keys: Result<HashSet<String>> = elems.iter()
             .map(|x| Ok(x.get_column_names()?.into_iter().collect::<HashSet<String>>()))
             .reduce(|accum, item| match (accum, item) {
@@ -445,15 +419,7 @@ impl StackedDataFrame {
                 (Err(e), _) => Err(e),
                 (_, Err(e)) => Err(e),
             }).unwrap_or(Ok(HashSet::new()));
-        Ok(Self { nrows, keys: keys?, elems: Arc::new(elems) })
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            nrows: 0,
-            keys: HashSet::new(),
-            elems: Arc::new(Vec::new()),
-        }
+        Ok(Self { keys: keys?, elems: Arc::new(elems) })
     }
 
     pub fn column(&self, name: &str) -> Result<Series> {

@@ -9,7 +9,7 @@ mod collection;
 
 pub use base::{RawElem, RawMatrixElem};
 pub use element::{
-    Slot, Inner, ElemTrait, Elem, MatrixElem,
-    DataFrameElem, Stacked, StackedDataFrame,
+    Slot, Inner, ElemTrait, Elem, MatrixElem, DataFrameElem,
+    AccumLength, Stacked, StackedDataFrame,
 };
 pub use collection::{ElemCollection, AxisArrays, Axis, StackedAxisArrays};

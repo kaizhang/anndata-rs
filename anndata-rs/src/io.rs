@@ -9,9 +9,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use hdf5::File; 
 use anyhow::Result;
-use std::{
-    ops::Deref, path::PathBuf, sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 use polars::{
     frame::DataFrame, series::Series, prelude::NamedFrom, prelude::SerReader,
 };
@@ -32,6 +30,8 @@ impl AnnData {
         Ok(())
     }
 
+    pub fn copy(&self, filename: &str) -> Result<()> { self.write(filename) }
+
     pub fn read(file: File) -> Result<Self>
     {
         let n_obs = Arc::new(Mutex::new(0));
@@ -50,7 +50,7 @@ impl AnnData {
         // Read obs
         let obs = if file.link_exists("obs") {
             let obs = DataFrameElem::new_elem(DataContainer::open(&file, "obs")?)?;
-            let n = *n_obs.lock().deref();
+            let n = *n_obs.lock();
             if n == 0 {
                 *n_obs.lock() = obs.nrows();
             } else {
@@ -67,7 +67,7 @@ impl AnnData {
         // Read var
         let var = if file.link_exists("var") {
             let var = DataFrameElem::new_elem(DataContainer::open(&file, "var")?)?;
-            let n = *n_vars.lock().deref();
+            let n = *n_vars.lock();
             if n == 0 {
                 *n_vars.lock() = var.ncols();
             } else {

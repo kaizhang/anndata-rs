@@ -1,17 +1,40 @@
 from anndata_rs import AnnData, AnnDataSet, read
 
+import math
 import numpy as np
-from numpy import dtype, ma
 import pandas as pd
 import pytest
 from pathlib import Path
 import uuid
 from scipy import sparse as sp
 from scipy.sparse import csr_matrix, issparse, random
+from hypothesis import given, example, settings, HealthCheck, strategies as st
+from hypothesis.extra.numpy import *
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
+
+@given(x=arrays(
+    integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
+    unsigned_integer_dtypes(endianness = '='),
+    array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=50),
+))
+@example(x=np.array([], dtype=np.int8))
+@settings(suppress_health_check = [HealthCheck.function_scoped_fixture])
+def test_assign_arrays(x, tmp_path):
+    adata = AnnData(filename = h5ad(tmp_path))
+    adata.uns['x'] = x
+    x_ = adata.uns['x']
+    np.testing.assert_array_equal(x_, x)
+
+@given(x=st.floats())
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_assign_floats(x, tmp_path):
+    adata = AnnData(filename = h5ad(tmp_path))
+    adata.uns['x'] = x
+    x_ = adata.uns['x']
+    assert (x_ == x or (math.isnan(x) and math.isnan(x_)))
 
 def test_creation(tmp_path):
     # some test objects that we use below
@@ -67,12 +90,6 @@ def test_type(tmp_path):
         "uint8", "uint16", "uint32", "uint64",
         "float32", "float64", "bool",
     ]
-
-    # Array
-    for ty in dtypes:
-        x = np.array([[1, 2, 3], [4, 5, 6]]).astype(ty)
-        adata.uns[ty] = x
-        np.testing.assert_array_equal(adata.uns[ty], x)
 
     for ty in dtypes:
         x = random(20, 5, 0.9, format="csr", dtype = ty)

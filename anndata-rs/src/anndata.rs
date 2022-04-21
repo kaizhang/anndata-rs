@@ -4,6 +4,7 @@ use crate::{
 };
 
 use std::sync::Arc;
+use std::path::Path;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::File; 
@@ -132,9 +133,9 @@ macro_rules! anndata_setter_col {
 }
 
 impl AnnData {
-    pub fn n_obs(&self) -> usize { *self.n_obs.lock().deref() }
+    pub fn n_obs(&self) -> usize { *self.n_obs.lock() }
 
-    pub fn n_vars(&self) -> usize { *self.n_vars.lock().deref() }
+    pub fn n_vars(&self) -> usize { *self.n_vars.lock() }
 
     pub fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
 
@@ -319,40 +320,35 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn subset_obs(&self, idx: &[usize])
-    {
-        self.x.inner().0.as_mut().map(|x| x.subset_rows(idx));
-        self.obs.inner().0.as_mut().map(|x| x.subset_rows(idx));
-        self.obsm.inner().0.as_mut().map(|x| x.subset(idx));
-        self.obsp.inner().0.as_mut().map(|x| x.subset(idx));
-        *self.n_obs.lock() = idx.len();
-    }
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
+        match (obs_idx, var_idx) {
+            (Some(i), Some(j)) => self.x.inner().0.as_mut().map(|x| x.subset(i, j)),
+            (Some(i), None) => self.x.inner().0.as_mut().map(|x| x.subset_rows(i)),
+            (None, Some(j)) => self.x.inner().0.as_mut().map(|x| x.subset_cols(j)),
+            (None, None) => None,
+        };
+        
+        if let Some(i) = obs_idx {
+            self.obs.subset_rows(i);
+            self.obsm.inner().0.as_mut().map(|x| x.subset(i));
+            self.obsp.inner().0.as_mut().map(|x| x.subset(i));
+            *self.n_obs.lock() = i.len();
+        }
 
-    pub fn subset_var(&self, idx: &[usize])
-    {
-        self.x.inner().0.as_mut().map(|x| x.subset_cols(idx));
-        self.var.inner().0.as_mut().map(|x| x.subset_cols(idx));
-        self.varm.inner().0.as_mut().map(|x| x.subset(idx));
-        self.varp.inner().0.as_mut().map(|x| x.subset(idx));
-        *self.n_vars.lock() = idx.len();
-    }
-
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize])
-    {
-        self.x.inner().0.as_mut().map(|x| x.subset(ridx, cidx));
-        self.obs.inner().0.as_mut().map(|x| x.subset_rows(ridx));
-        self.obsm.inner().0.as_mut().map(|x| x.subset(ridx));
-        self.obsp.inner().0.as_mut().map(|x| x.subset(ridx));
-        self.var.inner().0.as_mut().map(|x| x.subset_cols(cidx));
-        self.varm.inner().0.as_mut().map(|x| x.subset(cidx));
-        self.varp.inner().0.as_mut().map(|x| x.subset(cidx));
-        *self.n_obs.lock() = ridx.len();
-        *self.n_vars.lock() = cidx.len();
+        if let Some(j) = var_idx {
+            self.var.subset_rows(j);
+            self.varm.inner().0.as_mut().map(|x| x.subset(j));
+            self.varp.inner().0.as_mut().map(|x| x.subset(j));
+            *self.n_vars.lock() = j.len();
+        }
     }
 }
 
 pub struct StackedAnnData {
     anndatas: IndexMap<String, AnnData>,
+    accum: Arc<Mutex<AccumLength>>,
+    n_obs: Arc<Mutex<usize>>,
+    n_vars: Arc<Mutex<usize>>,
     pub x: Stacked<MatrixElem>,
     pub obs: StackedDataFrame,
     pub obsm: StackedAxisArrays,
@@ -379,10 +375,21 @@ impl StackedAnnData {
         {
             return Err(anyhow!("var names mismatch"));
         }
-        let x = Stacked::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
+
+        let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
+        let n_obs = Arc::new(Mutex::new(accum_.size()));
+        let accum = Arc::new(Mutex::new(accum_));
+        let n_vars = adatas.values().next().unwrap().n_vars.clone();
+
+        let x = Stacked::new(
+            adatas.values().map(|x| x.get_x().clone()).collect(),
+            n_obs.clone(),
+            n_vars.clone(),
+            accum.clone(),
+        )?;
 
         let obs = if adatas.values().any(|x| x.obs.is_empty()) {
-            Ok(StackedDataFrame::empty())
+            StackedDataFrame::new(Vec::new())
         } else {
             StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
         }?;
@@ -391,9 +398,15 @@ impl StackedAnnData {
             Ok(StackedAxisArrays { axis: Axis::Row, data: HashMap::new() })
         } else {
             let obsm_guard: Vec<_> = adatas.values().map(|x| x.obsm.inner()).collect();
-            StackedAxisArrays::new(obsm_guard.iter().map(|x| x.deref()).collect())
+            StackedAxisArrays::new(
+                obsm_guard.iter().map(|x| x.deref()).collect(),
+                &n_obs,
+                &n_vars,
+                &accum,
+            )
         }?;
-        Ok(Self { anndatas: adatas, x, obs, obsm })
+
+        Ok(Self { anndatas: adatas, x, obs, obsm, accum, n_obs, n_vars })
     }
 
     pub fn len(&self) -> usize { self.anndatas.len() }
@@ -402,6 +415,30 @@ impl StackedAnnData {
 
     pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> {
         self.anndatas.iter()
+    }
+
+    /// Subsetting an AnnDataSet will not rearrange the data between
+    /// AnnData objects.
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
+        let mut accum_len = self.accum.lock();
+
+        let obs_idx_ = match obs_idx {
+            Some(i) => {
+                *self.n_obs.lock() = i.len();
+                accum_len.normalize_indices(i)
+            },
+            None => HashMap::new(),
+        };
+        if let Some(j) = var_idx {
+            *self.n_vars.lock() = j.len();
+        }
+        self.anndatas.par_values().enumerate().for_each(|(i, data)|
+            match obs_idx_.get(&i) {
+                None => data.subset(Some(&[]), var_idx),
+                Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
+            }
+        );
+        *accum_len = self.anndatas.values().map(|x| x.n_obs()).collect();
     }
 }
 
@@ -528,27 +565,6 @@ impl AnnDataSet {
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
-    pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
-        let annotation = AnnData::read(file)?;
-        let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
-            .read()?.into_any().downcast().unwrap();
-        let keys = df.column("keys").unwrap().utf8().unwrap()
-            .into_iter().collect::<Option<Vec<_>>>().unwrap();
-        let filenames = df.column("file_path").unwrap().utf8()
-            .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
-        let adata_files = adata_files_.unwrap_or(HashMap::new());
-        let anndatas = keys.into_par_iter().zip(filenames).map(|(k, v)| {
-                let f = adata_files.get(k).map_or(v, |x| *x);
-                Ok((k.to_string(), AnnData::read(File::open(f)?)?))
-            }).collect::<Result<Vec<_>>>()?;
-        Ok(Self {
-            annotation,
-            anndatas: Slot::new(StackedAnnData::new(
-                anndatas.into_iter().collect()
-            )?),
-        })
-    }
-
     pub fn n_obs(&self) -> usize { self.annotation.n_obs() }
 
     pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
@@ -578,6 +594,40 @@ impl AnnDataSet {
         Option<&HashMap<String, Box<dyn DataIO>>>,
         { uns }
     );
+
+    pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
+        let annotation = AnnData::read(file)?;
+        let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
+            .read()?.into_any().downcast().unwrap();
+        let keys = df.column("keys").unwrap().utf8().unwrap()
+            .into_iter().collect::<Option<Vec<_>>>().unwrap();
+        let filenames = df.column("file_path").unwrap().utf8()
+            .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
+        let adata_files = adata_files_.unwrap_or(HashMap::new());
+        let anndatas = keys.into_par_iter().zip(filenames).map(|(k, v)| {
+                let f = adata_files.get(k).map_or(v, |x| *x);
+                Ok((k.to_string(), AnnData::read(File::open(f)?)?))
+            }).collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            annotation,
+            anndatas: Slot::new(StackedAnnData::new(
+                anndatas.into_iter().collect()
+            )?),
+        })
+    }
+
+    /// Subsetting an AnnDataSet will not rearrange the data between
+    /// AnnData objects.
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
+        self.annotation.subset(obs_idx, var_idx);
+        self.anndatas.inner().0.as_ref().map(|x| x.subset(obs_idx, var_idx));
+    }
+
+    /// Copy and save the AnnDataSet to a new directory. This will copy all children AnnData files.
+    pub fn copy<P: AsRef<Path>>(&self, dir: P) -> Result<Self> {
+        std::fs::create_dir_all(dir)?;
+        todo!()
+    }
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
