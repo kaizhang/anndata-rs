@@ -12,7 +12,7 @@ homepage = "https://github.com/"
 [dependencies]
 flate2 = "1.0"
 indexmap = { version = "1.8", features = ["rayon"] }
-itertools = "0.8"
+itertools = "0.10"
 hdf5 = "0.8"
 ndarray = "0.15"
 nalgebra-sparse = "0.6"

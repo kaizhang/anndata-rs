@@ -1,3 +1,4 @@
+from sklearn.utils import shuffle
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
 import pytest
@@ -160,11 +161,32 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     merged = np.concatenate([x1, x2, x3], axis=0)
-    indices = idx1 + idx2 + idx3
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+    obs = dataset.obs['batch']
 
+    indices = idx1 + idx2 + idx3
+    dataset.subset(indices)
+    np.testing.assert_array_equal(merged[indices, :], dataset.X[:])
+    np.testing.assert_array_equal(obs[indices], dataset.obs['batch'])
+
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     dataset = AnnDataSet(
         [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
     )
 
-    dataset.subset(indices)
+    n1 = len(idx1)
+    n2 = len(idx2)
+    n3 = len(idx3)
+    shuffled_indices = []
+    for i in range(max([n1, n2, n3])):
+        if i < n1: shuffled_indices.append(idx1[i])
+        if i < n2: shuffled_indices.append(idx2[i])
+        if i < n3: shuffled_indices.append(idx3[i])
+
+    dataset.subset(shuffled_indices)
     np.testing.assert_array_equal(merged[indices, :], dataset.X[:])
+    np.testing.assert_array_equal(obs[indices], dataset.obs['batch'])

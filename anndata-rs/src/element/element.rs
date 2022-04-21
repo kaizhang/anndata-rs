@@ -260,8 +260,9 @@ impl AccumLength {
 
     /// Reorder indices such that consecutive indices come from the same underlying
     /// element.
-    pub fn sort_index_by_buckets(&self, indices: &mut [usize]) {
-        todo!()
+    pub fn sort_index_to_buckets(&self, indices: &[usize]) -> Vec<usize> {
+        indices.into_iter().map(|x| *x)
+            .sorted_by_cached_key(|x| self.normalize_index(*x).0).collect()
     }
 
     pub fn normalize_indices(&self, indices: &[usize]) -> std::collections::HashMap<usize, Vec<usize>> {

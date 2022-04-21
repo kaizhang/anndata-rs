@@ -619,8 +619,17 @@ impl AnnDataSet {
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
     pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
-        self.annotation.subset(obs_idx, var_idx);
-        self.anndatas.inner().0.as_ref().map(|x| x.subset(obs_idx, var_idx));
+        match self.anndatas.inner().0.deref() {
+            None => self.annotation.subset(obs_idx, var_idx),
+            Some(ann) => {
+                let obs_idx_ = obs_idx.map(|x|
+                    ann.accum.lock().sort_index_to_buckets(x)
+                );
+                let i = obs_idx_.as_ref().map(|x| x.as_slice());
+                self.annotation.subset(i, var_idx);
+                ann.subset(i, var_idx);
+            }
+        }
     }
 
     /// Copy and save the AnnDataSet to a new directory. This will copy all children AnnData files.

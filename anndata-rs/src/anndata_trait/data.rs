@@ -2,7 +2,7 @@ use crate::{
     anndata_trait::{DataIO, read_dyn_data},
     utils::hdf5::{
         create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
-        COMPRESSION, create_dataset,
+        create_dataset,
     },
 };
 
