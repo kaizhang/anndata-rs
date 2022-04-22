@@ -105,7 +105,7 @@ macro_rules! check_dims {
                 panic!("inconsistent size: {}, {}", $data.nrows(), $size);
             },
             Axis::Both => if $data.nrows() != $data.ncols() {
-                panic!("not a square matrix");
+                panic!("not a square matrix: nrow = {}, ncol = {}", $data.nrows(), $data.ncols());
             } else if $data.ncols() == $size {
                 None
             } else if $size == 0 {

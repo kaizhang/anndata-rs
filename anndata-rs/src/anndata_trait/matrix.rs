@@ -5,7 +5,7 @@ use crate::{
 
 use ndarray::{Axis, ArrayD};
 use hdf5::{Result, Group, H5Type};
-use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::{csr::CsrMatrix, SparseEntry};
 use itertools::zip;
 use polars::frame::DataFrame;
 
@@ -59,17 +59,26 @@ where
     fn ncols(&self) -> usize { self.ncols() }
 
     fn get_rows(&self, idx: &[usize]) -> Self {
-        create_csr_from_rows(idx.iter().map(|r| {
-            let row = self.get_row(*r).unwrap();
-            zip(row.col_indices(), row.values())
-                .map(|(x, y)| (*x, *y)).collect()
-        }),
-        self.ncols()
+        create_csr_from_rows(
+            idx.iter().map(|r| {
+                let row = self.get_row(*r).unwrap();
+                zip(row.col_indices(), row.values())
+                    .map(|(x, y)| (*x, *y)).collect()
+            }),
+            self.ncols(),
         )
     }
 
     fn get_columns(&self, idx: &[usize]) -> Self {
-        todo!()
+        create_csr_from_rows(
+            self.row_iter().map(|r| idx.iter().enumerate().filter_map(|(i, x)|
+                match r.get_entry(*x).unwrap() {
+                    SparseEntry::NonZero(v) => Some((i, *v)),
+                    SparseEntry::Zero => None,
+                }
+            ).collect()),
+            idx.len(),
+        )
     }
 }
 

@@ -22,3 +22,23 @@ pub fn isinstance_of_pandas<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<b
         py.import("pandas")?.getattr("DataFrame")?.downcast::<PyType>().unwrap()
     )
 }
+
+pub fn is_list_of_bools<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    if obj.is_instance_of::<pyo3::types::PyList>()? {
+        Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(
+            |x| x.as_ref(py).is_instance_of::<pyo3::types::PyBool>().unwrap()
+        ))
+    } else {
+        Ok(false)
+    }
+}
+
+pub fn is_list_of_ints<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    if obj.is_instance_of::<pyo3::types::PyList>()? {
+        Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(
+            |x| x.as_ref(py).is_instance_of::<pyo3::types::PyInt>().unwrap()
+        ))
+    } else {
+        Ok(false)
+    }
+}

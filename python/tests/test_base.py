@@ -18,7 +18,7 @@ def h5ad(dir=Path("./")):
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
     unsigned_integer_dtypes(endianness = '='),
-    array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=50),
+    array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
 @example(x=np.array([], dtype=np.int8))
 @settings(suppress_health_check = [HealthCheck.function_scoped_fixture])

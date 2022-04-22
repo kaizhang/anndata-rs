@@ -14,10 +14,6 @@ use std::ops::Deref;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
-use rayon::iter::{
-    ParallelIterator, IntoParallelIterator, IndexedParallelIterator,
-    IntoParallelRefIterator,
-};
 
 #[derive(Clone)]
 pub struct AnnData {
@@ -75,8 +71,8 @@ impl std::fmt::Display for AnnData {
     }
 }
 
-macro_rules! anndata_setter_row {
-    ($($field:ident),*) => {
+macro_rules! anndata_setter {
+    ($(($field:ident, $ty:ty, $n:ident)),*) => {
         paste! {
             $(
             pub fn [<set_ $field>](
@@ -91,37 +87,7 @@ macro_rules! anndata_setter_row {
                     None => { *guard.0 = None; },
                     Some(data) => {
                         let container = self.file.create_group(field)?;
-                        let mut item = AxisArrays::new(container, Axis::Row, self.n_obs.clone());
-                        for (key, val) in data.iter() {
-                            item.add_data(key, val)?;
-                        }
-                        *guard.0 = Some(item);
-                    },
-                }
-                Ok(())
-            }
-            )*
-        }
-    }
-}
-
-macro_rules! anndata_setter_col {
-    ($($field:ident),*) => {
-        paste! {
-            $(
-            pub fn [<set_ $field>](
-                &self,
-                data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
-            ) -> Result<()>
-            {
-                let mut guard = self.$field.inner();
-                let field = stringify!($field);
-                if guard.0.is_some() { self.file.unlink(field)?; }
-                match data_ {
-                    None => { *guard.0 = None; },
-                    Some(data) => {
-                        let container = self.file.create_group(field)?;
-                        let mut item = AxisArrays::new(container, Axis::Column, self.n_vars.clone());
+                        let mut item = AxisArrays::new(container, $ty, self.$n.clone());
                         for (key, val) in data.iter() {
                             item.add_data(key, val)?;
                         }
@@ -253,8 +219,12 @@ impl AnnData {
         Ok(())
     }
 
-    anndata_setter_row!(obsm, obsp);
-    anndata_setter_col!(varm, varp);
+    anndata_setter!(
+        (obsm, Axis::Row, n_obs),
+        (obsp, Axis::Both, n_obs),
+        (varm, Axis::Column, n_vars),
+        (varp, Axis::Both, n_vars)
+    );
 
     pub fn set_uns(&mut self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
         let mut guard = self.uns.inner();
@@ -373,21 +343,13 @@ impl std::fmt::Display for StackedAnnData {
 impl StackedAnnData {
     fn new(adatas: IndexMap<String, AnnData>, check: bool) -> Result<Self> {
         if check {
-            if let Some((_, v)) = adatas.get_index(0) {
-                let names = if v.var.is_empty() {
+            if !adatas.values().map(|x|
+                if x.var.is_empty() {
                     None
                 } else {
-                    v.var_names().ok()
-                };
-                if !adatas.par_values().skip(1).all(|x| {
-                    let names2 = if x.var.is_empty() {
-                        None
-                    } else {
-                        x.var_names().ok()
-                    };
-                    names2 == names
-                }) { return Err(anyhow!("var names mismatch")); }
-            }
+                    x.var_names().ok()
+                }
+            ).all_equal() { return Err(anyhow!("var names mismatch")); }
         }
 
         let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
@@ -444,7 +406,7 @@ impl StackedAnnData {
             Some(i) => self.accum.lock().normalize_indices(i),
             None => HashMap::new(),
         };
-        self.anndatas.par_iter().enumerate().map(|(i, (k, data))| {
+        self.anndatas.iter().enumerate().map(|(i, (k, data))| {
             let file = dir.as_ref().join(k.to_string() + ".h5ad");
             match obs_idx_.get(&i) {
                 None => data.write_subset(Some(&[]), var_idx, file.clone()),
@@ -469,7 +431,7 @@ impl StackedAnnData {
         if let Some(j) = var_idx {
             *self.n_vars.lock() = j.len();
         }
-        self.anndatas.par_values().enumerate().for_each(|(i, data)|
+        self.anndatas.values().enumerate().for_each(|(i, data)|
             match obs_idx_.get(&i) {
                 None => data.subset(Some(&[]), var_idx),
                 Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
@@ -662,7 +624,7 @@ impl AnnDataSet {
         let filenames = df.column("file_path").unwrap().utf8()
             .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
-        let anndatas = keys.into_par_iter().zip(filenames).map(|(k, v)| {
+        let anndatas = keys.into_iter().zip(filenames).map(|(k, v)| {
                 let f = adata_files.get(k).map_or(v, |x| *x);
                 Ok((k.to_string(), AnnData::read(File::open(f)?)?))
             }).collect::<Result<Vec<_>>>()?;
