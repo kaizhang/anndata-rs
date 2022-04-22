@@ -501,21 +501,31 @@ pub fn read_csv(
 ///     File name of the output file containing the AnnDataSet object.
 /// add_key
 ///     The column name in obs to store the keys
-#[pyfunction(add_key= "\"batch\"")]
+#[pyfunction(add_key= "\"sample\"")]
 #[pyo3(text_signature = "(files, storage)")]
-pub fn create_dataset(files: Vec<(String, &str)>, storage: &str, add_key: &str) -> AnnDataSet {
-    let adatas = files.into_iter().map(|(key, file)|
-        ( key, read(file, "r").unwrap().0.inner().clone() )
-    ).collect();
-    AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage, add_key).unwrap())
+pub fn create_dataset<'py>(
+    files: Vec<(String, &'py PyAny)>,
+    storage: &str,
+    add_key: &str
+) -> PyResult<AnnDataSet> {
+    let adatas = files.into_iter().map(|(key, obj)| {
+        let data = if obj.is_instance_of::<pyo3::types::PyString>()? {
+            read(obj.extract::<&str>()?, "r").unwrap()
+        } else if obj.is_instance_of::<AnnData>()? {
+            obj.extract::<AnnData>()?
+        } else {
+            todo!()
+        }.0.inner().clone();
+        Ok((key, data))
+    }).collect::<PyResult<_>>()?;
+    Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage, add_key).unwrap()))
 }
 
-
 #[pyfunction(anndatas = "None", mode = "\"r+\"", no_check = "false")]
-#[pyo3(text_signature = "(filename, data_files, mode, no_check)")]
+#[pyo3(text_signature = "(filename, update_data_locations, mode, no_check)")]
 pub fn read_dataset(
     filename: &str,
-    data_files: Option<HashMap<&str, &str>>,
+    update_data_locations: Option<HashMap<String, String>>,
     mode: &str,
     no_check: bool,
 ) -> AnnDataSet {
@@ -524,5 +534,6 @@ pub fn read_dataset(
         "r+" => hdf5::File::open_rw(filename).unwrap(),
         _ => panic!("Unkown mode"),
     };
-    AnnDataSet::wrap(anndata::AnnDataSet::read(file, data_files, !no_check).unwrap())
+    let data = anndata::AnnDataSet::read(file, update_data_locations, !no_check).unwrap();
+    AnnDataSet::wrap(data)
 }

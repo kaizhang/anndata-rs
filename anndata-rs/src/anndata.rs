@@ -615,7 +615,7 @@ impl AnnDataSet {
         { uns }
     );
 
-    pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>, check: bool) -> Result<Self> {
+    pub fn read(file: File, adata_files_: Option<HashMap<String, String>>, check: bool) -> Result<Self> {
         let annotation = AnnData::read(file)?;
         let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
             .read()?.into_any().downcast().unwrap();
@@ -625,14 +625,13 @@ impl AnnDataSet {
             .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
         let anndatas = keys.into_iter().zip(filenames).map(|(k, v)| {
-                let f = adata_files.get(k).map_or(v, |x| *x);
+                let f = adata_files.get(k).map_or(v, |x| &*x);
                 Ok((k.to_string(), AnnData::read(File::open(f)?)?))
-            }).collect::<Result<Vec<_>>>()?;
+            }).collect::<Result<_>>()?;
+        update_anndata_locations(&annotation, adata_files)?;
         Ok(Self {
             annotation,
-            anndatas: Slot::new(StackedAnnData::new(
-                anndatas.into_iter().collect(), check
-            )?),
+            anndatas: Slot::new(StackedAnnData::new(anndatas, check)?),
         })
     }
 
