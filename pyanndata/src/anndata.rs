@@ -511,17 +511,18 @@ pub fn create_dataset(files: Vec<(String, &str)>, storage: &str, add_key: &str) 
 }
 
 
-#[pyfunction(anndatas = "None", mode = "\"r+\"")]
-#[pyo3(text_signature = "(filename, data_files, mode)")]
+#[pyfunction(anndatas = "None", mode = "\"r+\"", no_check = "false")]
+#[pyo3(text_signature = "(filename, data_files, mode, no_check)")]
 pub fn read_dataset(
     filename: &str,
     data_files: Option<HashMap<&str, &str>>,
     mode: &str,
+    no_check: bool,
 ) -> AnnDataSet {
     let file = match mode {
         "r" => hdf5::File::open(filename).unwrap(),
         "r+" => hdf5::File::open_rw(filename).unwrap(),
         _ => panic!("Unkown mode"),
     };
-    AnnDataSet::wrap(anndata::AnnDataSet::read(file, data_files).unwrap())
+    AnnDataSet::wrap(anndata::AnnDataSet::read(file, data_files, !no_check).unwrap())
 }

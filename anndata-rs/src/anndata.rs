@@ -371,12 +371,23 @@ impl std::fmt::Display for StackedAnnData {
 }
 
 impl StackedAnnData {
-    pub fn new(adatas: IndexMap<String, AnnData>) -> Result<Self> {
-        if !adatas.values().map(|x|
-            if x.var.is_empty() { None } else { x.var_names().ok() }
-            ).all_equal()
-        {
-            return Err(anyhow!("var names mismatch"));
+    fn new(adatas: IndexMap<String, AnnData>, check: bool) -> Result<Self> {
+        if check {
+            if let Some((_, v)) = adatas.get_index(0) {
+                let names = if v.var.is_empty() {
+                    None
+                } else {
+                    v.var_names().ok()
+                };
+                if !adatas.par_values().skip(1).all(|x| {
+                    let names2 = if x.var.is_empty() {
+                        None
+                    } else {
+                        x.var_names().ok()
+                    };
+                    names2 == names
+                }) { return Err(anyhow!("var names mismatch")); }
+            }
         }
 
         let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
@@ -608,7 +619,7 @@ impl AnnDataSet {
                 ]).unwrap()))?;
             }
         }
-        let stacked = StackedAnnData::new(anndatas)?;
+        let stacked = StackedAnnData::new(anndatas, true)?;
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
@@ -642,7 +653,7 @@ impl AnnDataSet {
         { uns }
     );
 
-    pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>) -> Result<Self> {
+    pub fn read(file: File, adata_files_: Option<HashMap<&str, &str>>, check: bool) -> Result<Self> {
         let annotation = AnnData::read(file)?;
         let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
             .read()?.into_any().downcast().unwrap();
@@ -658,7 +669,7 @@ impl AnnDataSet {
         Ok(Self {
             annotation,
             anndatas: Slot::new(StackedAnnData::new(
-                anndatas.into_iter().collect()
+                anndatas.into_iter().collect(), check
             )?),
         })
     }
@@ -717,7 +728,7 @@ impl AnnDataSet {
     {
         let file = dir.as_ref().join("_dataset.h5ads");
         self.write_subset(obs_idx, var_idx, dir)?;
-        AnnDataSet::read(File::open_rw(file)?, None)
+        AnnDataSet::read(File::open_rw(file)?, None, false)
     }
 
     /// Copy and save the AnnDataSet to a new directory.

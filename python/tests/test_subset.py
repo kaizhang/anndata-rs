@@ -1,4 +1,3 @@
-from sklearn.utils import shuffle
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
 import pytest
