@@ -1,10 +1,10 @@
 use crate::{
-    anndata_trait::data::{DataContainer, ReadData},
+    anndata_trait::data::{DataContainer, ReadData, WriteData},
     utils::hdf5::read_str_attr,
 };
 
 use ndarray::{Axis, ArrayD};
-use hdf5::H5Type;
+use hdf5::{Result, Group, H5Type};
 use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
 use polars::frame::DataFrame;
@@ -74,36 +74,70 @@ where
 }
 
 
-pub trait MatrixIO: MatrixLike {
+pub trait MatrixIO: MatrixLike + ReadData + WriteData {
     fn get_nrows(container: &DataContainer) -> usize where Self: Sized;
     fn get_ncols(container: &DataContainer) -> usize where Self: Sized;
 
     fn read_rows(container: &DataContainer, idx: &[usize]) -> Self
-    where Self: Sized + ReadData,
+    where Self: Sized,
     {
-        let x: Self = ReadData::read(container).unwrap();
-        x.get_rows(idx)
+        Self::read(container).unwrap().get_rows(idx)
     }
 
     fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Self
-    where Self: Sized + ReadData,
+    where Self: Sized,
     {
         let idx: Vec<usize> = slice.collect();
         Self::read_rows(container, idx.as_slice())
     }
 
     fn read_columns(container: &DataContainer, idx: &[usize]) -> Self
-    where Self: Sized + ReadData,
+    where Self: Sized,
     {
-        let x: Self = ReadData::read(container).unwrap();
-        x.get_columns(idx)
+        Self::read(container).unwrap().get_columns(idx)
     }
 
     fn read_partial(container: &DataContainer, ridx: &[usize], cidx: &[usize]) -> Self
-    where Self: Sized + ReadData,
+    where Self: Sized,
     {
-        let x: Self = Self::read_rows(container, ridx);
-        x.get_columns(cidx)
+        Self::read(container).unwrap().subset(ridx, cidx)
+    }
+
+    fn write_rows(
+        &self,
+        idx: &[usize],
+        location: &Group,
+        name: &str
+    ) -> Result<DataContainer>
+    where
+        Self: Sized,
+    {
+        WriteData::write(&self.get_rows(idx), location, name)
+    }
+
+    fn write_columns(
+        &self,
+        idx: &[usize],
+        location: &Group,
+        name: &str
+    ) -> Result<DataContainer>
+    where
+        Self: Sized,
+    {
+        WriteData::write(&self.get_columns(idx), location, name)
+    }
+
+    fn write_partial(
+        &self,
+        ridx: &[usize],
+        cidx: &[usize],
+        location: &Group,
+        name: &str
+    ) -> Result<DataContainer>
+    where
+        Self: Sized,
+    {
+        WriteData::write(&self.subset(ridx, cidx), location, name)
     }
 }
 

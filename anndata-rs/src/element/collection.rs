@@ -184,6 +184,21 @@ impl AxisArrays {
         }
         Ok(())
     }
+
+    pub fn write_subset(&self, idx: &[usize], location: &Group) -> Result<()> {
+        match self.axis {
+            Axis::Row => {
+                self.data.iter().for_each(|(k, x)| x.inner().write_rows(idx, location, k).unwrap());
+            },
+            Axis::Column => {
+                self.data.iter().for_each(|(k, x)| x.inner().write_columns(idx, location, k).unwrap());
+            },
+            Axis::Both => {
+                self.data.iter().for_each(|(k, x)| x.inner().write_partial(idx, idx, location, k).unwrap());
+            },
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

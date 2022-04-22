@@ -21,8 +21,8 @@ dyn_clone::clone_trait_object!(DataIO);
 
 impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
 
-pub trait DataPartialIO: DataIO + MatrixIO {}
-impl<T> DataPartialIO for T where T: DataIO + MatrixIO {}
+pub trait DataPartialIO: MatrixIO + DataIO {}
+impl<T> DataPartialIO for T where T: MatrixIO + DataIO {}
 
 pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
     let dtype = container.get_encoding_type()?;

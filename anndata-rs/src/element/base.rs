@@ -184,6 +184,21 @@ where
         self.inner.write(location, name)
     }
 
+    pub fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_rows(idx).write(location, name)?;
+        Ok(())
+    }
+
+    pub fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_columns(idx).write(location, name)?;
+        Ok(())
+    }
+
+    pub fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_partial(ridx, cidx).write(location, name)?;
+        Ok(())
+    }
+
     pub fn subset_rows(&mut self, idx: &[usize]) -> Result<()> {
         for i in idx {
             if *i >= self.nrows {
@@ -299,6 +314,21 @@ impl RawMatrixElem<dyn DataPartialIO>
             None => read_dyn_data_subset(&self.inner.container, None, None)?
                 .write(location, name)?,
         };
+        Ok(())
+    }
+
+    pub fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_rows(idx)?.write(location, name)?;
+        Ok(())
+    }
+
+    pub fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_columns(idx)?.write(location, name)?;
+        Ok(())
+    }
+
+    pub fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<()> {
+        self.read_partial(ridx, cidx)?.write(location, name)?;
         Ok(())
     }
 

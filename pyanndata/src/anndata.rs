@@ -215,21 +215,37 @@ impl AnnData {
         py: Python<'py>,
         obs_indices: Option<&'py PyAny>,
         var_indices: Option<&'py PyAny>,
-    ) -> PyResult<()> {
+        out: Option<&str>,
+    ) -> PyResult<Option<AnnData>> {
         let n_obs = self.n_obs();
         let n_vars = self.n_vars();
         
         let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
         let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
-        self.0.inner().subset(
-            i.as_ref().map(Vec::as_slice),
-            j.as_ref().map(Vec::as_slice),
-        );
-        Ok(())
+        Ok(match out {
+            None => {
+                self.0.inner().subset(
+                    i.as_ref().map(Vec::as_slice),
+                    j.as_ref().map(Vec::as_slice),
+                );
+                None
+            },
+            Some(file) => Some(AnnData::wrap(
+                self.0.inner().copy_subset(
+                    i.as_ref().map(Vec::as_slice),
+                    j.as_ref().map(Vec::as_slice),
+                    file,
+                ).unwrap()
+            )),
+        })
     }
             
     #[getter]
     fn filename(&self) -> String { self.0.inner().filename() }
+
+    fn copy(&self, filename: &str) -> Self {
+        AnnData::wrap(self.0.inner().copy(filename).unwrap())
+    }
 
     fn write(&self, filename: &str) {
         self.0.inner().write(filename).unwrap();
@@ -351,22 +367,38 @@ impl AnnDataSet {
         py: Python<'py>,
         obs_indices: Option<&'py PyAny>,
         var_indices: Option<&'py PyAny>,
-    ) -> PyResult<()> {
+        out: Option<&str>,
+    ) -> PyResult<Option<AnnDataSet>> {
         let n_obs = self.n_obs();
         let n_vars = self.n_vars();
         
         let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
         let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
-        self.0.inner().subset(
-            i.as_ref().map(Vec::as_slice),
-            j.as_ref().map(Vec::as_slice),
-        );
-        Ok(())
+        Ok(match out {
+            None => {
+                self.0.inner().subset(
+                    i.as_ref().map(Vec::as_slice),
+                    j.as_ref().map(Vec::as_slice),
+                );
+                None
+            },
+            Some(dir) => Some(AnnDataSet::wrap(
+                self.0.inner().copy_subset(
+                    i.as_ref().map(Vec::as_slice),
+                    j.as_ref().map(Vec::as_slice),
+                    dir,
+                ).unwrap()
+            )),
+        })
     }
  
     #[getter(adatas)]
     fn adatas(&self) -> StackedAnnData {
         StackedAnnData(self.0.inner().anndatas.clone())
+    }
+
+    fn copy(&self, filename: &str) -> Self {
+        AnnDataSet::wrap(self.0.inner().copy(filename).unwrap())
     }
 
     fn close(&self) {

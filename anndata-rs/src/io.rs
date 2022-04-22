@@ -13,9 +13,10 @@ use std::{path::PathBuf, sync::Arc};
 use polars::{
     frame::DataFrame, series::Series, prelude::NamedFrom, prelude::SerReader,
 };
+use std::path::Path;
 
 impl AnnData {
-    pub fn write(&self, filename: &str) -> Result<()>
+    pub fn write<P: AsRef<Path>>(&self, filename: P) -> Result<()>
     {
         let file = File::create(filename)?;
 
@@ -27,10 +28,67 @@ impl AnnData {
         self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
         self.get_varp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
         self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+        file.close()?;
         Ok(())
     }
 
-    pub fn copy(&self, filename: &str) -> Result<()> { self.write(filename) }
+    pub fn write_subset<P: AsRef<Path>>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        filename: P,
+    ) -> Result<()>
+    {
+        if obs_idx.is_none() && var_idx.is_none() {
+            self.write(filename)?;
+        } else {
+            let file = File::create(filename)?;
+            match (obs_idx, var_idx) {
+                (Some(i), Some(j)) => {
+                    self.x.inner().0.as_mut().map(|x| x.write_partial(i, j, &file, "X"));
+                },
+                (Some(i), None) => {
+                    self.x.inner().0.as_mut().map(|x| x.write_rows(i, &file, "X"));
+                },
+                (None, Some(j)) => {
+                    self.x.inner().0.as_mut().map(|x| x.write_columns(j, &file, "X"));
+                },
+                _ => todo!(),
+            }
+        
+            if let Some(i) = obs_idx {
+                self.obs.inner().0.as_mut().map(|x| x.write_rows(i, &file, "obs"));
+                self.obsm.inner().0.as_mut().map(|x| x.write_subset(i, &file.create_group("obsm")?));
+                self.obsp.inner().0.as_mut().map(|x| x.write_subset(i, &file.create_group("obsp")?));
+            }
+
+            if let Some(j) = var_idx {
+                self.var.inner().0.as_mut().map(|x| x.write_rows(j, &file, "var"));
+                self.varm.inner().0.as_mut().map(|x| x.write_subset(j, &file.create_group("varm")?));
+                self.varp.inner().0.as_mut().map(|x| x.write_subset(j, &file.create_group("varp")?));
+            }
+
+            self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+            file.close()?;
+        }
+        Ok(())
+    }
+
+    pub fn copy<P: AsRef<Path>>(&self, filename: P) -> Result<Self> {
+        self.write(filename.as_ref().clone())?;
+        Self::read(File::open_rw(filename)?)
+    }
+
+    pub fn copy_subset<P: AsRef<Path>>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        filename: P,
+    ) -> Result<Self>
+    {
+        self.write_subset(obs_idx, var_idx, filename.as_ref().clone())?;
+        Self::read(File::open_rw(filename)?)
+    }
 
     pub fn read(file: File) -> Result<Self>
     {

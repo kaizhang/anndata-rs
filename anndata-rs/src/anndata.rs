@@ -14,7 +14,10 @@ use std::ops::Deref;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
-use rayon::iter::{ParallelIterator, IntoParallelIterator, IndexedParallelIterator};
+use rayon::iter::{
+    ParallelIterator, IntoParallelIterator, IndexedParallelIterator,
+    IntoParallelRefIterator,
+};
 
 #[derive(Clone)]
 pub struct AnnData {
@@ -417,6 +420,29 @@ impl StackedAnnData {
         self.anndatas.iter()
     }
 
+    fn write_subset<P>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        dir: P,
+    ) -> HashMap<String, String>
+    where
+        P: AsRef<Path> + std::marker::Sync,
+    {
+        let obs_idx_ = match obs_idx {
+            Some(i) => self.accum.lock().normalize_indices(i),
+            None => HashMap::new(),
+        };
+        self.anndatas.par_iter().enumerate().map(|(i, (k, data))| {
+            let file = dir.as_ref().join(k.to_string() + ".h5ad");
+            match obs_idx_.get(&i) {
+                None => data.write_subset(Some(&[]), var_idx, file.clone()),
+                Some(idx) => data.write_subset(Some(idx.as_slice()), var_idx, file.clone()),
+            }.unwrap();
+            (k.clone(), file.to_str().unwrap().to_string())
+        }).collect()
+    }
+
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
     pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
@@ -509,6 +535,27 @@ macro_rules! def_accessor {
             )*
         }
     }
+}
+
+
+fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String>) -> Result<()> {
+    let df: Box<DataFrame> = {
+        ann.get_uns().inner().get_mut("AnnDataSet").unwrap().read()?
+            .into_any().downcast().unwrap()
+    };
+    let keys = df.column("keys").unwrap();
+    let filenames = df.column("file_path").unwrap().utf8()
+        .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
+    let new_files: Vec<_> = keys.utf8().unwrap().into_iter().zip(filenames)
+        .map(|(k, v)| new_locations.get(k.unwrap()).map_or(
+            v.to_string(), |x| x.clone()
+        )).collect();
+    let data: Box<dyn DataIO> = Box::new(DataFrame::new(vec![
+        keys.clone(),
+        Series::new("file_path", new_files),
+    ]).unwrap());
+    ann.get_uns().inner().add_data("AnnDataSet", &data)?;
+    Ok(())
 }
 
 impl AnnDataSet {
@@ -632,9 +679,52 @@ impl AnnDataSet {
         }
     }
 
-    /// Copy and save the AnnDataSet to a new directory. This will copy all children AnnData files.
+    pub fn write_subset<P: AsRef<Path>>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        dir: P,
+    ) -> Result<()>
+    {
+        let file = dir.as_ref().join("_dataset.h5ads");
+        let anndata_dir = dir.as_ref().join("anndatas");
+        std::fs::create_dir_all(anndata_dir.clone())?;
+        match self.anndatas.inner().0.deref() {
+            None => self.annotation.write_subset(obs_idx, var_idx, file)?,
+            Some(ann) => {
+                let obs_idx_ = obs_idx.map(|x|
+                    ann.accum.lock().sort_index_to_buckets(x)
+                );
+                let i = obs_idx_.as_ref().map(|x| x.as_slice());
+
+                let filenames = ann.write_subset(i, var_idx, anndata_dir);
+                let adata = self.annotation.copy_subset(i, var_idx, file)?;
+                update_anndata_locations(&adata, filenames)?;
+                adata.close()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Copy and save the AnnDataSet to a new directory.
+    /// This will copy all children AnnData files.
+    pub fn copy_subset<P: AsRef<Path>>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        dir: P
+    ) -> Result<Self>
+    {
+        let file = dir.as_ref().join("_dataset.h5ads");
+        self.write_subset(obs_idx, var_idx, dir)?;
+        AnnDataSet::read(File::open_rw(file)?, None)
+    }
+
+    /// Copy and save the AnnDataSet to a new directory.
+    /// This will copy all children AnnData files.
     pub fn copy<P: AsRef<Path>>(&self, dir: P) -> Result<Self> {
-        std::fs::create_dir_all(dir)?;
+        let anndata_dir = dir.as_ref().join("anndatas");
+        std::fs::create_dir_all(anndata_dir)?;
         todo!()
     }
 
