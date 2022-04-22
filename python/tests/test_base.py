@@ -20,7 +20,6 @@ def h5ad(dir=Path("./")):
     unsigned_integer_dtypes(endianness = '='),
     array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
-@example(x=np.array([], dtype=np.int8))
 @settings(suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_assign_arrays(x, tmp_path):
     adata = AnnData(filename = h5ad(tmp_path))
@@ -115,3 +114,29 @@ def test_type(tmp_path):
     }
     adata.uns["dict"] = x
     assert adata.uns["dict"] == x
+
+@given(
+    x1 = arrays(np.int64, (15, 179)),
+    x2 = arrays(np.int64, (47, 179)),
+    x3 = arrays(np.int64, (77, 179)),
+)
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_create_anndataset(x1, x2, x3, tmp_path):
+    # dense array
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    merged = np.concatenate([x1, x2, x3], axis=0)
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+    np.testing.assert_array_equal(merged, dataset.X[:])
+
+    # sparse array
+    adata1 = AnnData(X=csr_matrix(x1), filename=h5ad(tmp_path))
+    adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path))
+    adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path))
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+    np.testing.assert_array_equal(merged, dataset.X[:].todense())

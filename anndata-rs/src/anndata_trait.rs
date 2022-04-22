@@ -189,11 +189,13 @@ pub(crate) fn rstack(mats: Vec<Box<dyn DataPartialIO>>) -> Result<Box<dyn DataPa
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
             ty,
-            rstack_arr(
-                mats.into_iter().map(|x| x.into_any().downcast().unwrap())
-            ),
-            _box,
-            ArrayD
+            rstack_arr(mats.into_iter().map(|x| x.into_any().downcast().unwrap())),
+            _box, ArrayD
+        ),
+        DataType::CsrMatrix(ty) => proc_numeric_data!(
+            ty,
+            rstack_csr(mats.into_iter().map(|x| x.into_any().downcast().unwrap())),
+            _box, CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),
     }
@@ -210,22 +212,28 @@ where
     }).unwrap()
 }
 
-/*
-fn rstack_csr<I, T>(mats: I, n_rows: usize, n_cols: usize) -> CsrMatrix<T>
+fn rstack_csr<I, T>(mats: I) -> CsrMatrix<T>
 where
     I: Iterator<Item = Box<CsrMatrix<T>>>,
     T: Clone,
 {
+
+    let mut num_rows = 0;
+    let mut num_cols = 0;
+
     let mut values = Vec::new();
     let mut col_indices = Vec::new();
     let mut row_offsets = Vec::new();
-    let nnz = mats.map(|x| x.row_iter()).flatten().fold(0, |acc, x| {
-        row_offsets.push(acc);
-        values.extend_from_slice(x.values());
-        col_indices.extend_from_slice(x.col_indices());
-        acc + x.nnz()
+    let nnz = mats.fold(0, |acc, mat| {
+        num_rows += mat.nrows();
+        num_cols = mat.ncols();
+        mat.row_iter().fold(acc, |cidx, row| {
+            row_offsets.push(cidx);
+            values.extend_from_slice(row.values());
+            col_indices.extend_from_slice(row.col_indices());
+            cidx + row.nnz()
+        })
     });
     row_offsets.push(nnz);
-    CsrMatrix::try_from_csr_data(n_rows, n_cols, row_offsets, col_indices, values).unwrap()
+    CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
 }
-*/
