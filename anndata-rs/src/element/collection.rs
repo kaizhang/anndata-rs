@@ -95,14 +95,14 @@ macro_rules! check_dims {
             } else if $size == 0 {
                 Some($data.ncols())
             } else {
-                panic!("inconsistent size: {}, {}", $data.ncols(), $size);
+                panic!("inconsistent size, found: {}, expecting: {}", $data.ncols(), $size);
             },
             Axis::Row => if $data.nrows() == $size {
                 None
             } else if $size == 0 {
                 Some($data.nrows())
             } else {
-                panic!("inconsistent size: {}, {}", $data.nrows(), $size);
+                panic!("inconsistent size, found: {}, expecting: {}", $data.nrows(), $size);
             },
             Axis::Both => if $data.nrows() != $data.ncols() {
                 panic!("not a square matrix: nrow = {}, ncol = {}", $data.nrows(), $data.ncols());
@@ -111,7 +111,7 @@ macro_rules! check_dims {
             } else if $size == 0 {
                 Some($data.ncols())
             } else {
-                panic!("inconsistent size: {}, {}", $data.nrows(), $size);
+                panic!("inconsistent size, found: {}, expecting: {}", $data.nrows(), $size);
             }
         }
     }

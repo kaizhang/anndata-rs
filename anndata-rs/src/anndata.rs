@@ -448,7 +448,6 @@ pub struct AnnDataSet {
 
 impl std::fmt::Display for AnnDataSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let adatas = self.anndatas.inner();
         write!(
             f,
             "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
@@ -456,13 +455,17 @@ impl std::fmt::Display for AnnDataSet {
             self.n_vars(),
             self.annotation.filename(),
         )?;
-        write!(
-            f,
-            "\ncontains {} AnnData objects with keys: {}",
-            adatas.0.as_ref().map_or(0, |x| x.len()),
-            adatas.0.as_ref().unwrap().keys()
-                .map(|x| x.as_str()).intersperse(", ").collect::<String>(),
-        )?;
+
+        {
+            let adatas = self.anndatas.inner();
+            write!(
+                f,
+                "\ncontains {} AnnData objects with keys: {}",
+                adatas.0.as_ref().map_or(0, |x| x.len()),
+                adatas.0.as_ref().unwrap().keys()
+                    .map(|x| x.as_str()).intersperse(", ").collect::<String>(),
+            )?;
+        }
 
         if !self.annotation.obs.is_empty() {
             write!(f, "\n    obs: {}",
@@ -488,7 +491,7 @@ impl std::fmt::Display for AnnDataSet {
                 )*
             }
         }
-        fmt_item!(obsm, obsp, varm, varp);
+        fmt_item!(obsm, obsp, varm, varp, uns);
 
         Ok(())
     }
@@ -585,9 +588,9 @@ impl AnnDataSet {
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
-    pub fn n_obs(&self) -> usize { self.annotation.n_obs() }
+    pub fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
 
-    pub fn n_vars(&self) -> usize { self.annotation.n_vars() }
+    pub fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
 
     pub fn obs_names(&self) -> Result<Vec<String>> {
         self.annotation.obs_names()
