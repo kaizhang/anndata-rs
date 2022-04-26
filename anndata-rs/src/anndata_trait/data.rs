@@ -21,9 +21,6 @@ use polars::{
 };
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
-pub struct StrVector(Vec<String>);
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scalar<T>(pub T);
 
@@ -69,7 +66,6 @@ pub enum DataType {
     Array(TypeDescriptor),
     Categorical,
     DataFrame,
-    StringVector,
     Scalar(TypeDescriptor),
     String,
     Unknown,
@@ -416,34 +412,6 @@ where
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// StrVector
-////////////////////////////////////////////////////////////////////////////////
-impl WriteData for StrVector
-{
-    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
-    {
-        let vec: Vec<VarLenUnicode> = self.0.iter()
-            .map(|x| x.as_str().parse().unwrap()).collect();
-        let dataset = create_dataset(location, name, vec.as_slice())?;
-
-        create_str_attr(&*dataset, "encoding-type", "string-array")?;
-        create_str_attr(&*dataset, "encoding-version", self.version())?;
-        Ok(DataContainer::H5Dataset(dataset))
-    }
-
-    fn get_dtype(&self) -> DataType { DataType::Array(VarLenUnicode) }
-    fn dtype() -> DataType { DataType::Array(VarLenUnicode) }
-    fn version(&self) -> &str { "0.2.0" }
-}
-
-impl ReadData for StrVector {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        let dataset: &Dataset = container.get_dataset_ref()?;
-        Ok(StrVector(read_str_vec(dataset)?))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // DataFrame
 ////////////////////////////////////////////////////////////////////////////////
 impl WriteData for DataFrame {
@@ -503,6 +471,10 @@ impl WriteData for Series {
                 self.u32().unwrap().to_ndarray().unwrap().write(location, name),
             polars::datatypes::DataType::UInt64 =>
                 self.u64().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Int8 =>
+                self.i8().unwrap().to_ndarray().unwrap().write(location, name),
+            polars::datatypes::DataType::Int16 =>
+                self.i16().unwrap().to_ndarray().unwrap().write(location, name),
             polars::datatypes::DataType::Int32 =>
                 self.i32().unwrap().to_ndarray().unwrap().write(location, name),
             polars::datatypes::DataType::Int64 =>
@@ -542,9 +514,9 @@ impl ReadData for Series {
         }
 
         match container.get_encoding_type()? {
-            DataType::Array(VarLenUnicode) =>
+            DataType::Scalar(VarLenUnicode) | DataType::Array(VarLenUnicode) =>
                 Ok(read_str_vec(container.get_dataset_ref()?)?.into_iter().collect()),
-            DataType::Array(ty) => crate::proc_numeric_data!(
+            DataType::Scalar(ty) | DataType::Array(ty) => crate::proc_numeric_data!(
                 ty,
                 ReadData::read(container)?,
                 _into_series,
