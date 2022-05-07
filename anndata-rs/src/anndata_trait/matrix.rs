@@ -1,17 +1,18 @@
 use crate::{
     anndata_trait::data::{DataContainer, ReadData, WriteData},
-    utils::hdf5::read_str_attr,
+    utils::hdf5::{read_str_attr, read_chunks_1d},
 };
 
 use ndarray::{Axis, ArrayD};
 use hdf5::{Result, Group, H5Type};
-use nalgebra_sparse::{csr::CsrMatrix, SparseEntry};
+use nalgebra_sparse::csr::CsrMatrix;
 use itertools::zip;
 use polars::frame::DataFrame;
 
 pub trait MatrixLike {
-    fn nrows(&self) -> usize;
-    fn ncols(&self) -> usize;
+    fn shape(&self) -> (usize, usize) { (self.nrows(), self.ncols()) }
+    fn nrows(&self) -> usize { self.shape().0 }
+    fn ncols(&self) -> usize { self.shape().1 }
 
     fn get_rows(&self, idx: &[usize]) -> Self where Self: Sized;
     fn get_columns(&self, idx: &[usize]) -> Self where Self: Sized;
@@ -41,9 +42,10 @@ impl<T> MatrixLike for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn nrows(&self) -> usize { self.shape()[0] }
-
-    fn ncols(&self) -> usize { self.shape()[1] }
+    fn shape(&self) -> (usize, usize) {
+        let d = self.shape();
+        (d[0], d[1])
+    }
 
     fn get_rows(&self, idx: &[usize]) -> Self { self.select(Axis(0), idx) }
 
@@ -52,7 +54,7 @@ where
 
 impl<T> MatrixLike for CsrMatrix<T>
 where
-    T: H5Type + Copy + Send + Sync,
+    T: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug
 {
     fn nrows(&self) -> usize { self.nrows() }
 
@@ -62,30 +64,73 @@ where
         create_csr_from_rows(
             idx.iter().map(|r| {
                 let row = self.get_row(*r).unwrap();
-                zip(row.col_indices(), row.values())
-                    .map(|(x, y)| (*x, *y)).collect()
+                zip(
+                    row.col_indices().iter().map(|x| *x).collect::<Vec<_>>(),
+                    row.values().iter().map(|x| *x).collect::<Vec<_>>(),
+                )
             }),
             self.ncols(),
         )
     }
 
     fn get_columns(&self, idx: &[usize]) -> Self {
-        create_csr_from_rows(
-            self.row_iter().map(|r| idx.iter().enumerate().filter_map(|(i, x)|
-                match r.get_entry(*x).unwrap() {
-                    SparseEntry::NonZero(v) => Some((i, *v)),
-                    SparseEntry::Zero => None,
-                }
-            ).collect()),
-            idx.len(),
-        )
+        let (nrow, ncol) = self.shape();
+        let indptr = self.row_offsets();
+        let indices = self.col_indices();
+
+        // bincount(col_idxs)
+        let mut col_offsets = vec![0; ncol];
+        idx.iter().for_each(|i| col_offsets[*i] += 1);
+
+        // Compute new indptr
+        let mut new_indptr = vec![0; nrow+1];
+        let mut new_nnz = 0;
+        (0..nrow).for_each(|r| {
+            (indptr[r]..indptr[r+1]).for_each(|i| new_nnz += col_offsets[indices[i]]);
+            new_indptr[r+1] = new_nnz;
+        });
+
+        // cumsum in-place
+        (1..ncol).for_each(|i| col_offsets[i] += col_offsets[i - 1]);
+
+        let mut col_order: Vec<_> = (0..idx.len()).collect();
+        col_order.sort_by_key(|&i| idx[i]);
+
+        //  populates indices/data entries for selected columns.
+        let mut new_indices = vec![0; new_nnz];
+        let mut new_values: Vec<T> = Vec::with_capacity(new_nnz);
+        let mut n = 0;
+        std::iter::zip(indices, self.values()).for_each(|(&j, v)| {
+            let offset = col_offsets[j];
+            let prev_offset = if j == 0 { 0 } else { col_offsets[j-1] };
+            if offset != prev_offset {
+                (prev_offset..offset).for_each(|k| {
+                    new_indices[n] = col_order[k];
+                    unsafe { new_values.as_mut_ptr().add(n).write(*v); }
+                    n += 1;
+                });
+            }
+        });
+        unsafe { new_values.set_len(new_nnz); }
+
+        CsrMatrix::try_from_unsorted_csr_data(
+            nrow, idx.len(), new_indptr, new_indices, new_values,
+        ).unwrap()
     }
 }
 
-
 pub trait MatrixIO: MatrixLike + ReadData + WriteData {
-    fn get_nrows(container: &DataContainer) -> usize where Self: Sized;
-    fn get_ncols(container: &DataContainer) -> usize where Self: Sized;
+    fn get_shape(container: &DataContainer) -> (usize, usize) where Self: Sized {
+        (Self::get_nrows(container), Self::get_ncols(container))
+    }
+
+    fn get_nrows(container: &DataContainer) -> usize where Self: Sized {
+        Self::get_shape(container).0
+    }
+
+    fn get_ncols(container: &DataContainer) -> usize where Self: Sized {
+        Self::get_shape(container).1
+    }
 
     fn read_rows(container: &DataContainer, idx: &[usize]) -> Self
     where Self: Sized,
@@ -150,6 +195,7 @@ pub trait MatrixIO: MatrixLike + ReadData + WriteData {
     }
 }
 
+
 impl MatrixIO for DataFrame {
     fn get_nrows(container: &DataContainer) -> usize {
         let group = container.get_group_ref().unwrap();
@@ -178,7 +224,7 @@ where
 
 impl<T> MatrixIO for CsrMatrix<T>
 where
-    T: H5Type + Copy + Send + Sync,
+    T: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug
 {
     fn get_nrows(container: &DataContainer) -> usize {
         container.get_group_ref().unwrap().attr("shape").unwrap()
@@ -189,6 +235,30 @@ where
         container.get_group_ref().unwrap().attr("shape").unwrap()
             .read_1d().unwrap().to_vec()[1]
     }
+
+    /* Slow
+    fn read_rows(container: &DataContainer, idx: &[usize]) -> Self
+    where Self: Sized,
+    {
+        let group = container.get_group_ref().unwrap();
+        let indptr: Vec<usize> = group.dataset("indptr").unwrap()
+            .read_1d().unwrap().to_vec();
+        let data_ = group.dataset("data").unwrap();
+        let indices_ = group.dataset("indices").unwrap();
+
+        create_csr_from_rows(
+            idx.iter().map(|i| {
+                let lo = indptr[*i];
+                let hi = indptr[*i+1];
+                zip(
+                    indices_.read_slice_1d(lo..hi).unwrap(),
+                    data_.read_slice_1d(lo..hi).unwrap(),
+                )
+            }),
+            Self::get_ncols(container),
+        )
+    }
+    */
 
     fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Self
     where Self: Sized + ReadData,
@@ -211,11 +281,71 @@ where
             data
         ).unwrap()
     }
+
+    fn read_columns(container: &DataContainer, idx: &[usize]) -> Self
+    where Self: Sized,
+    {
+        let (nrow, ncol) = Self::get_shape(container);
+        if idx.is_empty() {
+            return CsrMatrix::try_from_csr_data(
+                nrow, 0, vec![0; nrow + 1], Vec::new(), Vec::new()
+            ).unwrap()
+        }
+        let group = container.get_group_ref().unwrap();
+        let indptr: Vec<usize> = group.dataset("indptr").unwrap()
+            .read_1d().unwrap().to_vec();
+        let indices: Vec<usize> = group.dataset("indices").unwrap()
+            .read_1d().unwrap().to_vec();
+
+        // bincount(col_idxs)
+        let mut col_offsets = vec![0; ncol];
+        idx.iter().for_each(|i| col_offsets[*i] += 1);
+
+        // Compute new indptr
+        let mut new_indptr = vec![0; nrow+1];
+        let mut new_nnz = 0;
+
+        (0..nrow).for_each(|r| {
+            (indptr[r]..indptr[r+1]).for_each(|i| new_nnz += col_offsets[indices[i]]);
+            new_indptr[r+1] = new_nnz;
+        });
+
+
+        // cumsum in-place
+        (1..ncol).for_each(|i| col_offsets[i] += col_offsets[i - 1]);
+
+        let mut col_order: Vec<_> = (0..idx.len()).collect();
+        col_order.sort_by_key(|&i| idx[i]);
+
+        //  populates indices/data entries for selected columns.
+        let mut new_indices = vec![0; new_nnz];
+        let mut new_values: Vec<T> = Vec::with_capacity(new_nnz);
+        let mut n = 0;
+        let values = group.dataset("data").unwrap();
+        indices.into_iter().zip(read_chunks_1d(&values).flatten()).for_each(|(j, v): (usize, T)| {
+            let offset = col_offsets[j];
+            let prev_offset = if j == 0 { 0 } else { col_offsets[j-1] };
+            if offset != prev_offset {
+                (prev_offset..offset).for_each(|k| {
+                    new_indices[n] = col_order[k];
+                    unsafe { new_values.as_mut_ptr().add(n).write(v); }
+                    n += 1;
+                });
+            }
+        });
+        unsafe { new_values.set_len(new_nnz); }
+
+        CsrMatrix::try_from_unsorted_csr_data(
+            nrow, idx.len(), new_indptr, new_indices, new_values,
+        ).unwrap()
+    }
 }
 
-pub(crate) fn create_csr_from_rows<I, T>(iter: I, num_col: usize) -> CsrMatrix<T>
+#[inline]
+pub(crate) fn create_csr_from_rows<I, T, R>(iter: I, num_col: usize) -> CsrMatrix<T>
 where
-    I: Iterator<Item = Vec<(usize, T)>>,
+    I: Iterator<Item = R>,
+    R: IntoIterator<Item = (usize, T)>,
 {
     let mut data: Vec<T> = Vec::new();
     let mut indices: Vec<usize> = Vec::new();
@@ -223,20 +353,43 @@ where
 
     let n = iter.fold(0, |r_idx, row| {
         indptr.push(r_idx);
-        let new_idx = r_idx + row.len();
-        let (mut a, mut b) = row.into_iter().unzip();
+        let (mut a, mut b): (Vec<_>, Vec<_>) = row.into_iter().unzip();
+        let new_index = r_idx + a.len();
         indices.append(&mut a);
         data.append(&mut b);
-        new_idx
+        new_index
     });
     indptr.push(n);
     CsrMatrix::try_from_csr_data(indptr.len() - 1, num_col, indptr, indices, data).unwrap()
 }
 
 #[cfg(test)]
-mod dataframe_test {
+mod matrix_tests {
     use super::*;
     use polars::prelude::*;
+    use quickcheck_macros::quickcheck;
+    use rand::Rng;
+    use hdf5::*;
+    use tempfile::tempdir;
+    use std::path::PathBuf;
+    use nalgebra_sparse::CooMatrix;
+
+    pub fn with_tmp_dir<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        func(path)
+    }
+
+    fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        with_tmp_dir(|dir| func(dir.join("foo.h5")))
+    }
+
+    fn with_tmp_file<T, F: Fn(File) -> T>(func: F) -> T {
+        with_tmp_path(|path| {
+            let file = File::create(&path).unwrap();
+            func(file)
+        })
+    }
 
     #[test]
     fn test_df() {
@@ -247,4 +400,42 @@ mod dataframe_test {
 
         println!("{:?}", df.get_rows(&[]));
     }
+
+    #[test]
+    fn test_csr() {
+        let mut rng = rand::thread_rng();
+        let n: usize = 1000;
+        let m: usize = 1000;
+        let mat: CsrMatrix<i64> = {
+            let nnz: usize = 10000;
+            let values: Vec<i64> = vec![1; nnz];
+            let (row_indices, col_indices) = (0..nnz).map(|_| (rng.gen_range(0..n), rng.gen_range(0..m) )).unzip();
+            (&CooMatrix::try_from_triplets(n, m, row_indices, col_indices, values).unwrap()).into()
+        };
+
+        let data = with_tmp_file(|file| {
+            let g = file.create_group("foo").unwrap();
+            mat.write(&g, "x").unwrap()
+        });
+
+        let ridx: Vec<usize> = (0..100).map(|_| rng.gen_range(0..n)).collect();
+        assert_eq!(
+            mat.get_rows(ridx.as_slice()),
+            CsrMatrix::read_rows(&data, ridx.as_slice()),
+        );
+
+        let cidx: Vec<usize> = (0..100).map(|_| rng.gen_range(0..m)).collect();
+        assert_eq!(
+            mat.get_columns(cidx.as_slice()),
+            CsrMatrix::read_columns(&data, cidx.as_slice()),
+        );
+    }
+
+
+    /*
+    #[quickcheck]
+    fn double_reversal_is_identity(xs: Array2<i64>) -> bool {
+        xs == xs
+    }
+    */
 }

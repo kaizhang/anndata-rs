@@ -24,7 +24,7 @@ def h5ad(dir=Path("./")):
     obsm = arrays(integer_dtypes(endianness='='), (47, 139)),
     obs = st.lists(st.integers(min_value=0, max_value=100000), min_size=47, max_size=47),
 )
-@settings(suppress_health_check = [HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_copy_anndata(x, obsm, obs, tmp_path):
     csr = csr_matrix(obsm)
     adata = AnnData(

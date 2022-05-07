@@ -20,8 +20,14 @@ where
     D: Dimension, 
 {
     let arr = data.into();
+    let shape = arr.shape();
+    let chunk_size = if shape.len() == 1 {
+        vec![shape[0].min(100000)]
+    } else {
+        shape.iter().map(|&x| x.min(100)).collect()
+    };
     if arr.len() > 100 {
-        location.new_dataset_builder().deflate(COMPRESSION)
+        location.new_dataset_builder().deflate(COMPRESSION).chunk(chunk_size)
             .with_data(arr).create(name)
     } else {
         location.new_dataset_builder().with_data(arr).create(name)
@@ -124,4 +130,38 @@ impl<T: H5Type> ResizableVectorData<T> {
 pub fn read_str_vec(dataset: &Dataset) -> Result<Vec<String>> {
     let arr: Array1<VarLenUnicode> = dataset.read()?;
     Ok(arr.into_raw_vec().into_iter().map(|x| x.as_str().to_string()).collect())
+}
+
+pub struct Chunks<'a, T> {
+    data: &'a Dataset,
+    chunk_size: usize,
+    position: usize,
+    length: usize,
+    phantom: PhantomData<T>,
+}
+
+impl<'a, T: hdf5::H5Type> Iterator for Chunks<'a, T> {
+    type Item = Array1<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position >= self.length {
+            None
+        } else {
+            let i = self.position;
+            let j = (i + self.chunk_size).min(self.length);
+            self.position = j;
+            Some(self.data.read_slice_1d(i..j).unwrap())
+        }
+    }
+}
+
+pub fn read_chunks_1d<T>(dataset: &Dataset) -> Chunks<'_, T> {
+    assert!(dataset.ndim() <= 1);
+    let length = dataset.size();
+    Chunks {
+        data: dataset,
+        chunk_size: dataset.chunk().map_or(length, |x| x[0]),
+        position: 0,
+        length,
+        phantom: PhantomData,
+    }
 }

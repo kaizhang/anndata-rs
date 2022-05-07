@@ -86,9 +86,17 @@ macro_rules! def_arr_accessor {
     }
 }
 
-/// Wrap the inner AnnData by Mutex so that we can close and
-/// drop it in Python.
+/// An annotated data matrix. 
+/// `AnnData` stores a data matrix `X` together with annotations of
+/// observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
+/// and unstructured annotations `uns`.
+/// `AnnData` is stored as a HDF5 file. Opening/creating an AnnData object 
+/// does not read data from the HDF5 file. Data is copied to memory only when
+/// individual element is requested (or when cache is turned on).
 #[pyclass]
+#[pyo3(text_signature =
+    "(*, filename, X, n_obs, n_vars, obs, var, obsm, obsp, varm, varp, uns)"
+)]
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct AnnData(pub Slot<anndata::AnnData>);
@@ -157,31 +165,37 @@ impl AnnData {
         Ok(anndata)
     }
 
+    /// Shape of data matrix (`n_obs`, `n_vars`).
     #[getter]
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
+    /// Number of observations.
     #[getter]
     fn n_obs(&self) -> usize { self.0.inner().n_obs() }
 
     #[setter(n_obs)]
     fn set_n_obs(&self, n: usize) { self.0.inner().set_n_obs(n) }
 
+    /// Number of variables/features.
     #[getter]
     fn n_vars(&self) -> usize { self.0.inner().n_vars() }
 
     #[setter(n_vars)]
     fn set_n_vars(&self, n: usize) { self.0.inner().set_n_vars(n) }
 
+    /// Names of variables.
     #[getter]
     fn var_names(&self) -> Vec<String> {
         self.0.inner().var_names().unwrap()
     }
 
+    /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> {
         self.0.inner().obs_names().unwrap()
     }
 
+    /// Data matrix of shape n_obs x n_vars.
     #[getter(X)]
     fn get_x(&self) -> PyMatrixElem {
         PyMatrixElem(self.0.inner().get_x().clone())
@@ -210,6 +224,19 @@ impl AnnData {
         Ok(())
     }
 
+    /// Subsetting the AnnData object.
+    /// 
+    /// Parameters
+    /// ----------
+    ///
+    /// obs_indices
+    ///     obs indices
+    /// var_indices
+    ///     var indices
+    /// out
+    ///     File name of the output `.h5ad` file. If provided, the result will be
+    ///     saved to a new file and the original AnnData object remains unchanged.
+    #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     fn subset<'py>(
         &self,
         py: Python<'py>,

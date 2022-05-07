@@ -26,3 +26,11 @@ rayon = "1.5.1"
 
 [dev-dependencies]
 tempfile = "3.2"
+criterion = "0.3"
+quickcheck = "1"
+quickcheck_macros = "1"
+rand = "0.8.5"
+
+[[bench]]
+name = "main"
+harness = false

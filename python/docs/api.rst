@@ -7,14 +7,14 @@ Import anndata_rs as::
 
     import anndata_rs as ad
 
-Data
-----
-
 .. autosummary::
     :toctree: _autosummary
 
     AnnData
-    AnnDataSet
+
+.. autoclass:: AnnDataSet
+    :members:
+    :undoc-members:
 
 IO
 ---
