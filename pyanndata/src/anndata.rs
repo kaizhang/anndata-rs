@@ -23,6 +23,7 @@ macro_rules! def_df_accessor {
             #[pymethods]
             impl $name {
             $(
+                /// :class:`.PyDataFrameElem`.
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> PyDataFrameElem {
                     PyDataFrameElem(self.0.inner().[<get_ $field>]().clone()) 
@@ -61,6 +62,7 @@ macro_rules! def_arr_accessor {
             #[pymethods]
             impl $name {
             $(
+                /// :class:`.PyAxisArrays`.
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> $get_type {
                     $get_type(self.0.inner().[<get_ $field>]().clone())
@@ -195,7 +197,7 @@ impl AnnData {
         self.0.inner().obs_names().unwrap()
     }
 
-    /// Data matrix of shape n_obs x n_vars.
+    /// :class:`.PyMatrixElem` of shape `n_obs` x `n_vars`.
     #[getter(X)]
     fn get_x(&self) -> PyMatrixElem {
         PyMatrixElem(self.0.inner().get_x().clone())
@@ -210,6 +212,7 @@ impl AnnData {
         Ok(())
     }
 
+    /// :class:`.PyElemCollection`.
     #[getter(uns)]
     fn get_uns(&self) -> PyElemCollection {
         PyElemCollection(self.0.inner().get_uns().clone())
@@ -228,7 +231,6 @@ impl AnnData {
     /// 
     /// Parameters
     /// ----------
-    ///
     /// obs_indices
     ///     obs indices
     /// var_indices
@@ -236,6 +238,10 @@ impl AnnData {
     /// out
     ///     File name of the output `.h5ad` file. If provided, the result will be
     ///     saved to a new file and the original AnnData object remains unchanged.
+    /// 
+    /// Returns
+    /// -------
+    /// Optional[AnnData]
     #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     fn subset<'py>(
         &self,
@@ -267,23 +273,49 @@ impl AnnData {
         })
     }
             
+    /// Filename of the underlying .h5ad file.
     #[getter]
     fn filename(&self) -> String { self.0.inner().filename() }
 
+    /// Copy the AnnData object.
+    /// 
+    /// Parameters
+    /// ----------
+    /// filename
+    ///     File name of the output `.h5ad` file. 
+    /// 
+    /// Returns
+    /// -------
+    /// AnnData
+    #[pyo3(text_signature = "($self, filename)")]
     fn copy(&self, filename: &str) -> Self {
         AnnData::wrap(self.0.inner().copy(filename).unwrap())
     }
 
+    /// Write .h5ad-formatted hdf5 file.
+    /// 
+    /// Parameters
+    /// ----------
+    /// filename
+    ///     File name of the output `.h5ad` file. 
+    #[pyo3(text_signature = "($self, filename)")]
     fn write(&self, filename: &str) {
         self.0.inner().write(filename).unwrap();
     }
 
+    /// Close the AnnData object.
+    #[pyo3(text_signature = "($self)")]
     fn close(&self) {
         if let Some(anndata) = self.0.extract() {
             anndata.close().unwrap();
         }
     }
 
+    /// If the AnnData object has been closed.
+    /// Returns
+    /// -------
+    /// bool
+    #[pyo3(text_signature = "($self)")]
     fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
 
     fn __repr__(&self) -> String {
@@ -306,17 +338,20 @@ def_arr_accessor!(
     { obsm, obsp, varm, varp }
 );
 
+/// Lazily concatenated AnnData objects.
 #[pyclass]
 #[repr(transparent)]
 pub struct StackedAnnData(pub Slot<anndata::StackedAnnData>);
 
 #[pymethods]
 impl StackedAnnData {
+    /// :class:`.PyStackedDataFrame`.
     #[getter(obs)]
     fn get_obs(&self) -> PyStackedDataFrame {
         PyStackedDataFrame(self.0.inner().obs.clone())
     }
 
+    /// :class:`.PyStackedAxisArrays`.
     #[getter(obsm)]
     fn get_obsm(&self) -> PyStackedAxisArrays {
         PyStackedAxisArrays(self.0.inner().obsm.clone())
@@ -327,6 +362,21 @@ impl StackedAnnData {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
+/// Similar to `AnnData`, `AnnDataSet` contains annotations of
+/// observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
+/// and unstructured annotations `uns`. Additionally it provides lazy access to 
+/// concatenated component AnnData objects, including `X`, `obs`, `obsm`, `obsp`.
+/// 
+/// Notes
+/// ------
+/// AnnDataSet doesn't copy underlying AnnData objects. It stores the references
+/// to individual anndata files. If you move the anndata files to a new location, 
+/// remember to update the anndata file locations when opening an AnnDataSet object.
+/// 
+/// See Also
+/// --------
+/// create_dataset
+/// read_dataset
 #[pyclass]
 #[repr(transparent)]
 #[derive(Clone)]
@@ -346,30 +396,37 @@ impl AnnDataSet {
         AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename, add_key).unwrap())
     }
 
+    /// Shape of data matrix (`n_obs`, `n_vars`).
     #[getter]
     fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
+    /// Number of observations.
     #[getter]
     fn n_obs(&self) -> usize { self.0.inner().n_obs() }
 
+    /// Number of variables/features.
     #[getter]
     fn n_vars(&self) -> usize { self.0.inner().n_vars() }
 
+    /// Names of variables.
     #[getter]
     fn var_names(&self) -> Vec<String> {
         self.0.inner().var_names().unwrap()
     }
 
+    /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> {
         self.0.inner().obs_names().unwrap()
     }
 
+    /// :class:`.PyStackedMatrixElem` of shape `n_obs` x `n_vars`.
     #[getter(X)]
     fn get_x(&self) -> PyStackedMatrixElem {
         PyStackedMatrixElem(self.0.inner().anndatas.inner().x.clone())
     }
 
+    /// :class:`.PyElemCollection`.
     #[getter(uns)]
     fn get_uns(&self) -> PyElemCollection {
         PyElemCollection(self.0.inner().get_uns().clone())
@@ -389,6 +446,23 @@ impl AnnDataSet {
         Ok(())
     }
 
+    /// Subsetting the AnnDataSet object.
+    /// 
+    /// Parameters
+    /// ----------
+    /// obs_indices
+    ///     obs indices
+    /// var_indices
+    ///     var indices
+    /// out
+    ///     Name of the directory used to store the new files. If provided,
+    ///     the result will be saved to the directory and the original files
+    ///     remains unchanged.
+    /// 
+    /// Returns
+    /// -------
+    /// Optional[AnnDataSet]
+    #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     fn subset<'py>(
         &self,
         py: Python<'py>,
@@ -419,21 +493,43 @@ impl AnnDataSet {
         })
     }
  
+    /// :class:`.StackedAnnData`.
     #[getter(adatas)]
     fn adatas(&self) -> StackedAnnData {
         StackedAnnData(self.0.inner().anndatas.clone())
     }
 
-    fn copy(&self, filename: &str) -> Self {
-        AnnDataSet::wrap(self.0.inner().copy(filename).unwrap())
+    /// Copy the AnnDataSet object to a new location.
+    /// 
+    /// Copying AnnDataSet object will copy both the object itself and assocated
+    /// AnnData objects.
+    /// 
+    /// Parameters
+    /// ----------
+    /// dirname
+    ///     Name of the directory used to store the result.
+    /// 
+    /// Returns
+    /// -------
+    /// AnnDataSet
+    #[pyo3(text_signature = "($self, dirname)")]
+    fn copy(&self, dirname: &str) -> Self {
+        AnnDataSet::wrap(self.0.inner().copy(dirname).unwrap())
     }
 
+    /// Close the AnnDataSet object.
+    #[pyo3(text_signature = "($self)")]
     fn close(&self) {
         if let Some(dataset) = self.0.extract() {
             dataset.close().unwrap();
         }
     }
 
+    /// If the AnnData object has been closed.
+    /// Returns
+    /// -------
+    /// bool
+    #[pyo3(text_signature = "($self)")]
     fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
 
     fn __repr__(&self) -> String {
@@ -521,13 +617,16 @@ pub fn read_csv(
 ///
 /// Parameters
 /// ----------
-///
 /// files
 ///     List of key and file name pairs.
 /// storage
 ///     File name of the output file containing the AnnDataSet object.
 /// add_key
 ///     The column name in obs to store the keys
+/// 
+/// Returns
+/// -------
+/// AnnDataSet
 #[pyfunction(add_key= "\"sample\"")]
 #[pyo3(text_signature = "(files, storage)")]
 pub fn create_dataset<'py>(
@@ -548,6 +647,21 @@ pub fn create_dataset<'py>(
     Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage, add_key).unwrap()))
 }
 
+/// Read AnnDataSet object.
+///
+/// Parameters
+/// ----------
+/// filename
+///     File name.
+/// update_data_locations
+///     Mapping[str, str]: If provided, locations of component anndata files will be updated.
+/// no_check
+///     If True, do not check the validility of the file, recommended if you know
+///     the file is valid and want faster loading time.
+/// 
+/// Returns
+/// -------
+/// AnnDataSet
 #[pyfunction(anndatas = "None", mode = "\"r+\"", no_check = "false")]
 #[pyo3(text_signature = "(filename, update_data_locations, mode, no_check)")]
 pub fn read_dataset(

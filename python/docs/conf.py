@@ -85,3 +85,10 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 html_theme = 'sphinx_rtd_theme'
 html_show_sphinx = False
 html_static_path = ['_static']
+html_context = dict(
+    display_github=True,  # Integrate GitHub
+    github_user="kaizhang",  # Username
+    github_repo="anndata-rs",  # Repo name
+    github_version="main",  # Version
+    conf_py_path="/python/docs/",  # Path in the checkout to the docs root
+)

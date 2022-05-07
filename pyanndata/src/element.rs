@@ -50,16 +50,25 @@ impl PyElem {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
+/// An element that stores matrix objects such as arrays and sparse matrices.
+/// Matrix elements support row and column indexing.
 #[pyclass]
 #[repr(transparent)]
 pub struct PyMatrixElem(pub(crate) MatrixElem);
 
 #[pymethods]
 impl PyMatrixElem {
+    /// Enable caching so that data will be stored in memory when the element
+    /// is accessed the first time. Subsequent requests for the data will use
+    /// the in-memory cache.
+    #[pyo3(text_signature = "($self)")]
     fn enable_cache(&mut self) { self.0.inner().enable_cache() }
 
+    /// Disable caching. In-memory cache will be cleared immediately.
+    #[pyo3(text_signature = "($self)")]
     fn disable_cache(&mut self) { self.0.inner().disable_cache() }
 
+    /// Shape of matrix.
     #[getter]
     fn shape(&self) -> (usize, usize) {
         let guard = self.0.inner();
@@ -94,10 +103,25 @@ impl PyMatrixElem {
         }
     }
 
+    /// Return a chunk of the matrix with random indices.
+    /// 
+    /// Parameters
+    /// ----------
+    /// size
+    ///     Number of rows of the returned random chunk.
+    /// replace
+    ///     True means random sampling of indices with replacement, False without replacement.
+    /// seed
+    ///     Random seed.
+    /// 
+    /// Returns
+    /// -------
+    /// A matrix
     #[args(
         replace = true,
         seed = 2022,
     )]
+    #[pyo3(text_signature = "($self, size, replace, seed)")]
     fn chunk<'py>(
         &self,
         py: Python<'py>,
@@ -116,6 +140,17 @@ impl PyMatrixElem {
         to_py_data2(py, guard.read_rows(idx.as_slice()).unwrap())
     }
 
+    /// Return an iterator over the rows of the matrix.
+    /// 
+    /// Parameters
+    /// ----------
+    /// chunk_size
+    ///     Number of rows of a single chunk.
+    /// 
+    /// Returns
+    /// -------
+    /// An iterator, of which the elements are matrices.
+    #[pyo3(text_signature = "($self, chunk_size)")]
     fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
         PyChunkedMatrix(self.0.chunked(chunk_size))
     }
@@ -125,12 +160,17 @@ impl PyMatrixElem {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
+/// An element that stores dataframe objects.
 #[pyclass]
 #[repr(transparent)]
 pub struct PyDataFrameElem(pub(crate) DataFrameElem);
 
 #[pymethods]
 impl PyDataFrameElem {
+    /// Enable caching so that data will be stored in memory when the element
+    /// is accessed the first time. Subsequent requests for the data will use
+    /// the in-memory cache.
+    #[pyo3(text_signature = "($self)")]
     fn enable_cache(&mut self) { self.0.enable_cache() }
 
     fn disable_cache(&mut self) { self.0.disable_cache() }
@@ -173,7 +213,7 @@ impl PyDataFrameElem {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
-
+/// Unstructured annotations (ordered dictionary).
 #[pyclass]
 #[repr(transparent)]
 pub struct PyElemCollection(pub(crate) Slot<ElemCollection>);
@@ -205,12 +245,36 @@ impl PyElemCollection {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
+/// A mapping, in which each key is associated with an axisarray
+/// (a two or higher-dimensional ndarray). 
+/// It allows indexing and slicing along the associated axis.
+/// 
+/// Examples
+/// --------
+/// >>> data.obsm
+/// AxisArrays (row) with keys: X_umap, insertion, X_spectral
+/// >>> data.obsm['X_umap']
+/// array([[13.279691  , -3.1859393 ],
+///       [12.367847  , -1.9303571 ],
+///       [11.376464  ,  0.36262953],
+///       ...,
+///       [12.1357565 , -2.777369  ],
+///       [12.9115095 , -1.9225913 ],
+///       [13.247231  , -4.200884  ]], dtype=float32)
+/// >>> data.obsm.el('X_umap')
+/// Array(Float(U4)) element, cache_enabled: no, cached: no
 #[pyclass]
 #[repr(transparent)]
 pub struct PyAxisArrays(pub(crate) Slot<AxisArrays>);
 
 #[pymethods]
 impl PyAxisArrays {
+    /// Return the keys.
+    /// 
+    /// Returns
+    /// -------
+    /// List[str]
+    #[pyo3(text_signature = "($self)")]
     pub fn keys(&self) -> Vec<String> {
         self.0.inner().keys().map(|x| x.to_string()).collect()
     }
@@ -226,6 +290,37 @@ impl PyAxisArrays {
         }
     }
 
+    /// Provide a lazy access to the elements.
+    /// 
+    /// This function provides a lazy access to underlying elements. For example,
+    /// calling `adata.obsm['elem']` will immediately read the data into memory,
+    /// while using `adata.obsm.el('elem')` will return a :class:`.PyMatrixElem` object,
+    /// which contains a reference to data stored in the disk.
+    /// 
+    /// /// Examples
+    /// --------
+    /// >>> data.obsm
+    /// AxisArrays (row) with keys: X_umap, insertion, X_spectral
+    /// >>> data.obsm['X_umap']
+    /// array([[13.279691  , -3.1859393 ],
+    ///       [12.367847  , -1.9303571 ],
+    ///       [11.376464  ,  0.36262953],
+    ///       ...,
+    ///       [12.1357565 , -2.777369  ],
+    ///       [12.9115095 , -1.9225913 ],
+    ///       [13.247231  , -4.200884  ]], dtype=float32)
+    /// >>> data.obsm.el('X_umap')
+    /// Array(Float(U4)) element, cache_enabled: no, cached: no
+    /// 
+    /// Parameters
+    /// ----------
+    /// key
+    ///     the name of the key.
+    /// 
+    /// Returns
+    /// -------
+    /// Optional[PyMatrixElem]
+    #[pyo3(text_signature = "($self, key)")]
     fn el(&self, key: &str) -> PyResult<Option<PyMatrixElem>> {
         match self.0.inner().get(key) {
             None => Ok(None),
@@ -270,28 +365,59 @@ impl PyStackedAxisArrays {
 }
 
 
-
+/// Lazily concatenated matrix elements.
 #[pyclass]
 #[repr(transparent)]
 pub struct PyStackedMatrixElem(pub(crate) Stacked<MatrixElem>);
 
 #[pymethods]
 impl PyStackedMatrixElem {
+    /// Shape of matrix.
     #[getter]
     fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
 
+    /// Enable caching so that data will be stored in memory when the element
+    /// is accessed the first time. Subsequent requests for the data will use
+    /// the in-memory cache.
+    #[pyo3(text_signature = "($self)")]
     fn enable_cache(&mut self) { self.0.enable_cache() }
 
     fn disable_cache(&mut self) { self.0.disable_cache() }
 
+    /// Return an iterator over the rows of the matrix.
+    /// 
+    /// Parameters
+    /// ----------
+    /// chunk_size
+    ///     Number of rows of a single chunk.
+    /// 
+    /// Returns
+    /// -------
+    /// An iterator, of which the elements are matrices.
+    #[pyo3(text_signature = "($self, chunk_size)")]
     fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix{
         PyStackedChunkedMatrix(self.0.chunked(chunk_size))
     }
 
+    /// Return a chunk of the matrix with random indices.
+    /// 
+    /// Parameters
+    /// ----------
+    /// size
+    ///     Number of rows of the returned random chunk.
+    /// replace
+    ///     True means random sampling of indices with replacement, False without replacement.
+    /// seed
+    ///     Random seed.
+    /// 
+    /// Returns
+    /// -------
+    /// A matrix
     #[args(
         replace = true,
         seed = 2022,
     )]
+    #[pyo3(text_signature = "($self, size, replace, seed)")]
     fn chunk<'py>(
         &self,
         py: Python<'py>,
