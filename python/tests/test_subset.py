@@ -1,7 +1,8 @@
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
 import pytest
-from anndata_rs import AnnData, AnnDataSet
+from anndata_rs import AnnData, AnnDataSet, read_dataset
+import os
 
 import numpy as np
 import pandas as pd
@@ -113,17 +114,23 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     obs = dataset.obs['batch']
     indices = idx1 + idx2 + idx3
 
-
+    # fancy indexing
     dataset_subset = dataset.subset(indices, out = h5ad(tmp_path))
     np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs[indices], dataset_subset.obs['batch'])
 
+    # if open is OK
+    os.chdir(tmp_path)
+    dataset_subset.subset([], out = "a_copy")
+
+    # Boolean mask
     s = set(indices)
     boolean_mask = list(i in s for i in range(dataset.n_obs))
     dataset_subset = dataset.subset(boolean_mask, out = h5ad(tmp_path))
     np.testing.assert_array_equal(merged[boolean_mask, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs[boolean_mask], dataset_subset.obs['batch'])
 
+    # fancy indexing (inplace)
     dataset.subset(indices)
     np.testing.assert_array_equal(merged[indices, :], dataset.X[:])
     np.testing.assert_array_equal(obs[indices], dataset.obs['batch'])

@@ -12,12 +12,12 @@ import os
 
 # -- Project information -----------------------------------------------------
 
-project = 'SnapATAC2'
+project = 'AnnData'
 copyright = '2022, Kai Zhang'
 author = 'Kai Zhang'
 
 # The full version, including alpha/beta/rc tags
-release = '1.99.99.6'
+release = '0.1.0'
 
 
 # -- General configuration ---------------------------------------------------

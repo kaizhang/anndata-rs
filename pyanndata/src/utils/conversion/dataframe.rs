@@ -1,8 +1,3 @@
-mod py_to_rust;
-mod rust_to_py;
-pub use py_to_rust::{to_rust_data1, to_rust_data2};
-pub use rust_to_py::{to_py_data1, to_py_data2};
-
 use polars::{
     prelude::ArrowField,
     prelude::PolarsError,
@@ -201,9 +196,3 @@ pub fn to_rust_df(pydf: &PyAny) -> PyResult<DataFrame> {
 
     Ok(accumulate_dataframes_vertical(dfs).map_err(PyPolarsErr::from)?)
 }
-
-/*
-pub fn is_ellipsis<'py>(obj: &'py PyAny) -> PyResult<bool> {
-    obj.is_instance(pyo3::ffi::PyEllipsis_Type)
-}
-*/

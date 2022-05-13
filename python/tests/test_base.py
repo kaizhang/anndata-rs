@@ -3,6 +3,7 @@ from anndata_rs import AnnData, AnnDataSet, read
 import math
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 from pathlib import Path
 import uuid
@@ -40,6 +41,8 @@ def test_creation(tmp_path):
     assert adata.n_obs == 0
     adata.obsm =dict(X_pca=np.array([[1, 2], [3, 4]]))
     assert adata.n_obs == 2
+    adata.uns['df'] = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
+    adata.uns['df'] = pd.DataFrame([[1, 2, 3], [4, 5, 6]], columns=["a", "b", "c"])
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))

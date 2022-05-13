@@ -23,6 +23,12 @@ pub fn isinstance_of_pandas<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<b
     )
 }
 
+pub fn isinstance_of_polars<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    obj.is_instance(
+        py.import("polars")?.getattr("DataFrame")?.downcast::<PyType>().unwrap()
+    )
+}
+
 pub fn is_list_of_bools<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     if obj.is_instance_of::<pyo3::types::PyList>()? {
         Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(

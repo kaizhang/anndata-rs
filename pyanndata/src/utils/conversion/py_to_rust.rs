@@ -1,4 +1,7 @@
-use crate::utils::instance::{isinstance_of_csr, isinstance_of_arr};
+use crate::utils::{
+    instance::*,
+    conversion::to_rust_df,
+};
 
 use pyo3::{
     prelude::*,
@@ -70,6 +73,11 @@ pub fn to_rust_data1<'py>(
         let mapping = data.into_iter().map(|(k, v)| Ok((k, to_rust_data1(py, v)?)))
             .collect::<PyResult<HashMap<_, _>>>()?;
         Ok(Box::new(Mapping(mapping)))
+    } else if isinstance_of_polars(py, obj)? {
+        Ok(Box::new(to_rust_df(obj)?))
+    } else if isinstance_of_pandas(py, obj)? {
+        let obj_ = py.import("polars")?.call_method1("from_pandas", (obj, ))?;
+        Ok(Box::new(to_rust_df(obj_)?))
     } else {
         panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
     }

@@ -243,7 +243,7 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn new(filename: &str, n_obs: usize, n_vars: usize) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(filename: P, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = hdf5::File::create(filename)?;
         let n_obs = Arc::new(Mutex::new(n_obs));
         let n_vars = Arc::new(Mutex::new(n_vars));
@@ -393,6 +393,8 @@ impl StackedAnnData {
         self.anndatas.iter()
     }
 
+    /// Write a part of stacked AnnData objects to disk, return the key and
+    /// file name (without parent paths)
     fn write_subset<P>(
         &self,
         obs_idx: Option<&[usize]>,
@@ -412,7 +414,7 @@ impl StackedAnnData {
                 None => data.write_subset(Some(&[]), var_idx, file.clone()),
                 Some(idx) => data.write_subset(Some(idx.as_slice()), var_idx, file.clone()),
             }.unwrap();
-            (k.clone(), file.to_str().unwrap().to_string())
+            (k.clone(), file.file_name().unwrap().to_str().unwrap().to_string())
         }).collect()
     }
 
@@ -535,7 +537,7 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
 }
 
 impl AnnDataSet {
-    pub fn new(anndatas: IndexMap<String, AnnData>, filename: &str, add_key: &str) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(anndatas: IndexMap<String, AnnData>, filename: P, add_key: &str) -> Result<Self> {
         // Compute n_obs and n_vars
         let n_obs = anndatas.values().map(|x| x.n_obs()).sum();
         let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
@@ -628,9 +630,17 @@ impl AnnDataSet {
             .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
         let anndatas = keys.into_iter().zip(filenames).map(|(k, v)| {
-                let f = adata_files.get(k).map_or(v, |x| &*x);
-                Ok((k.to_string(), AnnData::read(File::open(f)?)?))
-            }).collect::<Result<_>>()?;
+            let path = Path::new(adata_files.get(k).map_or(v, |x| &*x));
+            let fl = if path.is_absolute() {
+                File::open(path)
+            } else {
+                File::open(
+                    Path::new(annotation.filename().as_str()).parent()
+                        .unwrap_or(Path::new("./")).join(path)
+                )
+            }?;
+            Ok((k.to_string(), AnnData::read(fl)?))
+        }).collect::<Result<_>>()?;
         update_anndata_locations(&annotation, adata_files)?;
         Ok(Self {
             annotation,
@@ -671,10 +681,19 @@ impl AnnDataSet {
                     ann.accum.lock().sort_index_to_buckets(x)
                 );
                 let i = obs_idx_.as_ref().map(|x| x.as_slice());
-
-                let filenames = ann.write_subset(i, var_idx, anndata_dir);
                 let adata = self.annotation.copy_subset(i, var_idx, file)?;
+
+                let mut filenames = ann.write_subset(i, var_idx, anndata_dir.clone());
+                let parent_dir = if anndata_dir.is_absolute() {
+                    anndata_dir
+                } else {
+                    Path::new("anndatas").to_path_buf()
+                };
+                filenames.values_mut().for_each(|fl|
+                    *fl = parent_dir.join(fl.as_str()).to_str().unwrap().to_string()
+                );
                 update_anndata_locations(&adata, filenames)?;
+
                 adata.close()?;
             }
         }

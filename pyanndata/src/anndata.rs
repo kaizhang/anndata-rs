@@ -648,6 +648,9 @@ pub fn create_dataset<'py>(
 }
 
 /// Read AnnDataSet object.
+/// 
+/// Read AnnDataSet from .h5ads file. If the file paths stored in AnnDataSet
+/// object are relative paths, it will look for component .h5ad files in .h5ads file's parent directory.
 ///
 /// Parameters
 /// ----------
