@@ -39,37 +39,62 @@ impl AnnData {
         filename: P,
     ) -> Result<()>
     {
-        if obs_idx.is_none() && var_idx.is_none() {
-            self.write(filename)?;
-        } else {
-            let file = File::create(filename)?;
-            match (obs_idx, var_idx) {
-                (Some(i), Some(j)) => {
-                    self.x.inner().0.as_mut().map(|x| x.write_partial(i, j, &file, "X"));
-                },
-                (Some(i), None) => {
-                    self.x.inner().0.as_mut().map(|x| x.write_rows(i, &file, "X"));
-                },
-                (None, Some(j)) => {
+        match obs_idx {
+            Some(i) => {
+                let file = File::create(filename)?;
+                self.obs.inner().0.as_mut()
+                    .map(|x| x.write_rows(i, &file, "obs"));
+                self.obsm.inner().0.as_mut()
+                    .map(|x| x.write_subset(i, &file.create_group("obsm")?));
+                self.obsp.inner().0.as_mut()
+                    .map(|x| x.write_subset(i, &file.create_group("obsp")?));
+                match var_idx {
+                    Some(j) => {
+                        self.x.inner().0.as_mut()
+                            .map(|x| x.write_partial(i, j, &file, "X"));
+                        self.var.inner().0.as_mut()
+                            .map(|x| x.write_rows(j, &file, "var"));
+                        self.varm.inner().0.as_mut()
+                            .map(|x| x.write_subset(j, &file.create_group("varm")?));
+                        self.varp.inner().0.as_mut()
+                            .map(|x| x.write_subset(j, &file.create_group("varp")?));
+                    },
+                    None => {
+                        self.x.inner().0.as_mut().map(|x| x.write_rows(i, &file, "X"));
+                        self.var.inner().0.as_mut()
+                            .map(|x| x.write(&file, "var"));
+                        self.varm.inner().0.as_mut()
+                            .map(|x| x.write(&file.create_group("varm")?));
+                        self.varp.inner().0.as_mut()
+                            .map(|x| x.write(&file.create_group("varp")?));
+                    },
+                }
+                self.get_uns().inner().0.as_ref()
+                    .map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+                file.close()?;
+            },
+            None => match var_idx {
+                Some(j) => {
+                    let file = File::create(filename)?;
+                    self.obs.inner().0.as_mut()
+                        .map(|x| x.write(&file, "obs"));
+                    self.obsm.inner().0.as_mut()
+                        .map(|x| x.write(&file.create_group("obsm")?));
+                    self.obsp.inner().0.as_mut()
+                        .map(|x| x.write(&file.create_group("obsp")?));
                     self.x.inner().0.as_mut().map(|x| x.write_columns(j, &file, "X"));
+                    self.var.inner().0.as_mut()
+                        .map(|x| x.write_rows(j, &file, "var"));
+                    self.varm.inner().0.as_mut()
+                        .map(|x| x.write_subset(j, &file.create_group("varm")?));
+                    self.varp.inner().0.as_mut()
+                        .map(|x| x.write_subset(j, &file.create_group("varp")?));
+                    self.get_uns().inner().0.as_ref()
+                        .map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+                    file.close()?;
                 },
-                _ => todo!(),
-            }
-        
-            if let Some(i) = obs_idx {
-                self.obs.inner().0.as_mut().map(|x| x.write_rows(i, &file, "obs"));
-                self.obsm.inner().0.as_mut().map(|x| x.write_subset(i, &file.create_group("obsm")?));
-                self.obsp.inner().0.as_mut().map(|x| x.write_subset(i, &file.create_group("obsp")?));
-            }
-
-            if let Some(j) = var_idx {
-                self.var.inner().0.as_mut().map(|x| x.write_rows(j, &file, "var"));
-                self.varm.inner().0.as_mut().map(|x| x.write_subset(j, &file.create_group("varm")?));
-                self.varp.inner().0.as_mut().map(|x| x.write_subset(j, &file.create_group("varp")?));
-            }
-
-            self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
-            file.close()?;
+                None => { self.write(filename)?; },
+            },
         }
         Ok(())
     }
