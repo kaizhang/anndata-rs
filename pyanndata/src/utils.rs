@@ -58,6 +58,8 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
         }
     } else if is_list_of_ints(py, input)? {
         input.extract::<Vec<usize>>()
+    }else if input.is_instance_of::<pyo3::types::PyInt>()? {
+        Ok(vec![input.extract::<usize>()?])
     } else {
         panic!("cannot convert python type '{}' to indices", input.get_type())
     }
