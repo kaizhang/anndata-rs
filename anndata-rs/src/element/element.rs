@@ -80,7 +80,7 @@ impl<T> DerefMut for Inner<'_, T> {
 pub trait ElemTrait {
     type Data;
 
-    fn dtype(&self) -> DataType;
+    fn dtype(&self) -> Option<DataType>;
 
     fn is_empty(&self) -> bool;
 
@@ -102,7 +102,13 @@ pub type Elem = Slot<RawElem<dyn DataIO>>;
 impl ElemTrait for Elem {
     type Data = Box<dyn DataIO>;
 
-    fn dtype(&self) -> DataType { self.inner().dtype.clone() }
+    fn dtype(&self) -> Option<DataType> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.inner().dtype.clone())
+        }
+    }
 
     fn is_empty(&self) -> bool { self.inner().0.is_none() }
 
@@ -301,12 +307,16 @@ pub struct Stacked<T> {
 
 impl std::fmt::Display for Stacked<MatrixElem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} x {} stacked elements ({}) with {}",
-            *self.nrows.lock(),
-            *self.ncols.lock(),
-            self.elems.len(),
-            self.elems[0].dtype(),
-        )
+        if self.elems.len() == 0 {
+            write!(f, "empty stacked elements")
+        } else {
+            write!(f, "{} x {} stacked elements ({}) with {}",
+                *self.nrows.lock(),
+                *self.ncols.lock(),
+                self.elems.len(),
+                self.elems[0].dtype().unwrap(),
+            )
+        }
     }
 }
 
@@ -366,8 +376,12 @@ impl Stacked<MatrixElem>
 impl ElemTrait for MatrixElem {
     type Data = Box<dyn DataPartialIO>;
 
-    fn dtype(&self) -> DataType {
-        self.inner().inner.dtype.clone()
+    fn dtype(&self) -> Option<DataType> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.inner().inner.dtype.clone())
+        }
     }
 
     fn is_empty(&self) -> bool { todo!() }
