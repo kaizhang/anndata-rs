@@ -1,0 +1,6 @@
+anndata\_rs.PyAxisArrays.keys
+=============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyAxisArrays.keys

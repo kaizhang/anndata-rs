@@ -1,0 +1,6 @@
+anndata\_rs.PyMatrixElem.chunk
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyMatrixElem.chunk

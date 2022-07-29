@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>anndata_rs.AnnDataSet &mdash; AnnData 0.1.0 documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="anndata_rs.AnnDataSet.X" href="anndata_rs.AnnDataSet.X.html" />
+    <link rel="prev" title="anndata_rs.AnnData.write" href="anndata_rs.AnnData.write.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../index.html" class="icon icon-home"> AnnData
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#core-anndata-classes">Core AnnData classes</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="anndata_rs.AnnData.html">anndata_rs.AnnData</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">anndata_rs.AnnDataSet</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.X.html">anndata_rs.AnnDataSet.X</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.adatas.html">anndata_rs.AnnDataSet.adatas</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.n_obs.html">anndata_rs.AnnDataSet.n_obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.n_vars.html">anndata_rs.AnnDataSet.n_vars</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.obs.html">anndata_rs.AnnDataSet.obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.obs_names.html">anndata_rs.AnnDataSet.obs_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.obsm.html">anndata_rs.AnnDataSet.obsm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.obsp.html">anndata_rs.AnnDataSet.obsp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.shape.html">anndata_rs.AnnDataSet.shape</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.uns.html">anndata_rs.AnnDataSet.uns</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.var.html">anndata_rs.AnnDataSet.var</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.var_names.html">anndata_rs.AnnDataSet.var_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.varm.html">anndata_rs.AnnDataSet.varm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.varp.html">anndata_rs.AnnDataSet.varp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.close.html">anndata_rs.AnnDataSet.close</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.copy.html">anndata_rs.AnnDataSet.copy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.is_closed.html">anndata_rs.AnnDataSet.is_closed</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnDataSet.subset.html">anndata_rs.AnnDataSet.subset</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="anndata_rs.StackedAnnData.html">anndata_rs.StackedAnnData</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#element-classes">Element classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#io">IO</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">AnnData</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="../api.html">API</a> &raquo;</li>
+      <li>anndata_rs.AnnDataSet</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/kaizhang/anndata-rs/blob/main/python/docs/_autosummary/anndata_rs.AnnDataSet.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  
+<style>
+/* CSS overrides for sphinx_rtd_theme */
+
+/* 24px margin */
+.nbinput.nblast.container,
+.nboutput.nblast.container {
+    margin-bottom: 19px;  /* padding has already 5px */
+}
+
+/* ... except between code cells! */
+.nblast.container + .nbinput.container {
+    margin-top: -19px;
+}
+
+.admonition > p:before {
+    margin-right: 4px;  /* make room for the exclamation icon */
+}
+
+/* Fix math alignment, see https://github.com/rtfd/sphinx_rtd_theme/pull/686 */
+.math {
+    text-align: unset;
+}
+</style>
+<section id="anndata-rs-anndataset">
+<h1>anndata_rs.AnnDataSet<a class="headerlink" href="#anndata-rs-anndataset" title="Permalink to this headline"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="anndata_rs.AnnDataSet">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">anndata_rs.</span></span><span class="sig-name descname"><span class="pre">AnnDataSet</span></span><a class="headerlink" href="#anndata_rs.AnnDataSet" title="Permalink to this definition"></a></dt>
+<dd><p>Similar to <code class="code docutils literal notranslate"><span class="pre">AnnData</span></code>, <code class="code docutils literal notranslate"><span class="pre">AnnDataSet</span></code> contains annotations of
+observations <code class="code docutils literal notranslate"><span class="pre">obs</span></code> (<code class="code docutils literal notranslate"><span class="pre">obsm</span></code>, <code class="code docutils literal notranslate"><span class="pre">obsp</span></code>), variables <code class="code docutils literal notranslate"><span class="pre">var</span></code> (<code class="code docutils literal notranslate"><span class="pre">varm</span></code>, <code class="code docutils literal notranslate"><span class="pre">varp</span></code>),
+and unstructured annotations <code class="code docutils literal notranslate"><span class="pre">uns</span></code>. Additionally it provides lazy access to
+concatenated component AnnData objects, including <code class="code docutils literal notranslate"><span class="pre">X</span></code>, <code class="code docutils literal notranslate"><span class="pre">obs</span></code>, <code class="code docutils literal notranslate"><span class="pre">obsm</span></code>, <code class="code docutils literal notranslate"><span class="pre">obsp</span></code>.</p>
+<p class="rubric">Notes</p>
+<p>AnnDataSet doesn’t copy underlying AnnData objects. It stores the references
+to individual anndata files. If you move the anndata files to a new location,
+remember to update the anndata file locations when opening an AnnDataSet object.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="anndata_rs.create_dataset.html#anndata_rs.create_dataset" title="anndata_rs.create_dataset"><code class="xref py py-obj docutils literal notranslate"><span class="pre">create_dataset</span></code></a>, <a class="reference internal" href="anndata_rs.read_dataset.html#anndata_rs.read_dataset" title="anndata_rs.read_dataset"><code class="xref py py-obj docutils literal notranslate"><span class="pre">read_dataset</span></code></a></p>
+</div>
+<p class="rubric">Attributes</p>
+<table class="longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.X.html#anndata_rs.AnnDataSet.X" title="anndata_rs.AnnDataSet.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyStackedMatrixElem.html#anndata_rs.PyStackedMatrixElem" title="anndata_rs.PyStackedMatrixElem"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyStackedMatrixElem</span></code></a> of shape <code class="code docutils literal notranslate"><span class="pre">n_obs</span></code> x <code class="code docutils literal notranslate"><span class="pre">n_vars</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.adatas.html#anndata_rs.AnnDataSet.adatas" title="anndata_rs.AnnDataSet.adatas"><code class="xref py py-obj docutils literal notranslate"><span class="pre">adatas</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.StackedAnnData.html#anndata_rs.StackedAnnData" title="anndata_rs.StackedAnnData"><code class="xref py py-class docutils literal notranslate"><span class="pre">StackedAnnData</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.n_obs.html#anndata_rs.AnnDataSet.n_obs" title="anndata_rs.AnnDataSet.n_obs"><code class="xref py py-obj docutils literal notranslate"><span class="pre">n_obs</span></code></a></p></td>
+<td><p>Number of observations.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.n_vars.html#anndata_rs.AnnDataSet.n_vars" title="anndata_rs.AnnDataSet.n_vars"><code class="xref py py-obj docutils literal notranslate"><span class="pre">n_vars</span></code></a></p></td>
+<td><p>Number of variables/features.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.obs.html#anndata_rs.AnnDataSet.obs" title="anndata_rs.AnnDataSet.obs"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obs</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyDataFrameElem.html#anndata_rs.PyDataFrameElem" title="anndata_rs.PyDataFrameElem"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyDataFrameElem</span></code></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.obs_names.html#anndata_rs.AnnDataSet.obs_names" title="anndata_rs.AnnDataSet.obs_names"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obs_names</span></code></a></p></td>
+<td><p>Names of observations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.obsm.html#anndata_rs.AnnDataSet.obsm" title="anndata_rs.AnnDataSet.obsm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obsm</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyAxisArrays.html#anndata_rs.PyAxisArrays" title="anndata_rs.PyAxisArrays"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyAxisArrays</span></code></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.obsp.html#anndata_rs.AnnDataSet.obsp" title="anndata_rs.AnnDataSet.obsp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obsp</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyAxisArrays.html#anndata_rs.PyAxisArrays" title="anndata_rs.PyAxisArrays"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyAxisArrays</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.shape.html#anndata_rs.AnnDataSet.shape" title="anndata_rs.AnnDataSet.shape"><code class="xref py py-obj docutils literal notranslate"><span class="pre">shape</span></code></a></p></td>
+<td><p>Shape of data matrix (<code class="code docutils literal notranslate"><span class="pre">n_obs</span></code>, <code class="code docutils literal notranslate"><span class="pre">n_vars</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.uns.html#anndata_rs.AnnDataSet.uns" title="anndata_rs.AnnDataSet.uns"><code class="xref py py-obj docutils literal notranslate"><span class="pre">uns</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyElemCollection.html#anndata_rs.PyElemCollection" title="anndata_rs.PyElemCollection"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyElemCollection</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.var.html#anndata_rs.AnnDataSet.var" title="anndata_rs.AnnDataSet.var"><code class="xref py py-obj docutils literal notranslate"><span class="pre">var</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyDataFrameElem.html#anndata_rs.PyDataFrameElem" title="anndata_rs.PyDataFrameElem"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyDataFrameElem</span></code></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.var_names.html#anndata_rs.AnnDataSet.var_names" title="anndata_rs.AnnDataSet.var_names"><code class="xref py py-obj docutils literal notranslate"><span class="pre">var_names</span></code></a></p></td>
+<td><p>Names of variables.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.varm.html#anndata_rs.AnnDataSet.varm" title="anndata_rs.AnnDataSet.varm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">varm</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyAxisArrays.html#anndata_rs.PyAxisArrays" title="anndata_rs.PyAxisArrays"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyAxisArrays</span></code></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.varp.html#anndata_rs.AnnDataSet.varp" title="anndata_rs.AnnDataSet.varp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">varp</span></code></a></p></td>
+<td><p><a class="reference internal" href="anndata_rs.PyAxisArrays.html#anndata_rs.PyAxisArrays" title="anndata_rs.PyAxisArrays"><code class="xref py py-class docutils literal notranslate"><span class="pre">PyAxisArrays</span></code></a>.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Methods</p>
+<table class="longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.close.html#anndata_rs.AnnDataSet.close" title="anndata_rs.AnnDataSet.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">close</span></code></a>()</p></td>
+<td><p>Close the AnnDataSet object.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.copy.html#anndata_rs.AnnDataSet.copy" title="anndata_rs.AnnDataSet.copy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">copy</span></code></a>(dirname)</p></td>
+<td><p>Copy the AnnDataSet object to a new location.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.is_closed.html#anndata_rs.AnnDataSet.is_closed" title="anndata_rs.AnnDataSet.is_closed"><code class="xref py py-obj docutils literal notranslate"><span class="pre">is_closed</span></code></a>()</p></td>
+<td><p>If the AnnData object has been closed.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnDataSet.subset.html#anndata_rs.AnnDataSet.subset" title="anndata_rs.AnnDataSet.subset"><code class="xref py py-obj docutils literal notranslate"><span class="pre">subset</span></code></a>(obs_indices, var_indices, out)</p></td>
+<td><p>Subsetting the AnnDataSet object.</p></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="anndata_rs.AnnData.write.html" class="btn btn-neutral float-left" title="anndata_rs.AnnData.write" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="anndata_rs.AnnDataSet.X.html" class="btn btn-neutral float-right" title="anndata_rs.AnnDataSet.X" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Kai Zhang.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

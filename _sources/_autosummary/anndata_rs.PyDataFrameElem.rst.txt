@@ -1,0 +1,22 @@
+﻿anndata\_rs.PyDataFrameElem
+===========================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyDataFrameElem
+
+   
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyDataFrameElem.disable_cache
+      ~anndata_rs.PyDataFrameElem.enable_cache
+   
+   

@@ -1,0 +1,21 @@
+﻿anndata\_rs.PyElemCollection
+============================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyElemCollection
+
+   
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyElemCollection.keys
+   
+   

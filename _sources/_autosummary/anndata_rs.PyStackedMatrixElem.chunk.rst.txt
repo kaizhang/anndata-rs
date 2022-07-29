@@ -1,0 +1,6 @@
+anndata\_rs.PyStackedMatrixElem.chunk
+=====================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyStackedMatrixElem.chunk

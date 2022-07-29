@@ -1,0 +1,21 @@
+﻿anndata\_rs.PyStackedAxisArrays
+===============================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyStackedAxisArrays
+
+   
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyStackedAxisArrays.keys
+   
+   

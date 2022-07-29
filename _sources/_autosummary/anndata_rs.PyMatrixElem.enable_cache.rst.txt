@@ -1,0 +1,6 @@
+anndata\_rs.PyMatrixElem.enable\_cache
+======================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyMatrixElem.enable_cache

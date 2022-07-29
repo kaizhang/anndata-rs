@@ -1,0 +1,6 @@
+anndata\_rs.PyElemCollection.keys
+=================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyElemCollection.keys

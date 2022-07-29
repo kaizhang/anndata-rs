@@ -1,0 +1,31 @@
+﻿anndata\_rs.PyMatrixElem
+========================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyMatrixElem
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyMatrixElem.shape
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyMatrixElem.chunk
+      ~anndata_rs.PyMatrixElem.chunked
+      ~anndata_rs.PyMatrixElem.disable_cache
+      ~anndata_rs.PyMatrixElem.enable_cache
+   
+   

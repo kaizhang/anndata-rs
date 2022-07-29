@@ -1,0 +1,6 @@
+anndata\_rs.PyMatrixElem.chunked
+================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyMatrixElem.chunked

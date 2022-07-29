@@ -1,0 +1,6 @@
+﻿anndata\_rs.read\_dataset
+=========================
+
+.. currentmodule:: anndata_rs
+
+.. autofunction:: read_dataset

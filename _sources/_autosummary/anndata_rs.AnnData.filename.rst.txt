@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.filename
+============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.filename

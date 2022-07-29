@@ -1,0 +1,6 @@
+anndata\_rs.PyStackedMatrixElem.shape
+=====================================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: PyStackedMatrixElem.shape

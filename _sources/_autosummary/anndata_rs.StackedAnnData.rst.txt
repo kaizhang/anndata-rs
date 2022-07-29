@@ -1,0 +1,28 @@
+﻿anndata\_rs.StackedAnnData
+==========================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: StackedAnnData
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.StackedAnnData.obs
+      ~anndata_rs.StackedAnnData.obsm
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+   
+   

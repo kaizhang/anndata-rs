@@ -1,0 +1,6 @@
+anndata\_rs.PyStackedMatrixElem.enable\_cache
+=============================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyStackedMatrixElem.enable_cache

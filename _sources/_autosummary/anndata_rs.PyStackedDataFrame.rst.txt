@@ -1,0 +1,20 @@
+﻿anndata\_rs.PyStackedDataFrame
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyStackedDataFrame
+
+   
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+   
+   

@@ -1,0 +1,6 @@
+anndata\_rs.PyStackedAxisArrays.keys
+====================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyStackedAxisArrays.keys

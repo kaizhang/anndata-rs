@@ -1,0 +1,22 @@
+﻿anndata\_rs.PyAxisArrays
+========================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: PyAxisArrays
+
+   
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.PyAxisArrays.el
+      ~anndata_rs.PyAxisArrays.keys
+   
+   

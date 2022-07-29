@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.varp
+========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.varp

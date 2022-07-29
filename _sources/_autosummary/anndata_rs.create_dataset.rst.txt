@@ -1,0 +1,6 @@
+﻿anndata\_rs.create\_dataset
+===========================
+
+.. currentmodule:: anndata_rs
+
+.. autofunction:: create_dataset

@@ -1,0 +1,6 @@
+anndata\_rs.PyMatrixElem.shape
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: PyMatrixElem.shape

@@ -1,0 +1,6 @@
+anndata\_rs.StackedAnnData.obsm
+===============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: StackedAnnData.obsm

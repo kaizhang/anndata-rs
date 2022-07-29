@@ -1,0 +1,6 @@
+anndata\_rs.PyDataFrameElem.enable\_cache
+=========================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: PyDataFrameElem.enable_cache
