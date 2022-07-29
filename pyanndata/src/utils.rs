@@ -65,7 +65,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
     }
 }
 
-fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
+pub(crate) fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
 where
     I: Iterator<Item = bool>
 {

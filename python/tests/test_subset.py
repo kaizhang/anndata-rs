@@ -27,9 +27,11 @@ def h5ad(dir=Path("./")):
 )
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
+    ident = list(map(lambda x: str(x), range(len(obs))))
     adata = AnnData(
         X=x,
-        obs = dict(txt=obs),
+        obs = dict(ident=ident, txt=obs),
+        #obs = dict(txt=obs),
         obsm = dict(x=obsm, y=csr_matrix(obsm)),
         obsp = dict(x=obsp, y=csr_matrix(obsp)),
         varm = dict(x=varm, y=csr_matrix(varm)),
@@ -48,6 +50,12 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[:, indices2])
     np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
     np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
+
+    adata_subset = adata.subset(list(map(lambda x: str(x), indices)), out = h5ad(tmp_path))
+    np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
+    np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
+    np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
+    np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
 
     adata.subset(indices)
     np.testing.assert_array_equal(adata.X[:], x[indices, :])

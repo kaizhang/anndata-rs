@@ -49,6 +49,16 @@ pub fn is_list_of_ints<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> 
     }
 }
 
+pub fn is_list_of_strings<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    if obj.is_instance_of::<pyo3::types::PyList>()? {
+        Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(
+            |x| x.as_ref(py).is_instance_of::<pyo3::types::PyString>().unwrap()
+        ))
+    } else {
+        Ok(false)
+    }
+}
+
 pub fn is_none_slice<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     Ok(
         is_ellipsis(py, obj)? || 

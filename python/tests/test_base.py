@@ -21,7 +21,7 @@ def h5ad(dir=Path("./")):
     unsigned_integer_dtypes(endianness = '='),
     array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
-@settings(suppress_health_check = [HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_assign_arrays(x, tmp_path):
     adata = AnnData(filename = h5ad(tmp_path))
     adata.uns['x'] = x
@@ -29,7 +29,7 @@ def test_assign_arrays(x, tmp_path):
     np.testing.assert_array_equal(x_, x)
 
 @given(x=st.floats())
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_assign_floats(x, tmp_path):
     adata = AnnData(filename = h5ad(tmp_path))
     adata.uns['x'] = x
@@ -65,7 +65,7 @@ def test_type(tmp_path):
     x2 = arrays(np.int64, (47, 179)),
     x3 = arrays(np.int64, (77, 179)),
 )
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_create_anndataset(x1, x2, x3, tmp_path):
     # empty dataset
     adata1 = AnnData(filename=h5ad(tmp_path))

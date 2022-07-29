@@ -2,7 +2,8 @@ use crate::element::*;
 use crate::utils::{
     to_indices,
     conversion::{to_rust_df, to_rust_data1, to_rust_data2},
-    instance::isinstance_of_pandas,
+    instance::*,
+    boolean_mask_to_indices,
 };
 
 use anndata_rs::{
@@ -117,6 +118,59 @@ impl AnnData {
             let f = std::fs::File::open(filename).unwrap();
             let mut reader = std::io::BufReader::new(f);
             self.0.inner().import_matrix_market(&mut reader, sorted).unwrap();
+        }
+    }
+
+    fn normalize_index<'py>(
+        &self,
+        py: Python<'py>,
+        indices_: &'py PyAny,
+        axis: u8,
+    ) -> PyResult<Vec<usize>> {
+        let length = if axis == 0 {
+            self.n_obs()
+        } else {
+            self.n_vars()
+        };
+        let indices = if isinstance_of_arr(py, indices_)? {
+            indices_.call_method0("tolist")?
+        } else {
+            indices_
+        };
+
+        if indices.is_instance_of::<pyo3::types::PySlice>()? {
+            let slice = indices.downcast::<pyo3::types::PySlice>()?.indices(
+                length.try_into().unwrap()
+            )?;
+            Ok(
+                (slice.start.try_into().unwrap() ..= slice.stop.try_into().unwrap())
+                .step_by(slice.step.try_into().unwrap()).collect()
+            )
+        } else if is_list_of_bools(py, indices)? {
+            let mask = indices.extract::<Vec<bool>>()?;
+            if mask.len() == length {
+                Ok(boolean_mask_to_indices(mask.into_iter()))
+            } else if mask.len() == 0 {
+                Ok(Vec::new())
+            } else {
+                panic!("dimension mismatched")
+            }
+        } else if is_list_of_ints(py, indices)? {
+            indices.extract::<Vec<usize>>()
+        } else if indices.is_instance_of::<pyo3::types::PyInt>()? {
+            Ok(vec![indices.extract::<usize>()?])
+        } else if is_list_of_strings(py, indices)? {
+            let names = indices.extract::<Vec<String>>()?;
+            let idx_map: HashMap<_, _> = if axis == 0 {
+                self.obs_names().into_iter().enumerate()
+                    .map(|(a, b)| (b,a)).collect()
+            } else {
+                self.var_names().into_iter().enumerate()
+                    .map(|(a, b)| (b,a)).collect()
+            };
+            Ok(names.into_iter().map(|x| *idx_map.get(&x).unwrap()).collect())
+        } else {
+            panic!("cannot convert python type '{}' to indices", indices.get_type())
         }
     }
 }
@@ -252,9 +306,8 @@ impl AnnData {
     ) -> PyResult<Option<AnnData>> {
         let n_obs = self.n_obs();
         let n_vars = self.n_vars();
-        
-        let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
-        let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
+        let i = obs_indices.map(|oidx| self.normalize_index(py, oidx, 0)).transpose()?;
+        let j = var_indices.map(|vidx| self.normalize_index(py, vidx, 1)).transpose()?;
         Ok(match out {
             None => {
                 self.0.inner().subset(
