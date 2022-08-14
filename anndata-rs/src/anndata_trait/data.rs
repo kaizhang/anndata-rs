@@ -96,12 +96,21 @@ impl DataContainer {
         }
     }
 
+    /// Determine the data type by reading the "encoding-type" metadata.
+    /// If the metadata is not available, the data type is set to "mapping" for
+    /// Group objects, or "scalar" for Dataset objects.
     fn _encoding_type(&self) -> String {
         match self {
             Self::H5Group(group) => read_str_attr(group, "encoding-type")
                 .unwrap_or("mapping".to_string()),
-            Self::H5Dataset(dataset) => read_str_attr(dataset, "encoding-type")
-                .unwrap_or("scalar".to_string()),
+            Self::H5Dataset(dataset) => match read_str_attr(dataset, "encoding-type") {
+                Ok(ty) => ty,
+                _ => if dataset.is_scalar() {
+                    "scalar".to_string()
+                } else {
+                    "array".to_string()
+                }
+            },
         }
     }
 
