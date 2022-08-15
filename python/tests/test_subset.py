@@ -22,7 +22,7 @@ def h5ad(dir=Path("./")):
     obs = st.lists(st.integers(min_value=0, max_value=100000), min_size=47, max_size=47),
     obsm = arrays(integer_dtypes(endianness='='), (47, 139)),
     obsp = arrays(integer_dtypes(endianness='='), (47, 47)),
-    varm = arrays(integer_dtypes(endianness='='), (39, 79)),
+    varm = arrays(integer_dtypes(endianness='='), (79, 39)),
     varp = arrays(integer_dtypes(endianness='='), (79, 79)),
 )
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
@@ -46,8 +46,8 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
     np.testing.assert_array_equal(adata_subset.obsp["x"], obsp[np.ix_(indices, indices)])
     np.testing.assert_array_equal(adata_subset.obsp["y"].todense(), obsp[np.ix_(indices, indices)])
-    np.testing.assert_array_equal(adata_subset.varm["x"], varm[:, indices2])
-    np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[:, indices2])
+    np.testing.assert_array_equal(adata_subset.varm["x"], varm[indices2, :])
+    np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[indices2, :])
     np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
     np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
 

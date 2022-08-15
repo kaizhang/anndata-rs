@@ -222,7 +222,7 @@ impl AnnData {
     anndata_setter!(
         (obsm, Axis::Row, n_obs),
         (obsp, Axis::Both, n_obs),
-        (varm, Axis::Column, n_vars),
+        (varm, Axis::Row, n_vars),
         (varp, Axis::Both, n_vars)
     );
 
@@ -257,7 +257,7 @@ impl AnnData {
         };
         let varm = {
             let container = file.create_group("varm")?;
-            AxisArrays::new(container, Axis::Column, n_vars.clone())
+            AxisArrays::new(container, Axis::Row, n_vars.clone())
         };
         let varp = {
             let container = file.create_group("varp")?;

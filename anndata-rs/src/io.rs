@@ -178,7 +178,7 @@ impl AnnData {
         }
         def_item!(obsm, |x| AxisArrays::new(x, Axis::Row, n_obs.clone()));
         def_item!(obsp, |x| AxisArrays::new(x, Axis::Both, n_obs.clone()));
-        def_item!(varm, |x| AxisArrays::new(x, Axis::Column, n_vars.clone()));
+        def_item!(varm, |x| AxisArrays::new(x, Axis::Row, n_vars.clone()));
         def_item!(varp, |x| AxisArrays::new(x, Axis::Both, n_vars.clone()));
         def_item!(uns, |x| ElemCollection::new(x));
 
