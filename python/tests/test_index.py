@@ -16,12 +16,12 @@ def h5ad(dir=Path("./")):
 
 @given(
     x = arrays(integer_dtypes(endianness='='), (47, 79)),
-    indices = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
-    indices2 = st.lists(st.integers(min_value=0, max_value=78), min_size=0, max_size=100),
+    ridx = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
+    cidx = st.lists(st.integers(min_value=0, max_value=78), min_size=0, max_size=100),
     mask = st.lists(st.booleans(), min_size=79, max_size=79),
 )
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_index(x, indices, indices2, mask, tmp_path):
+def test_index(x, ridx, cidx, mask, tmp_path):
     x_ = csr_matrix(x)
     adata = AnnData(
         X=x,
@@ -30,19 +30,53 @@ def test_index(x, indices, indices2, mask, tmp_path):
     )
 
     np.testing.assert_array_equal(
-        adata.X[indices, indices2],
-        x[np.ix_(indices, indices2)],
+        adata.X[ridx, cidx],
+        x[np.ix_(ridx, cidx)],
     )
-    np.testing.assert_array_equal(adata.X[indices, :], x[indices, :])
-    np.testing.assert_array_equal(adata.X[:, indices2], x[:, indices2])
+    np.testing.assert_array_equal(adata.X[ridx, :], x[ridx, :])
+    np.testing.assert_array_equal(adata.X[:, cidx], x[:, cidx])
     np.testing.assert_array_equal(adata.X[:, mask], x[:, mask])
     np.testing.assert_array_equal(adata.X[:, np.array(mask)], x[:, np.array(mask)])
 
     np.testing.assert_array_equal(
-        adata.obsm.el('x')[indices, indices2].todense(),
-        x[np.ix_(indices, indices2)],
+        adata.obsm.el('x')[ridx, cidx].todense(),
+        x[np.ix_(ridx, cidx)],
     )
-    np.testing.assert_array_equal(adata.obsm.el('x')[indices, :].todense(), x[indices, :])
-    np.testing.assert_array_equal(adata.obsm.el('x')[:, indices2].todense(), x[:, indices2])
+    np.testing.assert_array_equal(adata.obsm.el('x')[ridx, :].todense(), x[ridx, :])
+    np.testing.assert_array_equal(adata.obsm.el('x')[:, cidx].todense(), x[:, cidx])
     np.testing.assert_array_equal(adata.obsm.el('x')[:, mask].todense(), x[:, mask])
     np.testing.assert_array_equal(adata.obsm.el('x')[:, np.array(mask)].todense(), x[:, np.array(mask)])
+
+@given(
+    x1 = arrays(np.int64, (15, 179)),
+    x2 = arrays(np.int64, (47, 179)),
+    x3 = arrays(np.int64, (77, 179)),
+    row_idx = st.lists(st.integers(min_value=0, max_value=15+47+76), min_size=1, max_size=500),
+    col_idx = st.lists(st.integers(min_value=0, max_value=178), min_size=1, max_size=200),
+)
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
+def test_index_anndataset(x1, x2, x3, row_idx, col_idx, tmp_path):
+    merged = np.concatenate([x1, x2, x3], axis=0)
+
+    # dense array
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+    np.testing.assert_array_equal(merged, dataset.X[:])
+    np.testing.assert_array_equal(merged[row_idx, :], dataset.X[row_idx, :])
+    np.testing.assert_array_equal(merged[:, col_idx], dataset.X[:, col_idx])
+    np.testing.assert_array_equal(merged[np.ix_(row_idx, col_idx)], dataset.X[row_idx, col_idx])
+
+    # sparse array
+    adata1 = AnnData(X=csr_matrix(x1), filename=h5ad(tmp_path))
+    adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path))
+    adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path))
+    dataset = AnnDataSet(
+        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+    )
+    np.testing.assert_array_equal(merged, dataset.X[:].todense())
+    np.testing.assert_array_equal(merged[:, col_idx], dataset.X[:, col_idx].todense())
+    np.testing.assert_array_equal(merged[np.ix_(row_idx, col_idx)], dataset.X[row_idx, col_idx].todense())

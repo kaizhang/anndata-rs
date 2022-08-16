@@ -356,6 +356,25 @@ impl Stacked<MatrixElem>
         )?)
     }
 
+    pub fn read_columns(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
+        let mats: Result<Vec<_>> = self.elems.par_iter().map(|x| x.inner().read_columns(idx)).collect();
+        Ok(rstack(mats?)?)
+    }
+
+    pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
+        let accum = self.accum.lock();
+        let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx.iter().map(|x| accum.normalize_index(*x))
+            .enumerate().sorted_by_key(|x| x.1.0).into_iter()
+            .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
+                let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
+                (ori_idx, self.elems[key].inner().read_partial(inner_idx.as_slice(), cidx))
+            }).unzip();
+        Ok(rstack_with_index(
+            ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
+            rows.into_iter().collect::<Result<_>>()?
+        )?)
+    }
+
     pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
         StackedChunkedMatrix {
             matrices: self.elems.iter().map(|x| x.chunked(chunk_size)).collect(),

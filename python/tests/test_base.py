@@ -99,3 +99,7 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
         [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
     )
     np.testing.assert_array_equal(merged, dataset.X[:].todense())
+
+    # indexing
+    x = dataset.X[:]
+    np.testing.assert_array_equal(x[:, [1,2,3]].todense(), dataset.X[:, [1,2,3]].todense())

@@ -435,6 +435,7 @@ impl PyStackedMatrixElem {
         to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
     }
 
+    /*
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if subscript.eq(py.eval("...", None, None)?)? ||
             subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
@@ -444,6 +445,37 @@ impl PyStackedMatrixElem {
             to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
         }
     }
+    */
+
+    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if is_none_slice(py, subscript)? {
+            to_py_data2(py, self.0.read().unwrap())
+        } else if subscript.is_instance_of::<pyo3::types::PyTuple>()? {
+            let (r, c) = self.shape();
+            let (ridx, cidx) = subscript.extract()?;
+            if is_none_slice(py, ridx)? && is_none_slice(py, cidx)? {
+                to_py_data2(py, self.0.read().unwrap())
+            } else if is_none_slice(py, ridx)? {
+                to_py_data2(py, self.0.read_columns(
+                    to_indices(py, cidx, c)?.as_slice()
+                ).unwrap())
+            } else if is_none_slice(py, cidx)? {
+                to_py_data2(py, self.0.read_rows(
+                    to_indices(py, ridx, r)?.as_slice()
+                ).unwrap())
+            } else {
+                to_py_data2(py, self.0.read_partial(
+                    to_indices(py, ridx, r)?.as_slice(),
+                    to_indices(py, cidx, c)?.as_slice(),
+                ).unwrap())
+            }
+        } else {
+            let data = to_py_data2(py, self.0.read().unwrap())?;
+            data.call_method1(py, "__getitem__", (subscript,))
+        }
+    }
+
+
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
 

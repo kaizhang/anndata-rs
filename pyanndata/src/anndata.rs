@@ -304,8 +304,6 @@ impl AnnData {
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
     ) -> PyResult<Option<AnnData>> {
-        let n_obs = self.n_obs();
-        let n_vars = self.n_vars();
         let i = obs_indices.map(|oidx| self.normalize_index(py, oidx, 0)).transpose()?;
         let j = var_indices.map(|vidx| self.normalize_index(py, vidx, 1)).transpose()?;
         Ok(match out {
