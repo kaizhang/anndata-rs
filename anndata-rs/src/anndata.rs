@@ -622,6 +622,9 @@ impl AnnDataSet {
 
     pub fn read(file: File, adata_files_: Option<HashMap<String, String>>, check: bool) -> Result<Self> {
         let annotation = AnnData::read(file)?;
+        let filename = annotation.filename();
+        let file_path = Path::new(&filename).read_link()
+            .unwrap_or(Path::new(&filename).to_path_buf());
         let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
             .read()?.into_any().downcast().unwrap();
         let keys = df.column("keys").unwrap().utf8().unwrap()
@@ -634,10 +637,7 @@ impl AnnDataSet {
             let fl = if path.is_absolute() {
                 File::open(path)
             } else {
-                File::open(
-                    Path::new(annotation.filename().as_str()).parent()
-                        .unwrap_or(Path::new("./")).join(path)
-                )
+                File::open(file_path.parent().unwrap_or(Path::new("./")).join(path))
             }?;
             Ok((k.to_string(), AnnData::read(fl)?))
         }).collect::<Result<_>>()?;
@@ -728,5 +728,108 @@ impl AnnDataSet {
             for ann in anndatas.anndatas.into_values() { ann.close()?; }
         }
         Ok(())
+    }
+}
+
+pub trait AnnDataReadOp {
+    fn obs_names(&self) -> Result<Vec<String>>;
+    fn var_names(&self) -> Result<Vec<String>>;
+    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>>;
+    fn read_x(
+        &self,
+        obs_indices: Option<&[usize]>,
+        var_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>>;
+    fn read_obsm(
+        &self,
+        key: &str,
+        r_indices: Option<&[usize]>,
+        c_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>>;
+}
+
+impl AnnDataReadOp for AnnData {
+    fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
+    fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
+    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
+        self.get_uns().inner().get_mut(key).unwrap().read()
+    }
+    fn read_x(
+        &self,
+        obs_indices: Option<&[usize]>,
+        var_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>> {
+        match obs_indices {
+            None => match var_indices {
+                None => self.get_x().inner().read(),
+                Some(j) => self.get_x().inner().read_columns(j),
+            },
+            Some(i) => match var_indices {
+                None => self.get_x().inner().read_rows(i),
+                Some(j) => self.get_x().inner().read_partial(i, j),
+            },
+        }
+    }
+    fn read_obsm(
+        &self,
+        key: &str,
+        r_indices: Option<&[usize]>,
+        c_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>> {
+        match r_indices {
+            None => match c_indices {
+                None => self.get_obsm().inner().get_mut(key).unwrap().read(),
+                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_columns(j),
+            },
+            Some(i) => match c_indices {
+                None => self.get_obsm().inner().get_mut(key).unwrap().inner().read_rows(i),
+                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_partial(i, j),
+            },
+        }
+    }
+}
+
+impl AnnDataReadOp for AnnDataSet {
+    fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
+
+    fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
+
+    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
+        self.get_uns().inner().get_mut(key).unwrap().read()
+    }
+
+    fn read_x(
+        &self,
+        obs_indices: Option<&[usize]>,
+        var_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>> {
+        match obs_indices {
+            None => match var_indices {
+                None => self.anndatas.inner().x.read(),
+                Some(j) => self.anndatas.inner().x.read_columns(j),
+            },
+            Some(i) => match var_indices {
+                None => self.anndatas.inner().x.read_rows(i),
+                Some(j) => self.anndatas.inner().x.read_partial(i, j),
+            },
+        }
+    }
+
+    fn read_obsm(
+        &self,
+        key: &str,
+        r_indices: Option<&[usize]>,
+        c_indices: Option<&[usize]>,
+    ) -> Result<Box<dyn DataPartialIO>> {
+        match r_indices {
+            None => match c_indices {
+                None => self.get_obsm().inner().get_mut(key).unwrap().read(),
+                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_columns(j),
+            },
+            Some(i) => match c_indices {
+                None => self.get_obsm().inner().get_mut(key).unwrap().inner().read_rows(i),
+                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_partial(i, j),
+            },
+        }
     }
 }
