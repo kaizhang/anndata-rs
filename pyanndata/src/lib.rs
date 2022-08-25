@@ -1,6 +1,6 @@
 pub mod element;
 pub mod iterator;
-pub(crate) mod utils;
+pub mod utils;
 mod anndata;
 
 pub use crate::anndata::{

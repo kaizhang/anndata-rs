@@ -641,7 +641,11 @@ impl AnnDataSet {
             }?;
             Ok((k.to_string(), AnnData::read(fl)?))
         }).collect::<Result<_>>()?;
-        update_anndata_locations(&annotation, adata_files)?;
+
+        if !adata_files.is_empty() {
+            update_anndata_locations(&annotation, adata_files)?;
+        }
+
         Ok(Self {
             annotation,
             anndatas: Slot::new(StackedAnnData::new(anndatas, check)?),

@@ -709,6 +709,8 @@ pub fn create_dataset<'py>(
 ///     File name.
 /// update_data_locations
 ///     Mapping[str, str]: If provided, locations of component anndata files will be updated.
+/// mode
+///     "r": Read-only mode; "r+": can modify annotation file but not component anndata files.
 /// no_check
 ///     If True, do not check the validility of the file, recommended if you know
 ///     the file is valid and want faster loading time.
