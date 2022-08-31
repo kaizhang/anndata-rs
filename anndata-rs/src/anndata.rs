@@ -108,7 +108,19 @@ impl AnnData {
 
     pub fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
 
+    pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
+            .enumerate().map(|(i, x)| (x, i)).collect();
+        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+    }
+
     pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
+
+    pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
+            .enumerate().map(|(i, x)| (x, i)).collect();
+        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+    }
 
     pub fn get_x(&self) -> &MatrixElem { &self.x }
     pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
@@ -598,8 +610,20 @@ impl AnnDataSet {
         self.annotation.obs_names()
     }
 
+    pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
+            .enumerate().map(|(i, x)| (x, i)).collect();
+        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+    }
+
     pub fn var_names(&self) -> Result<Vec<String>> {
         self.annotation.var_names()
+    }
+
+    pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
+            .enumerate().map(|(i, x)| (x, i)).collect();
+        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
     }
 
     def_accessor!(

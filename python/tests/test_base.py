@@ -22,6 +22,29 @@ def h5ad(dir=Path("./")):
     array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
+def test_basic(x, tmp_path):
+    adata = AnnData(filename = h5ad(tmp_path))
+
+    adata.X = x
+    np.testing.assert_array_equal(x, adata.X[:])
+
+    adata.X = csr_matrix(x)
+    np.testing.assert_array_equal(x, adata.X[:].todense())
+
+    def mk_iter(a):
+        yield a
+        yield a
+        yield a
+    adata.X = mk_iter(x)
+    np.testing.assert_array_equal(np.vstack((x,x,x)), adata.X[:])
+
+
+@given(x=arrays(
+    integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
+    unsigned_integer_dtypes(endianness = '='),
+    array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
+))
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_assign_arrays(x, tmp_path):
     adata = AnnData(filename = h5ad(tmp_path))
     adata.uns['x'] = x

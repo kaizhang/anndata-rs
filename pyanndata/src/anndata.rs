@@ -245,10 +245,20 @@ impl AnnData {
         self.0.inner().var_names().unwrap()
     }
 
+    #[pyo3(text_signature = "($self, names)")]
+    fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().var_ix(&names).unwrap()
+    }
+
     /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> {
         self.0.inner().obs_names().unwrap()
+    }
+
+    #[pyo3(text_signature = "($self, names)")]
+    fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().obs_ix(&names).unwrap()
     }
 
     /// :class:`.PyMatrixElem` of shape `n_obs` x `n_vars`.
@@ -261,7 +271,11 @@ impl AnnData {
     fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
         match data {
             None => self.0.inner().set_x(None).unwrap(),
-            Some(d) => self.0.inner().set_x(Some(&to_rust_data2(py, d)?)).unwrap(),
+            Some(d) => if is_iterator(py, d)? {
+                panic!("Setting X by an iterator is not implemented")
+            } else {
+                self.0.inner().set_x(Some(&to_rust_data2(py, d)?)).unwrap()
+            },
         }
         Ok(())
     }
@@ -465,10 +479,20 @@ impl AnnDataSet {
         self.0.inner().var_names().unwrap()
     }
 
+    #[pyo3(text_signature = "($self, names)")]
+    fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().var_ix(&names).unwrap()
+    }
+
     /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> {
         self.0.inner().obs_names().unwrap()
+    }
+
+    #[pyo3(text_signature = "($self, names)")]
+    fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().obs_ix(&names).unwrap()
     }
 
     /// :class:`.PyStackedMatrixElem` of shape `n_obs` x `n_vars`.
