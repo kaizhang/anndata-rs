@@ -111,7 +111,9 @@ impl AnnData {
     pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+        Ok(names.iter().map(|i|
+            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
+        ).collect())
     }
 
     pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
@@ -119,7 +121,9 @@ impl AnnData {
     pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+        Ok(names.iter().map(|i|
+            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
+        ).collect())
     }
 
     pub fn get_x(&self) -> &MatrixElem { &self.x }
@@ -613,7 +617,9 @@ impl AnnDataSet {
     pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+        Ok(names.iter().map(|i|
+            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
+        ).collect())
     }
 
     pub fn var_names(&self) -> Result<Vec<String>> {
@@ -623,7 +629,9 @@ impl AnnDataSet {
     pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i| *ix_map.get(i).unwrap()).collect())
+        Ok(names.iter().map(|i|
+            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
+        ).collect())
     }
 
     def_accessor!(
