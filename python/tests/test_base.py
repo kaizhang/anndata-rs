@@ -31,12 +31,21 @@ def test_basic(x, tmp_path):
     adata.X = csr_matrix(x)
     np.testing.assert_array_equal(x, adata.X[:].todense())
 
+    df = pl.DataFrame({
+        "a": [1, 2, 3, 4, 5],
+        "b": ["one", "two", "three", "four", "five"],
+    })
+    adata.uns['df'] = df
+    assert df.frame_equal(adata.uns['df'])
+
+    """
     def mk_iter(a):
         yield a
         yield a
         yield a
     adata.X = mk_iter(x)
     np.testing.assert_array_equal(np.vstack((x,x,x)), adata.X[:])
+    """
 
 
 @given(x=arrays(

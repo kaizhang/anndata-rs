@@ -490,7 +490,7 @@ pub struct PyStackedDataFrame(pub(crate) StackedDataFrame);
 impl PyStackedDataFrame {
     fn __getitem__<'py>(&self, key: &'py PyAny) -> PyResult<Py<PyAny>> {
         if key.is_instance_of::<pyo3::types::PyString>()? {
-            to_py_series(self.0.column(key.extract()?).unwrap())
+            to_py_series(&self.0.column(key.extract()?).unwrap())
         } else {
             todo!()
         }
