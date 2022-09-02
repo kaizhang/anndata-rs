@@ -26,8 +26,13 @@ macro_rules! def_df_accessor {
             $(
                 /// :class:`.PyDataFrameElem`.
                 #[getter($field)]
-                fn [<get_ $field>](&self) -> PyDataFrameElem {
-                    PyDataFrameElem(self.0.inner().[<get_ $field>]().clone()) 
+                fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
+                    let item = self.0.inner().[<get_ $field>]().clone();
+                    if item.is_empty() {
+                        None
+                    } else {
+                        Some(PyDataFrameElem(item))
+                    }
                 }
 
                 #[setter($field)]

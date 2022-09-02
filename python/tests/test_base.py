@@ -25,6 +25,9 @@ def h5ad(dir=Path("./")):
 def test_basic(x, tmp_path):
     adata = AnnData(filename = h5ad(tmp_path))
 
+    assert adata.obs is None
+    assert adata.var is None
+
     adata.X = x
     np.testing.assert_array_equal(x, adata.X[:])
 
