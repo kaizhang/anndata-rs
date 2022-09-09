@@ -496,7 +496,10 @@ impl WriteData for Series {
                 self.bool().unwrap().into_iter().flatten().collect::<Vec<_>>().write(location, name),
             polars::datatypes::DataType::Utf8 => {
                 let vec: Vec<VarLenUnicode> = self.utf8().unwrap()
-                    .into_iter().map(|x| x.unwrap().parse().unwrap()).collect();
+                    .into_iter().map(|x|
+                        x.expect(&format!("Encounter a null value in '{}'", name))
+                        .parse().unwrap()
+                    ).collect();
                 let dataset = create_dataset(location, name, vec.as_slice())?;
                 create_str_attr(&*dataset, "encoding-type", "string-array")?;
                 create_str_attr(&*dataset, "encoding-version", "0.2.0")?;

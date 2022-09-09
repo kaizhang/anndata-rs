@@ -176,9 +176,8 @@ impl PyDataFrameElem {
     fn disable_cache(&mut self) { self.0.disable_cache() }
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
-        if subscript.eq(py.eval("...", None, None)?)? ||
-            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-                to_py_df(self.0.read().unwrap())
+        if is_none_slice(py, subscript)? {
+            to_py_df(self.0.read().unwrap())
         } else {
             to_py_df(self.0.read().unwrap())?
                 .call_method1(py, "__getitem__", (subscript,))?
@@ -488,8 +487,10 @@ pub struct PyStackedDataFrame(pub(crate) StackedDataFrame);
 
 #[pymethods]
 impl PyStackedDataFrame {
-    fn __getitem__<'py>(&self, key: &'py PyAny) -> PyResult<Py<PyAny>> {
-        if key.is_instance_of::<pyo3::types::PyString>()? {
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &'py PyAny) -> PyResult<Py<PyAny>> {
+        if is_none_slice(py, key)? {
+            to_py_df(self.0.read().unwrap())
+        } else if key.is_instance_of::<pyo3::types::PyString>()? {
             to_py_series(&self.0.column(key.extract()?).unwrap())
         } else {
             todo!()

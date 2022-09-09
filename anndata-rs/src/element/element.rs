@@ -456,6 +456,13 @@ impl StackedDataFrame {
         Ok(Self { keys: keys?, elems: Arc::new(elems) })
     }
 
+    pub fn read(&self) -> Result<DataFrame> {
+        let mut df = DataFrame::empty();
+        self.elems.iter().try_for_each(|x| df.vstack_mut(&x.read()?).map(|_| ()))?;
+        df.rechunk();
+        Ok(df)
+    }
+
     pub fn column(&self, name: &str) -> Result<Series> {
         if self.keys.contains(name) {
             let mut series = self.elems.iter().map(|x| x.column(name))
