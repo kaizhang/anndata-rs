@@ -41,6 +41,8 @@ def test_basic(x, tmp_path):
     adata.uns['df'] = df
     assert df.frame_equal(adata.uns['df'])
 
+    #adata.uns['str-array'] = np.array(["a", "b", "c"])
+
     """
     def mk_iter(a):
         yield a

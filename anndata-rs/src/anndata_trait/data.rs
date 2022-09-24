@@ -116,9 +116,9 @@ impl DataContainer {
 
     pub fn get_encoding_type(&self) -> Result<DataType> {
         match self._encoding_type().as_ref() {
-            "mapping" => Ok(DataType::Mapping),
+            "mapping" | "dict" => Ok(DataType::Mapping),
             "string" => Ok(DataType::String),
-            "scalar" => {
+            "scalar" | "numeric-scalar" => {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
                 Ok(DataType::Scalar(ty))
@@ -141,7 +141,7 @@ impl DataContainer {
                 Ok(DataType::CscMatrix(ty))
             },
             ty => Err(hdf5::Error::Internal(format!(
-                "type '{}' is not supported", ty 
+                "Unknown encoding type '{}'", ty 
             ))),
         }
     }
@@ -369,7 +369,12 @@ where
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
     {
         let dataset = create_dataset(location, name, &self.as_standard_layout())?;
-        create_str_attr(&*dataset, "encoding-type", "array")?;
+        let encoding_type = if T::type_descriptor() == TypeDescriptor::VarLenUnicode {
+            "string-array"
+        } else {
+            "array"
+        };
+        create_str_attr(&*dataset, "encoding-type", encoding_type)?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
         Ok(DataContainer::H5Dataset(dataset))
     }
