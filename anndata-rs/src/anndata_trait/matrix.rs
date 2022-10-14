@@ -6,7 +6,6 @@ use crate::{
 use ndarray::{Axis, ArrayD};
 use hdf5::{Result, Group, H5Type};
 use nalgebra_sparse::csr::CsrMatrix;
-use itertools::zip;
 use polars::frame::DataFrame;
 
 pub trait MatrixLike {
@@ -64,7 +63,7 @@ where
         create_csr_from_rows(
             idx.iter().map(|r| {
                 let row = self.get_row(*r).unwrap();
-                zip(
+                std::iter::zip(
                     row.col_indices().iter().map(|x| *x).collect::<Vec<_>>(),
                     row.values().iter().map(|x| *x).collect::<Vec<_>>(),
                 )
