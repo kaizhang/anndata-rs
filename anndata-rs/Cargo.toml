@@ -15,6 +15,7 @@ indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
 hdf5 = "0.8"
 hdf5-sys = { version = "0.8", features = ["threadsafe", "static", "zlib"], optional = true }
+libz-sys = { version = "1", features = ["zlib-ng"], default-features = false, optional = true }
 ndarray = "0.15"
 nalgebra-sparse = "0.7"
 dyn-clone = "1.0"
@@ -33,7 +34,7 @@ quickcheck_macros = "1"
 rand = "0.8.5"
 
 [features]
-static = ["dep:hdf5-sys"]
+static = ["dep:hdf5-sys", "dep:libz-sys"]
 
 [[bench]]
 name = "main"
