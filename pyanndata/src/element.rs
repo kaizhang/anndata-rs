@@ -6,15 +6,8 @@ use crate::utils::{
         to_rust_data1, to_rust_data2,
     },
 };
-use anndata_rs::{
-    anndata_trait::DataType,
-    element::*,
-};
-use pyo3::{
-    prelude::*,
-    exceptions::PyTypeError,
-    PyResult, Python,
-};
+use anndata_rs::{anndata_trait::DataType, element::*};
+use pyo3::{prelude::*, exceptions::{PyTypeError, PyKeyError}, PyResult, Python};
 use rand::SeedableRng;
 use rand::Rng;
 
@@ -227,10 +220,10 @@ impl PyElemCollection {
         self.0.inner().contains_key(key)
     }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get_mut(key) {
-            None => Ok(None),
-            Some(x) => Ok(Some(to_py_data1(py, x.read().unwrap())?)),
+            None => Err(PyKeyError::new_err(key.to_owned())),
+            Some(x) => Ok(to_py_data1(py, x.read().unwrap())?),
         }
     }
 
@@ -282,10 +275,10 @@ impl PyAxisArrays {
         self.0.inner().contains_key(key)
     }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Option<PyObject>> {
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get(key) {
-            None => Ok(None),
-            Some(x) => Ok(Some(to_py_data2(py, x.read().unwrap())?)),
+            None => Err(PyKeyError::new_err(key.to_owned())),
+            Some(x) => Ok(to_py_data2(py, x.read().unwrap())?),
         }
     }
 
@@ -351,10 +344,10 @@ impl PyStackedAxisArrays {
         self.0.contains_key(key)
     }
 
-    fn __getitem__(&self, key: &str) -> PyResult<Option<PyStackedMatrixElem>> {
+    fn __getitem__(&self, key: &str) -> PyResult<PyStackedMatrixElem> {
         match self.0.data.get(key) {
-            None => Ok(None),
-            Some(x) => Ok(Some(PyStackedMatrixElem(x.clone()))),
+            None => Err(PyKeyError::new_err(key.to_owned())),
+            Some(x) => Ok(PyStackedMatrixElem(x.clone())),
         }
     }
 
