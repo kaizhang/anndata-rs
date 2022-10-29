@@ -119,7 +119,7 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     dataset = AnnDataSet(
         [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
     )
-    obs = dataset.obs['batch']
+    obs = dataset.obs['batch'].to_numpy()
     indices = idx1 + idx2 + idx3
 
     # fancy indexing

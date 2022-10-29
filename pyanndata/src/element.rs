@@ -173,8 +173,7 @@ impl PyDataFrameElem {
             to_py_df(self.0.read().unwrap())
         } else {
             to_py_df(self.0.read().unwrap())?
-                .call_method1(py, "__getitem__", (subscript,))?
-                .call_method0(py, "to_numpy")
+                .call_method1(py, "__getitem__", (subscript,))
         }
     }
 
