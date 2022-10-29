@@ -4,6 +4,7 @@ import pytest
 from anndata_rs import AnnData, AnnDataSet, read_dataset
 import os
 
+import polars as pl
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -56,6 +57,9 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
     np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
     np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
+
+    adata_subset = adata.subset(pl.Series(map(lambda x: str(x), indices)), out = h5ad(tmp_path))
+    np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
 
     adata.subset(indices)
     np.testing.assert_array_equal(adata.X[:], x[indices, :])

@@ -1,19 +1,8 @@
 use crate::element::*;
-use crate::utils::{
-    to_indices,
-    conversion::{to_rust_df, to_rust_data1, to_rust_data2},
-    instance::*,
-    boolean_mask_to_indices,
-};
+use crate::utils::{to_indices, conversion::{to_rust_df, to_rust_data1, to_rust_data2}, instance::*};
 
-use anndata_rs::{
-    anndata,
-    element::Slot,
-};
-use pyo3::{
-    prelude::*,
-    PyResult, Python,
-};
+use anndata_rs::{anndata, element::Slot};
+use pyo3::{prelude::*, PyResult, Python, types::PyIterator};
 use std::collections::HashMap;
 use paste::paste;
 use std::ops::Deref;
@@ -126,56 +115,24 @@ impl AnnData {
         }
     }
 
-    fn normalize_index<'py>(
-        &self,
-        py: Python<'py>,
-        indices_: &'py PyAny,
-        axis: u8,
-    ) -> PyResult<Vec<usize>> {
-        let length = if axis == 0 {
-            self.n_obs()
-        } else {
-            self.n_vars()
-        };
-        let indices = if isinstance_of_arr(py, indices_)? {
-            indices_.call_method0("tolist")?
-        } else {
-            indices_
-        };
+    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Vec<usize>> {
+        let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
 
-        if indices.is_instance_of::<pyo3::types::PySlice>()? {
-            let slice = indices.downcast::<pyo3::types::PySlice>()?.indices(
-                length.try_into().unwrap()
-            )?;
-            Ok(
-                (slice.start.try_into().unwrap() ..= slice.stop.try_into().unwrap())
-                .step_by(slice.step.try_into().unwrap()).collect()
-            )
-        } else if is_list_of_bools(py, indices)? {
-            let mask = indices.extract::<Vec<bool>>()?;
-            if mask.len() == length {
-                Ok(boolean_mask_to_indices(mask.into_iter()))
-            } else if mask.len() == 0 {
-                Ok(Vec::new())
-            } else {
-                panic!("dimension mismatched")
-            }
-        } else if is_list_of_ints(py, indices)? {
-            indices.extract::<Vec<usize>>()
-        } else if indices.is_instance_of::<pyo3::types::PyInt>()? {
-            Ok(vec![indices.extract::<usize>()?])
-        } else if is_list_of_strings(py, indices)? {
-            let names = indices.extract::<Vec<String>>()?;
-            let idx_map: HashMap<_, _> = if axis == 0 {
-                self.obs_names().into_iter().enumerate()
-                    .map(|(a, b)| (b,a)).collect()
-            } else {
-                self.var_names().into_iter().enumerate()
-                    .map(|(a, b)| (b,a)).collect()
-            };
-            Ok(names.into_iter().map(|x| *idx_map.get(&x).unwrap()).collect())
-        } else {
-            panic!("cannot convert python type '{}' to indices", indices.get_type())
+        match PyIterator::from_object(py, indices)?
+            .map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>()
+        {
+            Ok(names) => {
+                if names.len() == 0 { return Ok(Vec::new()) }
+                let idx_map: HashMap<_, _> = if axis == 0 {
+                    self.obs_names().into_iter().enumerate()
+                        .map(|(a, b)| (b,a)).collect()
+                } else {
+                    self.var_names().into_iter().enumerate()
+                        .map(|(a, b)| (b,a)).collect()
+                };
+                Ok(names.into_iter().map(|x| *idx_map.get(&x).unwrap()).collect())
+            },
+            _ => to_indices(py, indices, length),
         }
     }
 }
