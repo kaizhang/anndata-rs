@@ -3,6 +3,7 @@ from hypothesis.extra.numpy import *
 import pytest
 from anndata_rs import AnnData, AnnDataSet
 
+import polars as pl
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -34,9 +35,12 @@ def test_index(x, ridx, cidx, mask, tmp_path):
         x[np.ix_(ridx, cidx)],
     )
     np.testing.assert_array_equal(adata.X[ridx, :], x[ridx, :])
+    np.testing.assert_array_equal(adata.X[pl.Series(ridx), :], x[ridx, :])
     np.testing.assert_array_equal(adata.X[:, cidx], x[:, cidx])
+    np.testing.assert_array_equal(adata.X[:, pl.Series(cidx)], x[:, cidx])
     np.testing.assert_array_equal(adata.X[:, mask], x[:, mask])
     np.testing.assert_array_equal(adata.X[:, np.array(mask)], x[:, np.array(mask)])
+    np.testing.assert_array_equal(adata.X[:, pl.Series(mask)], x[:, np.array(mask)])
 
     np.testing.assert_array_equal(
         adata.obsm.el('x')[ridx, cidx].todense(),
@@ -46,6 +50,7 @@ def test_index(x, ridx, cidx, mask, tmp_path):
     np.testing.assert_array_equal(adata.obsm.el('x')[:, cidx].todense(), x[:, cidx])
     np.testing.assert_array_equal(adata.obsm.el('x')[:, mask].todense(), x[:, mask])
     np.testing.assert_array_equal(adata.obsm.el('x')[:, np.array(mask)].todense(), x[:, np.array(mask)])
+    np.testing.assert_array_equal(adata.obsm.el('x')[:, pl.Series(mask)].todense(), x[:, np.array(mask)])
 
 @given(
     x1 = arrays(np.int64, (15, 179)),
@@ -79,4 +84,5 @@ def test_index_anndataset(x1, x2, x3, row_idx, col_idx, tmp_path):
     )
     np.testing.assert_array_equal(merged, dataset.X[:].todense())
     np.testing.assert_array_equal(merged[:, col_idx], dataset.X[:, col_idx].todense())
+    np.testing.assert_array_equal(merged[:, col_idx], dataset.X[:, pl.Series(col_idx)].todense())
     np.testing.assert_array_equal(merged[np.ix_(row_idx, col_idx)], dataset.X[row_idx, col_idx].todense())
