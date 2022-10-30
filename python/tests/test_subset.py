@@ -52,13 +52,13 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
     np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
 
-    adata_subset = adata.subset(list(map(lambda x: str(x), indices)), out = h5ad(tmp_path))
+    adata_subset = adata.subset([str(x) for x in indices], out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
     np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
     np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
     np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
 
-    adata_subset = adata.subset(pl.Series(map(lambda x: str(x), indices)), out = h5ad(tmp_path))
+    adata_subset = adata.subset(pl.Series([str(x) for x in indices]), out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
 
     adata.subset(indices)
