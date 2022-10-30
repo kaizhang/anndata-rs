@@ -42,15 +42,12 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
             } else {
                 panic!("boolean mask dimension mismatched")
             },
-            Err(e) => {
-                println!("{}", e);
-                PyIterator::from_object(py, input)?.map(|x| x.unwrap().extract()).collect()
-            },
+            _ => PyIterator::from_object(py, input)?.map(|x| x.unwrap().extract()).collect(),
         }
     }
 }
 
-pub(crate) fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
+fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
 where
     I: Iterator<Item = bool>
 {

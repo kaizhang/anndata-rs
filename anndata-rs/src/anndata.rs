@@ -1,7 +1,4 @@
-use crate::{
-    anndata_trait::*,
-    element::*,
-};
+use crate::{anndata_trait::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}};
 
 use std::sync::Arc;
 use std::path::Path;
@@ -634,6 +631,8 @@ impl AnnDataSet {
         ).collect())
     }
 
+    pub fn get_x(&self) -> Stacked<MatrixElem> { self.anndatas.inner().x.clone() }
+
     def_accessor!(
         RawMatrixElem<DataFrame>,
         Option<&DataFrame>,
@@ -767,105 +766,34 @@ impl AnnDataSet {
     }
 }
 
-pub trait AnnDataReadOp {
+pub trait AnnDataOp {
+    type MatrixIter;
     fn obs_names(&self) -> Result<Vec<String>>;
     fn var_names(&self) -> Result<Vec<String>>;
     fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>>;
-    fn read_x(
-        &self,
-        obs_indices: Option<&[usize]>,
-        var_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>>;
-    fn read_obsm(
-        &self,
-        key: &str,
-        r_indices: Option<&[usize]>,
-        c_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>>;
+    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter;
 }
 
-impl AnnDataReadOp for AnnData {
+impl AnnDataOp for AnnData {
+    type MatrixIter = ChunkedMatrix;
     fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
     fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
     fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn read_x(
-        &self,
-        obs_indices: Option<&[usize]>,
-        var_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>> {
-        match obs_indices {
-            None => match var_indices {
-                None => self.get_x().inner().read(),
-                Some(j) => self.get_x().inner().read_columns(j),
-            },
-            Some(i) => match var_indices {
-                None => self.get_x().inner().read_rows(i),
-                Some(j) => self.get_x().inner().read_partial(i, j),
-            },
-        }
-    }
-    fn read_obsm(
-        &self,
-        key: &str,
-        r_indices: Option<&[usize]>,
-        c_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>> {
-        match r_indices {
-            None => match c_indices {
-                None => self.get_obsm().inner().get_mut(key).unwrap().read(),
-                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_columns(j),
-            },
-            Some(i) => match c_indices {
-                None => self.get_obsm().inner().get_mut(key).unwrap().inner().read_rows(i),
-                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_partial(i, j),
-            },
-        }
+    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter {
+        self.get_x().chunked(chunk_size)
     }
 }
 
-impl AnnDataReadOp for AnnDataSet {
+impl AnnDataOp for AnnDataSet {
+    type MatrixIter = StackedChunkedMatrix;
     fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
-
     fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
-
     fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-
-    fn read_x(
-        &self,
-        obs_indices: Option<&[usize]>,
-        var_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>> {
-        match obs_indices {
-            None => match var_indices {
-                None => self.anndatas.inner().x.read(),
-                Some(j) => self.anndatas.inner().x.read_columns(j),
-            },
-            Some(i) => match var_indices {
-                None => self.anndatas.inner().x.read_rows(i),
-                Some(j) => self.anndatas.inner().x.read_partial(i, j),
-            },
-        }
-    }
-
-    fn read_obsm(
-        &self,
-        key: &str,
-        r_indices: Option<&[usize]>,
-        c_indices: Option<&[usize]>,
-    ) -> Result<Box<dyn DataPartialIO>> {
-        match r_indices {
-            None => match c_indices {
-                None => self.get_obsm().inner().get_mut(key).unwrap().read(),
-                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_columns(j),
-            },
-            Some(i) => match c_indices {
-                None => self.get_obsm().inner().get_mut(key).unwrap().inner().read_rows(i),
-                Some(j) => self.get_obsm().inner().get_mut(key).unwrap().inner().read_partial(i, j),
-            },
-        }
+    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter {
+        self.get_x().chunked(chunk_size)
     }
 }
