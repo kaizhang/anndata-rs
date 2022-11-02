@@ -1,7 +1,4 @@
-use crate::{
-    anndata_trait::*,
-    element::*,
-};
+use crate::{data::*, element::*};
 
 use std::sync::Arc;
 use parking_lot::Mutex;

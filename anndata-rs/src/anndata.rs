@@ -1,4 +1,4 @@
-use crate::{anndata_trait::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}};
+use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}};
 
 use std::sync::Arc;
 use std::path::Path;
@@ -62,7 +62,7 @@ impl std::fmt::Display for AnnData {
                 )*
             }
         }
-        fmt_item!(obsm, obsp, varm, varp, uns);
+        fmt_item!(uns, obsm, obsp, varm, varp);
 
         Ok(())
     }

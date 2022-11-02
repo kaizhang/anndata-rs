@@ -8,7 +8,7 @@ pub struct PyChunkedMatrix(pub ChunkedMatrix);
 
 #[pymethods]
 impl PyChunkedMatrix {
-    fn n_chunks(&self) -> usize { self.0.n_chunks() }
+    fn n_chunks(&self) -> usize { self.0.len() }
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 
@@ -22,7 +22,7 @@ pub struct PyStackedChunkedMatrix(pub StackedChunkedMatrix);
 
 #[pymethods]
 impl PyStackedChunkedMatrix {
-    fn n_chunks(&self) -> usize { self.0.n_chunks() }
+    fn n_chunks(&self) -> usize { self.0.len() }
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 

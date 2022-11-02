@@ -12,10 +12,7 @@ use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use ndarray::ArrayD;
 use polars::frame::DataFrame;
-use anndata_rs::{
-    proc_numeric_data,
-    anndata_trait::{Mapping, DataType, Scalar, DataIO, DataPartialIO},
-};
+use anndata_rs::{proc_numeric_data, data::{Mapping, DataType, Scalar, DataIO, DataPartialIO}};
 
 macro_rules! to_py_scalar_macro {
     ($py:expr, $data:expr, $dtype:expr) => {

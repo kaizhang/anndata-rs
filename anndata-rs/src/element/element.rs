@@ -1,5 +1,5 @@
 use crate::{
-    anndata_trait::*,
+    data::*,
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
     element::{RawMatrixElem, RawElem},
     utils::hdf5::{read_str_vec_attr, read_str_attr, read_str_vec},

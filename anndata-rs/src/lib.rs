@@ -1,4 +1,4 @@
-pub mod anndata_trait;
+pub mod data;
 pub mod element;
 pub mod anndata;
 pub mod io;

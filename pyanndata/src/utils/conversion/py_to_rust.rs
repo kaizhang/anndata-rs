@@ -11,9 +11,7 @@ use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
 use std::collections::HashMap;
 
-use anndata_rs::{
-    anndata_trait::{Mapping, Scalar, DataIO, DataPartialIO},
-};
+use anndata_rs::data::{Mapping, Scalar, DataIO, DataPartialIO};
 
 macro_rules! proc_py_numeric {
     ($obj:expr, $reader:expr, $fun:ident, $ty:tt) => {

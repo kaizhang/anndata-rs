@@ -6,7 +6,7 @@ use crate::utils::{
         to_rust_data1, to_rust_data2,
     },
 };
-use anndata_rs::{anndata_trait::DataType, element::*};
+use anndata_rs::{data::DataType, element::*};
 use pyo3::{prelude::*, exceptions::{PyTypeError, PyKeyError}, PyResult, Python};
 use rand::SeedableRng;
 use rand::Rng;

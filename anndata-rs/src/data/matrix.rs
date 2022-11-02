@@ -1,5 +1,5 @@
 use crate::{
-    anndata_trait::data::{DataContainer, ReadData, WriteData},
+    data::{DataContainer, ReadData, WriteData},
     utils::hdf5::{read_str_attr, read_chunks_1d},
 };
 

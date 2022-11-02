@@ -1,6 +1,6 @@
 use crate::{
     anndata::AnnData,
-    anndata_trait::{DataType, DataContainer, DataPartialIO},
+    data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
     element::{AxisArrays, ElemTrait, MatrixElem, RawMatrixElem},
 };
@@ -50,7 +50,7 @@ impl<I> CsrIterator<I> {
     where
         I: Iterator<Item = Vec<(usize, T)>>,
     {
-        crate::anndata_trait::create_csr_from_rows(self.iterator, self.num_cols)
+        create_csr_from_rows(self.iterator, self.num_cols)
     }
 }
 
@@ -363,17 +363,6 @@ pub struct ChunkedMatrix {
     pub(crate) current_index: usize,
 }
 
-impl ChunkedMatrix {
-    pub fn n_chunks(&self) -> usize {
-        let n = self.size / self.chunk_size;
-        if self.size % self.chunk_size == 0 {
-            n
-        } else {
-            n + 1
-        }
-    }
-}
-
 impl Iterator for ChunkedMatrix {
     type Item = Box<dyn DataPartialIO>;
 
@@ -390,16 +379,17 @@ impl Iterator for ChunkedMatrix {
     }
 }
 
+impl ExactSizeIterator for ChunkedMatrix {
+    fn len(&self) -> usize {
+        let n = self.size / self.chunk_size;
+        if self.size % self.chunk_size == 0 { n } else { n + 1 }
+    }
+}
+
 pub struct StackedChunkedMatrix {
     pub(crate) matrices: Vec<ChunkedMatrix>,
     pub(crate) current_matrix_index: usize,
     pub(crate) n_mat: usize,
-}
-
-impl StackedChunkedMatrix {
-    pub fn n_chunks(&self) -> usize {
-        self.matrices.iter().map(|x| x.n_chunks()).sum()
-    }
 }
 
 impl Iterator for StackedChunkedMatrix {
@@ -419,4 +409,8 @@ impl Iterator for StackedChunkedMatrix {
             }
         }
     }
+}
+
+impl ExactSizeIterator for StackedChunkedMatrix {
+    fn len(&self) -> usize { self.matrices.iter().map(|x| x.len()).sum() }
 }

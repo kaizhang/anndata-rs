@@ -1,9 +1,4 @@
-use crate::{
-    anndata::AnnData,
-    anndata_trait::*,
-    element::*,
-    iterator::IndexedCsrIterator,
-};
+use crate::{anndata::AnnData, data::*, element::*, iterator::IndexedCsrIterator};
 
 use itertools::Itertools;
 use parking_lot::Mutex;

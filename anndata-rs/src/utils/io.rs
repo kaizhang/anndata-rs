@@ -1,4 +1,4 @@
-use crate::anndata_trait::DataPartialIO;
+use crate::data::DataPartialIO;
 
 use std::error::Error;
 use std::fmt;

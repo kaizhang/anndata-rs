@@ -1,10 +1,10 @@
-mod data;
+mod base;
 mod matrix;
 
-use crate::{proc_numeric_data, _box};
-
-pub use data::*;
+pub use base::*;
 pub use matrix::*;
+
+use crate::{proc_numeric_data, _box};
 
 use ndarray::{ArrayD, Axis};
 use itertools::Itertools;

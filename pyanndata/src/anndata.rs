@@ -601,14 +601,21 @@ def_arr_accessor!(
 ///     If you want to modify the AnnData object, you need to choose `'r+'`.
 #[pyfunction(mode = "\"r+\"")]
 #[pyo3(text_signature = "(filename, mode)")]
-pub fn read(filename: &str, mode: &str) -> PyResult<AnnData> {
-    let file = match mode {
-        "r" => hdf5::File::open(filename).unwrap(),
-        "r+" => hdf5::File::open_rw(filename).unwrap(),
+pub fn read<'py>(py: Python<'py>, filename: &str, mode: Option<&str>) -> PyResult<PyObject> {
+    match mode {
+        Some("r") => {
+            let file = hdf5::File::open(filename).unwrap();
+            Ok(AnnData::wrap(anndata::AnnData::read(file).unwrap()).into_py(py))
+        },
+        Some("r+") => {
+            let file = hdf5::File::open_rw(filename).unwrap();
+            Ok(AnnData::wrap(anndata::AnnData::read(file).unwrap()).into_py(py))
+        }
+        None => {
+            Ok(PyModule::import(py, "anndata")?.getattr("read_h5ad")?.call1((filename,))?.to_object(py))
+        }
         _ => panic!("Unkown mode"),
-    };
-    let anndata = anndata::AnnData::read(file).unwrap();
-    Ok(AnnData::wrap(anndata))
+    }
 }
 
 /// Read Matrix Market file.
@@ -667,13 +674,14 @@ pub fn read_csv(
 #[pyfunction(add_key= "\"sample\"")]
 #[pyo3(text_signature = "(files, storage)")]
 pub fn create_dataset<'py>(
+    py: Python<'py>,
     files: Vec<(String, &'py PyAny)>,
     storage: &str,
     add_key: &str
 ) -> PyResult<AnnDataSet> {
     let adatas = files.into_iter().map(|(key, obj)| {
         let data = if obj.is_instance_of::<pyo3::types::PyString>()? {
-            read(obj.extract::<&str>()?, "r").unwrap()
+            read(py, obj.extract::<&str>()?, Some("r"))?.extract::<AnnData>(py)?
         } else if obj.is_instance_of::<AnnData>()? {
             obj.extract::<AnnData>()?
         } else {
@@ -719,4 +727,18 @@ pub fn read_dataset(
     };
     let data = anndata::AnnDataSet::read(file, update_data_locations, !no_check).unwrap();
     AnnDataSet::wrap(data)
+}
+
+pub struct PyAnnData<'py>(&'py PyAny);
+
+impl<'py> FromPyObject<'py> for PyAnnData<'py> {
+    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+        Ok(PyAnnData(ob))
+    }
+}
+
+impl<'py> ToPyObject for PyAnnData<'py> {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        self.0.into_py(py)
+    }
 }
