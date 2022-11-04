@@ -1,8 +1,16 @@
 use crate::element::*;
-use crate::utils::{to_indices, conversion::{to_rust_df, to_rust_data1, to_rust_data2}, instance::*};
+use crate::utils::{
+    to_indices, instance::*,
+    conversion::{to_py_data1, to_py_data2, to_py_df, to_rust_df, to_rust_data1, to_rust_data2},
+};
 
+use anndata_rs::anndata::AnnDataOp;
+use anndata_rs::iterator::RowIterator;
 use anndata_rs::{anndata, element::Slot};
-use pyo3::{prelude::*, PyResult, Python, types::PyIterator};
+use anndata_rs::data::{DataIO, DataPartialIO};
+use polars::frame::DataFrame;
+use anyhow::Result;
+use pyo3::{prelude::*, PyResult, Python, types::PyIterator, exceptions::PyException};
 use std::collections::HashMap;
 use paste::paste;
 use std::ops::Deref;
@@ -42,7 +50,7 @@ macro_rules! def_df_accessor {
                         };
                         to_rust_df(df_)
                     }).transpose()?;
-                    self.0.inner().[<set_ $field>](data.as_ref()).unwrap();
+                    self.0.inner().[<write_ $field>](data.as_ref()).unwrap();
                     Ok(())
                 }
             )*
@@ -731,6 +739,28 @@ pub fn read_dataset(
 
 pub struct PyAnnData<'py>(&'py PyAny);
 
+impl<'py> PyAnnData<'py> {
+    pub fn new(py: Python<'py>) -> PyResult<Self> {
+        PyModule::import(py, "anndata")?.getattr("AnnData")?.call0()?.extract()
+    }
+
+    fn set_n_obs(&self, n_obs: usize) -> PyResult<()> {
+        if self.n_obs() == 0 {
+            self.0.setattr("_n_obs", n_obs)
+        } else {
+            Err(PyException::new_err("cannot set n_obs unless n_obs == 0"))
+        }
+    }
+
+    fn set_n_vars(&self, n_vars: usize) -> PyResult<()> {
+        if self.n_vars() == 0 {
+            self.0.setattr("_n_vars", n_vars)
+        } else {
+            Err(PyException::new_err("cannot set n_vars unless n_vars == 0"))
+        }
+    }
+}
+
 impl<'py> FromPyObject<'py> for PyAnnData<'py> {
     fn extract(ob: &'py PyAny) -> PyResult<Self> {
         Ok(PyAnnData(ob))
@@ -741,4 +771,67 @@ impl<'py> ToPyObject for PyAnnData<'py> {
     fn to_object(&self, py: Python<'_>) -> PyObject {
         self.0.into_py(py)
     }
+}
+
+impl<'py> AnnDataOp for PyAnnData<'py> {
+    type MatrixIter = PyObject;
+    fn n_obs(&self) -> usize { self.0.getattr("n_obs").unwrap().extract().unwrap() }
+    fn n_vars(&self) -> usize { self.0.getattr("n_vars").unwrap().extract().unwrap() }
+    fn obs_names(&self) -> Result<Vec<String>> {todo!()}
+    fn var_names(&self) -> Result<Vec<String>> {todo!()}
+
+    fn read_obs(&self) -> Result<DataFrame> { todo!() }
+    fn read_var(&self) -> Result<DataFrame> {todo!()}
+    fn write_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+        match obs_ {
+            None => { self.0.setattr("obs", None::<PyObject>)?; },
+            Some(obs) => {
+                self.set_n_obs(obs.height()).unwrap_or(());
+                let key = obs.get_column_names()[0];
+                let py = self.0.py();
+                let df = to_py_df(obs.clone())?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (key, ))?;
+                self.0.setattr("obs", df)?;
+            },
+        }
+        Ok(())
+    }
+    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+        match var_ {
+            None => { self.0.setattr("var", None::<PyObject>)?; },
+            Some(var) => {
+                self.set_n_vars(var.height()).unwrap_or(());
+                let key = var.get_column_names()[0];
+                let py = self.0.py();
+                let df = to_py_df(var.clone())?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (key, ))?;
+                self.0.setattr("var", df)?;
+            },
+        }
+        Ok(())
+    }
+
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {todo!()}
+    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+        // TODO: remove the Box.
+        let data_: Box<dyn DataIO> = Box::new(dyn_clone::clone(data));
+        self.0.getattr("uns")?.call_method1(
+            "__setitem__",
+            (key, to_py_data1(self.0.py(), data_)?),
+        )?;
+        Ok(())
+    }
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {todo!()}
+    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {todo!()}
+
+    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+        self.set_n_obs(data.nrows()).unwrap_or(());
+        // TODO: remove the Box.
+        let data_: Box<dyn DataPartialIO> = Box::new(dyn_clone::clone(data));
+        self.0.getattr("obsm")?.call_method1(
+            "__setitem__",
+            (key, to_py_data2(self.0.py(), data_)?),
+        )?;
+        Ok(())
+    }
+    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {todo!()}
 }

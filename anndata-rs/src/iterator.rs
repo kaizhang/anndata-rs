@@ -2,7 +2,7 @@ use crate::{
     anndata::AnnData,
     data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{AxisArrays, ElemTrait, MatrixElem, RawMatrixElem},
+    element::{AxisArrays, MatrixElem, RawMatrixElem},
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
@@ -214,22 +214,6 @@ where
     fn ncols(&self) -> usize { self.num_cols }
     fn get_dtype(&self) -> DataType { DataType::CsrMatrix(D::type_descriptor()) }
     fn version(&self) -> &str { "0.1.0" }
-}
-
-
-
-impl AnnData {
-    pub fn set_x_from_row_iter<I>(&self, data: I) -> Result<()>
-    where
-        I: RowIterator,
-    {
-        self.set_n_vars(data.ncols());
-        if !self.x.is_empty() { self.file.unlink("X")?; }
-        let (container, nrows) = data.write(&self.file, "X")?;
-        self.set_n_obs(nrows);
-        *self.x.inner().0 = Some(RawMatrixElem::new(container)?);
-        Ok(())
-    }
 }
 
 impl AxisArrays {

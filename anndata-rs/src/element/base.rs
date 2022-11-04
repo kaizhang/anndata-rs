@@ -77,7 +77,7 @@ impl RawElem<dyn DataIO>
         match &self.element {
             Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
             None => {
-                let data = read_dyn_data(&self.container)?;
+                let data = <Box<dyn DataIO>>::read(&self.container)?;
                 if self.cache_enabled {
                     self.element = Some(dyn_clone::clone_box(data.as_ref()));
                 }
@@ -89,7 +89,7 @@ impl RawElem<dyn DataIO>
     pub fn write(&self, location: &Group, name: &str) -> Result<()> {
         match &self.element {
             Some(data) => data.write(location, name)?,
-            None => read_dyn_data(&self.container)?.write(location, name)?,
+            None => <Box<dyn DataIO>>::read(&self.container)?.write(location, name)?,
         };
         Ok(())
     }
@@ -103,7 +103,7 @@ impl RawElem<dyn DataIO>
         self.cache_enabled = false;
     }
 
-    pub fn update(&mut self, data: &Box<dyn DataIO>) -> Result<()> {
+    pub fn update<D: DataIO>(&mut self, data: &D) -> Result<()> {
         self.container = data.update(&self.container)?;
         self.element = None;
         Ok(())
@@ -147,8 +147,8 @@ where
 
     pub fn new_elem(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
-        let nrows = get_nrows(&container);
-        let ncols = get_ncols(&container);
+        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
+        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
         let inner = RawElem { dtype, cache_enabled: false, element: None, container };
         Ok(Self { nrows, ncols, inner })
     }
@@ -263,8 +263,8 @@ impl RawMatrixElem<dyn DataPartialIO>
 {
     pub fn new(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
-        let nrows = get_nrows(&container);
-        let ncols = get_ncols(&container);
+        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
+        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
         let inner = RawElem { dtype, cache_enabled: false, element: None, container };
         Ok(Self { nrows, ncols, inner })
     }
@@ -284,7 +284,7 @@ impl RawMatrixElem<dyn DataPartialIO>
     }
 
     pub fn read_dyn_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
-        Ok(read_dyn_row_slice(&self.inner.container, slice)?)
+        Ok(<Box<dyn DataPartialIO>>::read_row_slice(&self.inner.container, slice)?)
     }
 
     pub fn read_columns(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
@@ -332,7 +332,7 @@ impl RawMatrixElem<dyn DataPartialIO>
         Ok(())
     }
 
-    pub fn update(&mut self, data: &Box<dyn DataPartialIO>) -> Result<()> {
+    pub fn update<D: DataPartialIO>(&mut self, data: &D) -> Result<()> {
         self.nrows = data.nrows();
         self.ncols = data.ncols();
         self.inner.container = data.update(&self.inner.container)?;

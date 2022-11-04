@@ -1,11 +1,11 @@
-use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}};
+use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator};
 
 use std::sync::Arc;
 use std::path::Path;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::File; 
-use anyhow::{anyhow, Result};
+use anyhow::{bail, anyhow, Result};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
 use indexmap::map::IndexMap;
@@ -99,12 +99,6 @@ macro_rules! anndata_setter {
 }
 
 impl AnnData {
-    pub fn n_obs(&self) -> usize { *self.n_obs.lock() }
-
-    pub fn n_vars(&self) -> usize { *self.n_vars.lock() }
-
-    pub fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
-
     pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
@@ -112,8 +106,6 @@ impl AnnData {
             *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
         ).collect())
     }
-
-    pub fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
 
     pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
@@ -182,54 +174,6 @@ impl AnnData {
                 );
             }
         }
-    }
-
-    pub fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
-        match obs_ {
-            None => if !self.obs.is_empty() {
-                self.file.unlink("obs")?;
-                *self.obs.inner().0 = None;
-            },
-            Some(obs) => {
-                self.set_n_obs(obs.nrows());
-                let mut obs_guard = self.obs.inner();
-                match obs_guard.0.as_mut() {
-                    Some(x) => x.update(obs)?,
-                    None => {
-                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
-                            obs.write(&self.file, "obs")?
-                        )?;
-                        elem.enable_cache();
-                        *obs_guard.0 = Some(elem);
-                    },
-                }
-            },
-        }
-        Ok(())
-    }
-
-    pub fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
-        match var_ {
-            None => if !self.var.is_empty() {
-                self.file.unlink("var")?;
-                *self.var.inner().0 = None;
-            },
-            Some(var) => {
-                self.set_n_vars(var.nrows());
-                let mut var_guard = self.var.inner();
-                match var_guard.0.as_mut() {
-                    Some(x) => x.update(var)?,
-                    None => {
-                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
-                            var.write(&self.file, "var")?
-                        )?;
-                        elem.enable_cache();
-                        *var_guard.0 = Some(elem);
-                    },
-                }
-            },
-        }
-        Ok(())
     }
 
     anndata_setter!(
@@ -541,10 +485,10 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
         .map(|(k, v)| new_locations.get(k.unwrap()).map_or(
             v.to_string(), |x| x.clone()
         )).collect();
-    let data: Box<dyn DataIO> = Box::new(DataFrame::new(vec![
+    let data = DataFrame::new(vec![
         keys.clone(),
         Series::new("file_path", new_files),
-    ]).unwrap());
+    ]).unwrap();
     ann.get_uns().inner().add_data("AnnDataSet", &data)?;
     Ok(())
 }
@@ -587,28 +531,20 @@ impl AnnDataSet {
                     keys,
                 ]).unwrap()
             };
-            annotation.set_obs(Some(&df))?;
+            annotation.write_obs(Some(&df))?;
         }
 
         // Set VAR.
         {
             let var = anndatas.values().next().unwrap().get_var();
             if !var.is_empty() {
-                annotation.set_var(Some(&DataFrame::new(vec![
+                annotation.write_var(Some(&DataFrame::new(vec![
                     var.read()?[0].clone()
                 ]).unwrap()))?;
             }
         }
         let stacked = StackedAnnData::new(anndatas, true)?;
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
-    }
-
-    pub fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
-
-    pub fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
-
-    pub fn obs_names(&self) -> Result<Vec<String>> {
-        self.annotation.obs_names()
     }
 
     pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
@@ -619,10 +555,6 @@ impl AnnDataSet {
         ).collect())
     }
 
-    pub fn var_names(&self) -> Result<Vec<String>> {
-        self.annotation.var_names()
-    }
-
     pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
             .enumerate().map(|(i, x)| (x, i)).collect();
@@ -631,13 +563,10 @@ impl AnnDataSet {
         ).collect())
     }
 
-    pub fn get_x(&self) -> Stacked<MatrixElem> { self.anndatas.inner().x.clone() }
+    pub fn get_obs(&self) -> &DataFrameElem { &self.annotation.obs }
+    pub fn get_var(&self) -> &DataFrameElem { &self.annotation.var }
 
-    def_accessor!(
-        RawMatrixElem<DataFrame>,
-        Option<&DataFrame>,
-        { obs, var }
-    );
+    pub fn get_x(&self) -> Stacked<MatrixElem> { self.anndatas.inner().x.clone() }
 
     def_accessor!(
         AxisArrays,
@@ -768,32 +697,143 @@ impl AnnDataSet {
 
 pub trait AnnDataOp {
     type MatrixIter;
+    fn n_obs(&self) -> usize;
+    fn n_vars(&self) -> usize;
+
     fn obs_names(&self) -> Result<Vec<String>>;
     fn var_names(&self) -> Result<Vec<String>>;
-    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>>;
-    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter;
+
+    fn read_obs(&self) -> Result<DataFrame>;
+    fn read_var(&self) -> Result<DataFrame>;
+    fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()>;
+    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()>;
+
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>>;
+    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()>;
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
+    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator;
+
+    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()>;
+    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator;
 }
 
 impl AnnDataOp for AnnData {
     type MatrixIter = ChunkedMatrix;
-    fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
-    fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
-    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
+    fn n_obs(&self) -> usize { *self.n_obs.lock() }
+    fn n_vars(&self) -> usize { *self.n_vars.lock() }
+    fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
+    fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
+
+    fn read_obs(&self) -> Result<DataFrame> { self.get_obs().read() }
+    fn read_var(&self) -> Result<DataFrame> { self.get_var().read() }
+    fn write_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+        match obs_ {
+            None => if !self.obs.is_empty() {
+                self.file.unlink("obs")?;
+                *self.obs.inner().0 = None;
+            },
+            Some(obs) => {
+                self.set_n_obs(obs.nrows());
+                let mut obs_guard = self.obs.inner();
+                match obs_guard.0.as_mut() {
+                    Some(x) => x.update(obs)?,
+                    None => {
+                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
+                            obs.write(&self.file, "obs")?
+                        )?;
+                        elem.enable_cache();
+                        *obs_guard.0 = Some(elem);
+                    },
+                }
+            },
+        }
+        Ok(())
+    }
+
+    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+        match var_ {
+            None => if !self.var.is_empty() {
+                self.file.unlink("var")?;
+                *self.var.inner().0 = None;
+            },
+            Some(var) => {
+                self.set_n_vars(var.nrows());
+                let mut var_guard = self.var.inner();
+                match var_guard.0.as_mut() {
+                    Some(x) => x.update(var)?,
+                    None => {
+                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
+                            var.write(&self.file, "var")?
+                        )?;
+                        elem.enable_cache();
+                        *var_guard.0 = Some(elem);
+                    },
+                }
+            },
+        }
+        Ok(())
+    }
+
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter {
+    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+        self.get_uns().inner().add_data(key, data)
+    }
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
         self.get_x().chunked(chunk_size)
     }
+    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {
+        self.set_n_vars(data.ncols());
+        if !self.x.is_empty() { self.file.unlink("X")?; }
+        let (container, nrows) = data.write(&self.file, "X")?;
+        self.set_n_obs(nrows);
+        *self.x.inner().0 = Some(RawMatrixElem::new(container)?);
+        Ok(())
+    }
+
+    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+        self.get_obsm().inner().add_data(key, data)
+    }
+    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
+        self.get_obsm().inner().insert_from_row_iter(key, data)
+    }
+
 }
 
 impl AnnDataOp for AnnDataSet {
     type MatrixIter = StackedChunkedMatrix;
-    fn obs_names(&self) -> Result<Vec<String>> { self.obs_names() }
-    fn var_names(&self) -> Result<Vec<String>> { self.var_names() }
-    fn read_uns(&self, key: &str) -> Result<Box<dyn DataIO>> {
+    fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
+    fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
+
+    fn obs_names(&self) -> Result<Vec<String>> { self.annotation.obs_names() }
+    fn var_names(&self) -> Result<Vec<String>> { self.annotation.var_names() }
+
+    fn read_obs(&self) -> Result<DataFrame> { self.annotation.read_obs() }
+    fn read_var(&self) -> Result<DataFrame> { self.annotation.read_var() }
+    fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()> { self.annotation.write_obs(obs) }
+    fn write_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.write_var(var) }
+
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn iter_x(&self, chunk_size: usize) -> Self::MatrixIter {
+    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+        self.get_uns().inner().add_data(key, data)
+    }
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
         self.get_x().chunked(chunk_size)
+    }
+    fn write_x_from_row_iter<I>(&self, _: I) -> Result<()> where I: RowIterator {
+        bail!("cannot change X in AnnDataSet")
+    }
+
+    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+        self.get_obsm().inner().add_data(key, data)
+    }
+    fn write_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
+        bail!("Not implemented")
     }
 }

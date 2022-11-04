@@ -1,5 +1,5 @@
 use crate::{
-    data::{DataIO, read_dyn_data},
+    data::DataIO,
     utils::hdf5::{
         create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
         create_dataset,
@@ -581,7 +581,7 @@ impl ReadData for Mapping {
         let group: &Group = container.get_group_ref()?;
 
         let m: Result<HashMap<_, _>>= get_all_data(group)
-            .map(|(k, c)| Ok((k, read_dyn_data(&c)?))).collect();
+            .map(|(k, c)| Ok((k, <Box<dyn DataIO>>::read(&c)?))).collect();
         Ok(Mapping(m?))
     }
 }

@@ -137,11 +137,11 @@ pub trait MatrixIO: MatrixLike + ReadData + WriteData {
         Self::read(container).unwrap().get_rows(idx)
     }
 
-    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Self
+    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Result<Self>
     where Self: Sized,
     {
         let idx: Vec<usize> = slice.collect();
-        Self::read_rows(container, idx.as_slice())
+        Ok(Self::read_rows(container, idx.as_slice()))
     }
 
     fn read_columns(container: &DataContainer, idx: &[usize]) -> Self
@@ -156,42 +156,9 @@ pub trait MatrixIO: MatrixLike + ReadData + WriteData {
         Self::read(container).unwrap().subset(ridx, cidx)
     }
 
-    fn write_rows(
-        &self,
-        idx: &[usize],
-        location: &Group,
-        name: &str
-    ) -> Result<DataContainer>
-    where
-        Self: Sized,
-    {
-        WriteData::write(&self.get_rows(idx), location, name)
-    }
-
-    fn write_columns(
-        &self,
-        idx: &[usize],
-        location: &Group,
-        name: &str
-    ) -> Result<DataContainer>
-    where
-        Self: Sized,
-    {
-        WriteData::write(&self.get_columns(idx), location, name)
-    }
-
-    fn write_partial(
-        &self,
-        ridx: &[usize],
-        cidx: &[usize],
-        location: &Group,
-        name: &str
-    ) -> Result<DataContainer>
-    where
-        Self: Sized,
-    {
-        WriteData::write(&self.subset(ridx, cidx), location, name)
-    }
+    fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer>;
+    fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer>;
+    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer>;
 }
 
 
@@ -204,6 +171,18 @@ impl MatrixIO for DataFrame {
 
     fn get_ncols(container: &DataContainer) -> usize {
         Self::get_nrows(container)
+    }
+
+    fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&<Self as MatrixLike>::get_rows(self, idx), location, name)
+    }
+
+    fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&<Self as MatrixLike>::get_columns(self, idx), location, name)
+    }
+
+    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&<Self as MatrixLike>::subset(self, ridx, cidx), location, name)
     }
 }
 
@@ -218,6 +197,18 @@ where
 
     fn get_ncols(container: &DataContainer) -> usize {
         container.get_dataset_ref().unwrap().shape()[1]
+    }
+
+    fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.get_rows(idx), location, name)
+    }
+
+    fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.get_columns(idx), location, name)
+    }
+
+    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.subset(ridx, cidx), location, name)
     }
 }
 
@@ -259,26 +250,24 @@ where
     }
     */
 
-    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Self
+    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Result<Self>
     where Self: Sized + ReadData,
     {
-        let group = container.get_group_ref().unwrap();
-        let mut indptr: Vec<usize> = group.dataset("indptr").unwrap()
-            .read_slice_1d(slice.start..slice.end+1).unwrap().to_vec();
+        let group = container.get_group_ref()?;
+        let mut indptr: Vec<usize> = group.dataset("indptr")?
+            .read_slice_1d(slice.start..slice.end+1)?.to_vec();
         let lo = indptr[0];
         let hi = indptr[indptr.len() - 1];
-        let data: Vec<T> = group.dataset("data").unwrap()
-            .read_slice_1d(lo..hi).unwrap().to_vec();
-        let indices: Vec<usize> = group.dataset("indices").unwrap()
-            .read_slice_1d(lo..hi).unwrap().to_vec();
+        let data: Vec<T> = group.dataset("data")?.read_slice_1d(lo..hi)?.to_vec();
+        let indices: Vec<usize> = group.dataset("indices")?.read_slice_1d(lo..hi)?.to_vec();
         indptr.iter_mut().for_each(|x| *x -= lo);
-        CsrMatrix::try_from_csr_data(
+        Ok(CsrMatrix::try_from_csr_data(
             indptr.len() - 1,
             Self::get_ncols(container),
             indptr,
             indices,
             data
-        ).unwrap()
+        ).unwrap())
     }
 
     fn read_columns(container: &DataContainer, idx: &[usize]) -> Self
@@ -337,6 +326,18 @@ where
         CsrMatrix::try_from_unsorted_csr_data(
             nrow, idx.len(), new_indptr, new_indices, new_values,
         ).unwrap()
+    }
+
+    fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.get_rows(idx), location, name)
+    }
+
+    fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.get_columns(idx), location, name)
+    }
+
+    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        WriteData::write(&self.subset(ridx, cidx), location, name)
     }
 }
 

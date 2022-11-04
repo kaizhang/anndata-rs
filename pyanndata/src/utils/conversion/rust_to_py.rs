@@ -114,4 +114,3 @@ where T: numpy::Element
         (n, m),
     ))?.to_object(py))
 }
-

@@ -8,40 +8,142 @@ use crate::{proc_numeric_data, _box};
 
 use ndarray::{ArrayD, Axis};
 use itertools::Itertools;
-use hdf5::Result;
+use hdf5::{Result, Group};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 use dyn_clone::DynClone;
 use downcast_rs::Downcast;
 use downcast_rs::impl_downcast;
+use std::ops::Deref;
 
+/// Super trait to deal with regular data IO.
 pub trait DataIO: Send + Sync + DynClone + Downcast + WriteData + ReadData {}
 impl_downcast!(DataIO);
 dyn_clone::clone_trait_object!(DataIO);
 
 impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
 
-pub trait DataPartialIO: MatrixIO + DataIO {}
+impl ReadData for Box<dyn DataIO> {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        match container.get_encoding_type()? {
+            DataType::String => Ok(Box::new(String::read(container)?)),
+            DataType::DataFrame => Ok(Box::new(DataFrame::read(container)?)),
+            DataType::Mapping => Ok(Box::new(Mapping::read(container)?)),
+            DataType::Scalar(ty) => proc_numeric_data!(
+                ty, ReadData::read(container)?, _box, Scalar
+            ),
+            DataType::Array(ty) => proc_numeric_data!(
+                ty, ReadData::read(container)?, _box, ArrayD
+            ),
+            DataType::CsrMatrix(ty) => proc_numeric_data!(
+                ty, ReadData::read(container)?, _box, CsrMatrix
+            ),
+            unknown => Err(hdf5::Error::Internal(
+                format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
+            ))?,
+        }
+    }
+}
+
+impl WriteData for Box<dyn DataIO> {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        self.deref().write(location, name)
+    }
+
+    fn version(&self) -> &str { self.deref().version() }
+
+    fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
+
+    fn dtype() -> DataType where Self: Sized {
+        todo!()
+    }
+}
+
+pub trait DataPartialIO: MatrixIO + DataIO + DynClone + Downcast {}
+impl_downcast!(DataPartialIO);
+dyn_clone::clone_trait_object!(DataPartialIO);
+
 impl<T> DataPartialIO for T where T: MatrixIO + DataIO {}
 
-pub fn read_dyn_data(container: &DataContainer) -> Result<Box<dyn DataIO>> {
-    let dtype = container.get_encoding_type()?;
-    match dtype {
-        DataType::String => Ok(Box::new(String::read(container)?)),
-        DataType::DataFrame => Ok(Box::new(DataFrame::read(container)?)),
-        DataType::Mapping => Ok(Box::new(Mapping::read(container)?)),
-        DataType::Scalar(ty) => proc_numeric_data!(
-            ty, ReadData::read(container)?, _box, Scalar
-        ),
-        DataType::Array(ty) => proc_numeric_data!(
-            ty, ReadData::read(container)?, _box, ArrayD
-        ),
-        DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty, ReadData::read(container)?, _box, CsrMatrix
-        ),
-        unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-        ))?,
+impl ReadData for Box<dyn DataPartialIO> {
+    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+        read_dyn_data_subset(container, None, None)
+    }
+}
+
+impl WriteData for Box<dyn DataPartialIO> {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
+        self.deref().write(location, name)
+    }
+
+    fn version(&self) -> &str { self.deref().version() }
+
+    fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
+
+    fn dtype() -> DataType where Self: Sized {
+        todo!()
+    }
+}
+
+impl MatrixLike for Box<dyn DataPartialIO> {
+
+    fn shape(&self) -> (usize, usize) { self.deref().shape() }
+    fn nrows(&self) -> usize { self.deref().nrows() }
+    fn ncols(&self) -> usize { self.deref().ncols() }
+    fn get_rows(&self, idx: &[usize]) -> Self { unimplemented!() }
+    fn get_columns(&self, idx: &[usize]) -> Self { unimplemented!() }
+    fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self { unimplemented!() }
+}
+
+macro_rules! size_reader {
+    ($container:expr, $ty:ident, $size:ident) => {
+        match $container.get_encoding_type().unwrap() {
+            DataType::CsrMatrix(_) => <CsrMatrix<i8> as $ty>::$size($container),
+            DataType::Array(_) => <ArrayD<i8> as $ty>::$size($container),
+            DataType::DataFrame => <DataFrame as $ty>::$size($container),
+            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
+        }
+    };
+}
+
+impl MatrixIO for Box<dyn DataPartialIO> {
+    fn get_nrows(container: &DataContainer) -> usize { size_reader!(container, MatrixIO, get_nrows) }
+    fn get_ncols(container: &DataContainer) -> usize { size_reader!(container, MatrixIO, get_ncols) }
+
+    fn read_rows(container: &DataContainer, idx: &[usize]) -> Self { read_dyn_data_subset(container, Some(idx), None).unwrap() }
+
+    fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Result<Self> {
+        match container.get_encoding_type()? {
+            DataType::Array(ty) => proc_numeric_data!(
+                ty, MatrixIO::read_row_slice(container, slice)?, _box, ArrayD
+            ),
+            DataType::CsrMatrix(ty) => proc_numeric_data!(
+                ty, MatrixIO::read_row_slice(container, slice)?, _box, CsrMatrix
+            ),
+            unknown => Err(hdf5::Error::Internal(
+                format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
+            ))?,
+        }
+    }
+
+    fn read_columns(container: &DataContainer, idx: &[usize]) -> Self {
+        read_dyn_data_subset(container, None, Some(idx)).unwrap()
+    }
+
+    fn read_partial(container: &DataContainer, ridx: &[usize], cidx: &[usize]) -> Self {
+        read_dyn_data_subset(container, Some(ridx), Some(cidx)).unwrap()
+    }
+
+    fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        self.deref().write_rows(idx, location, name)
+    }
+
+    fn write_columns( &self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        self.deref().write_columns(idx, location, name)
+    }
+
+    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+        self.deref().write_partial(ridx, cidx, location, name)
     }
 }
 
@@ -83,43 +185,6 @@ pub fn read_dyn_data_subset(
             format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
         ))?,
     }
-}
-
-pub fn read_dyn_row_slice(
-    container: &DataContainer,
-    slice: std::ops::Range<usize>,
-) -> Result<Box<dyn DataPartialIO>> {
-    let dtype = container.get_encoding_type()?;
-    match dtype {
-        DataType::Array(ty) => proc_numeric_data!(
-            ty, MatrixIO::read_row_slice(container, slice), _box, ArrayD
-        ),
-        DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty, MatrixIO::read_row_slice(container, slice), _box, CsrMatrix
-        ),
-        unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-        ))?,
-    }
-}
-
-macro_rules! size_reader {
-    ($container:expr, $ty:ident, $size:ident) => {
-        match $container.get_encoding_type().unwrap() {
-            DataType::CsrMatrix(_) => <CsrMatrix<i8> as $ty>::$size($container),
-            DataType::Array(_) => <ArrayD<i8> as $ty>::$size($container),
-            DataType::DataFrame => <DataFrame as $ty>::$size($container),
-            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
-        }
-    };
-}
-
-pub fn get_nrows(container: &DataContainer) -> usize {
-    size_reader!(container, MatrixIO, get_nrows)
-}
- 
-pub fn get_ncols(container: &DataContainer) -> usize {
-    size_reader!(container, MatrixIO, get_ncols)
 }
 
 pub(crate) fn rstack_with_index(

@@ -76,68 +76,51 @@ impl<T> DerefMut for Inner<'_, T> {
     }
 }
 
-
-pub trait ElemTrait {
-    type Data;
-
-    fn dtype(&self) -> Option<DataType>;
-
-    fn is_empty(&self) -> bool;
-
-    fn new_elem(container: DataContainer) -> Result<Self> where Self: Sized;
-
-    fn read(&self) -> Result<Self::Data>;
-
-    fn write(&self, location: &Group, name: &str) -> Result<()>;
-
-    fn update(&self, data: &Self::Data);
-
-    fn enable_cache(&self);
-
-    fn disable_cache(&self);
-}
-
 pub type Elem = Slot<RawElem<dyn DataIO>>;
 
-impl ElemTrait for Elem {
-    type Data = Box<dyn DataIO>;
-
-    fn dtype(&self) -> Option<DataType> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.inner().dtype.clone())
-        }
+impl Elem {
+    pub fn dtype(&self) -> Option<DataType> {
+        if self.is_empty() { None } else { Some(self.inner().dtype.clone()) }
     }
 
-    fn is_empty(&self) -> bool { self.inner().0.is_none() }
-
-    fn new_elem(container: DataContainer) -> Result<Self> {
+    pub fn new_elem(container: DataContainer) -> Result<Self> {
         let elem = RawElem::new(container)?;
         Ok(Self(Arc::new(Mutex::new(Some(elem)))))
     }
 
-    fn read(&self) -> Result<Self::Data> { self.inner().read() }
+    pub fn read(&self) -> Result<Box<dyn DataIO>> { self.inner().read() }
 
-    fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.inner().write(location, name)
-    }
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> { self.inner().write(location, name) }
 
-    fn update(&self, data: &Self::Data) {
-        self.inner().update(data).unwrap();
-    }
+    pub fn update<D: DataIO>(&self, data: &D) { self.inner().update(data).unwrap(); }
 
-    fn enable_cache(&self) { self.inner().enable_cache(); }
-
-    fn disable_cache(&self) { self.inner().disable_cache(); }
+    pub fn enable_cache(&self) { self.inner().enable_cache(); }
+    pub fn disable_cache(&self) { self.inner().disable_cache(); }
 }
 
 pub type MatrixElem = Slot<RawMatrixElem<dyn DataPartialIO>>;
 
 impl MatrixElem {
-    pub fn nrows(&self) -> usize { self.inner().nrows() }
+    pub fn dtype(&self) -> Option<DataType> {
+        if self.is_empty() { None } else { Some(self.inner().inner.dtype.clone()) }
+    }
 
+    pub fn new_elem(container: DataContainer) -> Result<Self> {
+        let elem = RawMatrixElem::new(container)?;
+        Ok(Slot::new(elem))
+    }
+
+    pub fn enable_cache(&self) { self.inner().enable_cache(); }
+    pub fn disable_cache(&self) { self.inner().disable_cache(); }
+
+    pub fn nrows(&self) -> usize { self.inner().nrows() }
     pub fn ncols(&self) -> usize { self.inner().ncols() }
+
+    pub fn read(&self) -> Result<Box<dyn DataPartialIO>> { self.inner().read() }
+
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> { self.inner().write(location, name) }
+
+    pub fn update<D: DataPartialIO>(&self, data: &D) { self.inner().update(data).unwrap(); }
 
     pub fn subset_rows(&self, idx: &[usize]) {
         self.inner().subset_rows(idx).unwrap();
@@ -389,41 +372,6 @@ impl Stacked<MatrixElem>
 
     pub fn disable_cache(&self) {
         self.elems.iter().for_each(|x| x.disable_cache())
-    }
-}
-
-impl ElemTrait for MatrixElem {
-    type Data = Box<dyn DataPartialIO>;
-
-    fn dtype(&self) -> Option<DataType> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.inner().inner.dtype.clone())
-        }
-    }
-
-    fn is_empty(&self) -> bool { todo!() }
-
-    fn new_elem(container: DataContainer) -> Result<Self> {
-        let elem = RawMatrixElem::new(container)?;
-        Ok(Slot::new(elem))
-    }
-
-    fn enable_cache(&self) { self.inner().enable_cache(); }
-
-    fn disable_cache(&self) { self.inner().disable_cache(); }
-
-    fn read(&self) -> Result<Self::Data> {
-        self.inner().read()
-    }
-
-    fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.inner().write(location, name)
-    }
-
-    fn update(&self, data: &Self::Data) {
-        self.inner().update(data).unwrap();
     }
 }
 

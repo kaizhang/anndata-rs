@@ -32,7 +32,7 @@ impl ElemCollection {
         Self { container, data }
     }
 
-    pub fn add_data(&mut self, key: &str, data: &Box<dyn DataIO>) -> Result<()> {
+    pub fn add_data<D: DataIO>(&mut self, key: &str, data: &D) -> Result<()> {
         match self.data.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
@@ -147,7 +147,7 @@ impl AxisArrays {
     
     pub fn size(&self) -> usize { *self.size.lock() }
 
-    pub fn add_data(&mut self, key: &str, data: &Box<dyn DataPartialIO>) -> Result<()> {
+    pub fn add_data<D: DataPartialIO>(&mut self, key: &str, data: &D) -> Result<()> {
         {
             let mut size_guard = self.size.lock();
             let mut n = *size_guard;
