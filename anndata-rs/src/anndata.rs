@@ -1,11 +1,12 @@
 use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator};
+use crate::element::base::InnerDataFrameElem;
 
 use std::sync::Arc;
 use std::path::Path;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::File; 
-use anyhow::{bail, anyhow, Result};
+use anyhow::{bail, anyhow, Result, Context};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
 use indexmap::map::IndexMap;
@@ -41,7 +42,7 @@ impl std::fmt::Display for AnnData {
                 if !self.$df.is_empty() {
                     write!(
                         f, "\n    {}: {}", stringify!($df),
-                        self.$df.get_column_names().unwrap().join(", "),
+                        self.$df.get_column_names().unwrap().into_iter().join(", "),
                     )?;
                 }
                 )*
@@ -99,22 +100,6 @@ macro_rules! anndata_setter {
 }
 
 impl AnnData {
-    pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
-        let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
-            .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i|
-            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
-        ).collect())
-    }
-
-    pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
-        let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
-            .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i|
-            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
-        ).collect())
-    }
-
     pub fn get_x(&self) -> &MatrixElem { &self.x }
     pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
     pub fn get_var(&self) -> &DataFrameElem { &self.var }
@@ -259,14 +244,14 @@ impl AnnData {
         };
         
         if let Some(i) = obs_idx {
-            self.obs.subset_rows(i);
+            self.obs.subset_rows(i).unwrap();
             self.obsm.inner().0.as_mut().map(|x| x.subset(i));
             self.obsp.inner().0.as_mut().map(|x| x.subset(i));
             *self.n_obs.lock() = i.len();
         }
 
         if let Some(j) = var_idx {
-            self.var.subset_rows(j);
+            self.var.subset_rows(j).unwrap();
             self.varm.inner().0.as_mut().map(|x| x.subset(j));
             self.varp.inner().0.as_mut().map(|x| x.subset(j));
             *self.n_vars.lock() = j.len();
@@ -287,7 +272,7 @@ pub struct StackedAnnData {
 impl std::fmt::Display for StackedAnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stacked AnnData objects:")?;
-        let obs: String = self.obs.keys.iter()
+        let obs: String = self.obs.column_names.iter()
             .map(|x| x.as_str()).intersperse(", ").collect();
         write!(f, "\n    obs: {}", obs)?;
         let obsm: String = self.obsm.data.keys()
@@ -300,13 +285,7 @@ impl std::fmt::Display for StackedAnnData {
 impl StackedAnnData {
     fn new(adatas: IndexMap<String, AnnData>, check: bool) -> Result<Self> {
         if check {
-            if !adatas.values().map(|x|
-                if x.var.is_empty() {
-                    None
-                } else {
-                    x.var_names().ok()
-                }
-            ).all_equal() { return Err(anyhow!("var names mismatch")); }
+            if !adatas.values().map(|x| x.var_names()).all_equal() { return Err(anyhow!("var names mismatch")); }
         }
 
         let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
@@ -325,7 +304,7 @@ impl StackedAnnData {
             StackedDataFrame::new(Vec::new())
         } else {
             StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
-        }?;
+        };
 
         let obsm = if adatas.values().any(|x| x.obsm.is_empty()) {
             Ok(StackedAxisArrays { axis: Axis::Row, data: HashMap::new() })
@@ -428,12 +407,12 @@ impl std::fmt::Display for AnnDataSet {
 
         if !self.annotation.obs.is_empty() {
             write!(f, "\n    obs: {}",
-                self.annotation.obs.get_column_names().unwrap().join(", "),
+                self.annotation.obs.get_column_names().unwrap().into_iter().join(", "),
             )?;
         }
         if !self.annotation.var.is_empty() {
             write!(f, "\n    var: {}",
-                self.annotation.var.get_column_names().unwrap().join(", "),
+                self.annotation.var.get_column_names().unwrap().into_iter().join(", "),
             )?;
         }
 
@@ -514,53 +493,31 @@ impl AnnDataSet {
 
         // Set OBS.
         {
+            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names()).collect();
+            if obs_names.is_empty() {
+                annotation.set_obs_names((0..n_obs).into_iter().map(|x| x.to_string()).collect())?;
+            } else {
+                annotation.set_obs_names(obs_names)?;
+            }
             let keys = Series::new(
                 add_key,
                 anndatas.iter().map(|(k, v)| vec![k.clone(); v.n_obs()])
                 .flatten().collect::<Series>(),
             );
-            let df = if anndatas.values().all(|x| x.get_obs().is_empty()) {
-                DataFrame::new(vec![keys]).unwrap()
-            } else {
-                DataFrame::new(vec![
-                    Series::new(
-                        anndatas.values().next().unwrap().obs.get_column_names()?[0].as_str(),
-                        anndatas.values().map(|x| x.obs.get_index().unwrap())
-                            .flatten().collect::<Series>(),
-                    ),
-                    keys,
-                ]).unwrap()
-            };
+            let df = DataFrame::new(vec![keys])?;
             annotation.write_obs(Some(&df))?;
         }
 
         // Set VAR.
         {
-            let var = anndatas.values().next().unwrap().get_var();
-            if !var.is_empty() {
-                annotation.write_var(Some(&DataFrame::new(vec![
-                    var.read()?[0].clone()
-                ]).unwrap()))?;
+            let adata = anndatas.values().next().unwrap();
+            if !adata.var_names().is_empty() {
+                annotation.set_var_names(adata.var_names().into_iter().collect())?;
+                annotation.write_var(Some(&adata.get_var().read()?))?;
             }
         }
         let stacked = StackedAnnData::new(anndatas, true)?;
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
-    }
-
-    pub fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
-        let ix_map: HashMap<String, usize> = self.obs_names()?.into_iter()
-            .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i|
-            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
-        ).collect())
-    }
-
-    pub fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
-        let ix_map: HashMap<String, usize> = self.var_names()?.into_iter()
-            .enumerate().map(|(i, x)| (x, i)).collect();
-        Ok(names.iter().map(|i|
-            *ix_map.get(i).expect(&format!("key '{}' does not exist", i))
-        ).collect())
     }
 
     pub fn get_obs(&self) -> &DataFrameElem { &self.annotation.obs }
@@ -697,16 +654,37 @@ impl AnnDataSet {
 
 pub trait AnnDataOp {
     type MatrixIter;
+    /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
+
+    /// Return the number of variables (columns).
     fn n_vars(&self) -> usize;
 
-    fn obs_names(&self) -> Result<Vec<String>>;
-    fn var_names(&self) -> Result<Vec<String>>;
+    /// Return the names of observations.
+    fn obs_names(&self) -> Vec<String>;
+
+    /// Return the names of variables.
+    fn var_names(&self) -> Vec<String>;
+
+    /// Chagne the names of observations.
+    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()>;
+
+    /// Chagne the names of variables.
+    fn set_var_names(&self, index: DataFrameIndex) -> Result<()>;
+
+    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>>;
+    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>>;
 
     fn read_obs(&self) -> Result<DataFrame>;
     fn read_var(&self) -> Result<DataFrame>;
+
+    /// Change the observation annotations. If `obs == None`, the `obs` will be
+    /// removed.
     fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()>;
-    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()>;
+
+    /// Change the variable annotations. If `var == None`, the `var` will be
+    /// removed.
+    fn write_var(&self, var: Option<&DataFrame>) -> Result<()>;
 
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>>;
     fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()>;
@@ -722,8 +700,46 @@ impl AnnDataOp for AnnData {
     type MatrixIter = ChunkedMatrix;
     fn n_obs(&self) -> usize { *self.n_obs.lock() }
     fn n_vars(&self) -> usize { *self.n_vars.lock() }
-    fn obs_names(&self) -> Result<Vec<String>> { Ok(self.obs.get_index()?) }
-    fn var_names(&self) -> Result<Vec<String>> { Ok(self.var.get_index()?) }
+
+    fn obs_names(&self) -> Vec<String> { 
+        if self.obs.is_empty() { Vec::new() } else { self.obs.inner().index.names.clone() }
+    }
+        
+    fn var_names(&self) -> Vec<String> {
+        if self.var.is_empty() { Vec::new() } else { self.var.inner().index.names.clone() }
+    }
+
+    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
+        self.set_n_obs(index.len());
+        if self.obs.is_empty() {
+            let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
+            self.obs.insert(df);
+        } else {
+            self.obs.set_index(index)?;
+        }
+        Ok(())
+    }
+
+    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> { 
+        self.set_n_vars(index.len());
+        if self.var.is_empty() {
+            let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
+            self.var.insert(df);
+        } else {
+            self.var.set_index(index)?;
+        }
+        Ok(())
+    }
+
+    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let inner = self.obs.inner();
+        names.iter().map(|i| inner.index.get(i).context(format!("'{}' does not exist in obs_names", i))).collect()
+    }
+
+    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+        let inner = self.var.inner();
+        names.iter().map(|i| inner.index.get(i).context(format!("'{}' does not exist in obs_names", i))).collect()
+    }
 
     fn read_obs(&self) -> Result<DataFrame> { self.get_obs().read() }
     fn read_var(&self) -> Result<DataFrame> { self.get_var().read() }
@@ -731,20 +747,17 @@ impl AnnDataOp for AnnData {
         match obs_ {
             None => if !self.obs.is_empty() {
                 self.file.unlink("obs")?;
-                *self.obs.inner().0 = None;
+                self.obs.drop();
             },
             Some(obs) => {
-                self.set_n_obs(obs.nrows());
-                let mut obs_guard = self.obs.inner();
-                match obs_guard.0.as_mut() {
-                    Some(x) => x.update(obs)?,
-                    None => {
-                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
-                            obs.write(&self.file, "obs")?
-                        )?;
-                        elem.enable_cache();
-                        *obs_guard.0 = Some(elem);
-                    },
+                let nrows = obs.nrows();
+                self.set_n_obs(nrows);
+                if self.obs.is_empty() {
+                    let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
+                    let df = InnerDataFrameElem::new(&self.file, "obs", index, obs)?;
+                    self.obs.insert(df);
+                } else {
+                    self.obs.update(obs)?;
                 }
             },
         }
@@ -755,20 +768,17 @@ impl AnnDataOp for AnnData {
         match var_ {
             None => if !self.var.is_empty() {
                 self.file.unlink("var")?;
-                *self.var.inner().0 = None;
+                self.var.drop();
             },
             Some(var) => {
-                self.set_n_vars(var.nrows());
-                let mut var_guard = self.var.inner();
-                match var_guard.0.as_mut() {
-                    Some(x) => x.update(var)?,
-                    None => {
-                        let mut elem = RawMatrixElem::<DataFrame>::new_elem(
-                            var.write(&self.file, "var")?
-                        )?;
-                        elem.enable_cache();
-                        *var_guard.0 = Some(elem);
-                    },
+                let nrows = var.nrows();
+                self.set_n_vars(nrows);
+                if self.var.is_empty() {
+                    let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
+                    let df = InnerDataFrameElem::new(&self.file, "var", index, var)?;
+                    self.var.insert(df);
+                } else {
+                    self.var.update(var)?;
                 }
             },
         }
@@ -808,8 +818,12 @@ impl AnnDataOp for AnnDataSet {
     fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
     fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
 
-    fn obs_names(&self) -> Result<Vec<String>> { self.annotation.obs_names() }
-    fn var_names(&self) -> Result<Vec<String>> { self.annotation.var_names() }
+    fn obs_names(&self) -> Vec<String> { self.annotation.obs_names() }
+    fn var_names(&self) -> Vec<String> { self.annotation.var_names() }
+    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> { self.annotation.set_obs_names(index) }
+    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> { self.annotation.set_var_names(index) }
+    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.obs_ix(names) }
+    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.var_ix(names) }
 
     fn read_obs(&self) -> Result<DataFrame> { self.annotation.read_obs() }
     fn read_var(&self) -> Result<DataFrame> { self.annotation.read_var() }

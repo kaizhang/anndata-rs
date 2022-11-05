@@ -1,5 +1,4 @@
 use crate::{
-    anndata::AnnData,
     data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
     element::{AxisArrays, MatrixElem, RawMatrixElem},

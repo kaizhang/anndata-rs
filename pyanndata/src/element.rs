@@ -160,14 +160,6 @@ pub struct PyDataFrameElem(pub(crate) DataFrameElem);
 
 #[pymethods]
 impl PyDataFrameElem {
-    /// Enable caching so that data will be stored in memory when the element
-    /// is accessed the first time. Subsequent requests for the data will use
-    /// the in-memory cache.
-    #[pyo3(text_signature = "($self)")]
-    fn enable_cache(&mut self) { self.0.enable_cache() }
-
-    fn disable_cache(&mut self) { self.0.disable_cache() }
-
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if is_none_slice(py, subscript)? {
             to_py_df(self.0.read().unwrap())
@@ -177,6 +169,7 @@ impl PyDataFrameElem {
         }
     }
 
+    //TODO: pandas dataframe should set index as well.
     fn __setitem__<'py>(
         &self,
         py: Python<'py>,
@@ -191,13 +184,11 @@ impl PyDataFrameElem {
             df.call_method1(py, "__setitem__", (key, data))?;
             df
         };
-        self.0.update(&to_rust_df(new_df.as_ref(py)).unwrap());
+        self.0.update(&to_rust_df(new_df.as_ref(py)).unwrap()).unwrap();
         Ok(())
     }
  
-    fn __contains__(&self, key: &str) -> bool {
-        self.0.read().unwrap().find_idx_by_name(key).is_some()
-    }
+    fn __contains__(&self, key: &str) -> bool { self.0.get_column_names().map(|x| x.contains(key)).unwrap_or(false) }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
 

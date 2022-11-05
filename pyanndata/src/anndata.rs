@@ -5,6 +5,7 @@ use crate::utils::{
 };
 
 use anndata_rs::anndata::AnnDataOp;
+use anndata_rs::element::DataFrameIndex;
 use anndata_rs::iterator::RowIterator;
 use anndata_rs::{anndata, element::Slot};
 use anndata_rs::data::{DataIO, DataPartialIO};
@@ -211,9 +212,7 @@ impl AnnData {
 
     /// Names of variables.
     #[getter]
-    fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names().unwrap()
-    }
+    fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
     #[pyo3(text_signature = "($self, names)")]
     fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
@@ -222,9 +221,7 @@ impl AnnData {
 
     /// Names of observations.
     #[getter]
-    fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names().unwrap()
-    }
+    fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
 
     #[pyo3(text_signature = "($self, names)")]
     fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
@@ -445,9 +442,7 @@ impl AnnDataSet {
 
     /// Names of variables.
     #[getter]
-    fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names().unwrap()
-    }
+    fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
     #[pyo3(text_signature = "($self, names)")]
     fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
@@ -456,9 +451,7 @@ impl AnnDataSet {
 
     /// Names of observations.
     #[getter]
-    fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names().unwrap()
-    }
+    fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
 
     #[pyo3(text_signature = "($self, names)")]
     fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
@@ -777,8 +770,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     type MatrixIter = PyObject;
     fn n_obs(&self) -> usize { self.0.getattr("n_obs").unwrap().extract().unwrap() }
     fn n_vars(&self) -> usize { self.0.getattr("n_vars").unwrap().extract().unwrap() }
-    fn obs_names(&self) -> Result<Vec<String>> {todo!()}
-    fn var_names(&self) -> Result<Vec<String>> {todo!()}
+    fn obs_names(&self) -> Vec<String> {todo!()}
+    fn var_names(&self) -> Vec<String> {todo!()}
+
+    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {todo!()}
+    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {todo!()}
+    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {todo!()}
+    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {todo!()}
 
     fn read_obs(&self) -> Result<DataFrame> { todo!() }
     fn read_var(&self) -> Result<DataFrame> {todo!()}

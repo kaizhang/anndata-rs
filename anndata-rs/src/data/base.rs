@@ -434,16 +434,10 @@ impl WriteData for DataFrame {
         create_str_attr(&group, "encoding-type", "dataframe")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
-        let colnames = self.get_column_names();
-        let index_name = colnames[0];
-        create_str_attr(&group, "_index", index_name)?;
-
-        let columns: Array1<hdf5::types::VarLenUnicode> = colnames.into_iter()
-            .skip(1).map(|x| x.parse().unwrap()).collect();
+        let columns: Array1<hdf5::types::VarLenUnicode> = self.get_column_names().into_iter()
+            .map(|x| x.parse().unwrap()).collect();
         group.new_attr_builder().with_data(&columns).create("column-order")?;
-
         self.iter().try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
-
         Ok(DataContainer::H5Group(group))
     }
 
@@ -455,14 +449,7 @@ impl WriteData for DataFrame {
 impl ReadData for DataFrame {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let group: &Group = container.get_group_ref()?;
-        let index = read_str_attr(group, "_index")?;
-        let columns = if group.attr("column-order")?.size() == 0 {
-            Vec::new()
-        } else {
-            read_str_vec_attr(group, "column-order")?
-        };
-
-        std::iter::once(index).chain(columns).map(|x| {
+        read_str_vec_attr(group, "column-order")?.into_iter().map(|x| {
             let name = x.as_str();
             let mut series = Series::read(&DataContainer::open(group, name)?)?;
             series.rename(name);

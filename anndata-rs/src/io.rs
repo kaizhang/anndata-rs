@@ -16,8 +16,8 @@ impl AnnData {
         let file = File::create(filename)?;
 
         self.get_x().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
-        self.get_obs().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "obs"))?;
-        self.get_var().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "var"))?;
+        self.get_obs().write(&file, "obs")?;
+        self.get_var().write(&file, "var")?;
         self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
         self.get_obsp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
         self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
@@ -37,8 +37,7 @@ impl AnnData {
         match obs_idx {
             Some(i) => {
                 let file = File::create(filename)?;
-                self.obs.inner().0.as_mut()
-                    .map(|x| x.write_rows(i, &file, "obs"));
+                self.obs.write_rows(i, &file, "obs")?;
                 self.obsm.inner().0.as_mut()
                     .map(|x| x.write_subset(i, &file.create_group("obsm")?));
                 self.obsp.inner().0.as_mut()
@@ -47,8 +46,7 @@ impl AnnData {
                     Some(j) => {
                         self.x.inner().0.as_mut()
                             .map(|x| x.write_partial(i, j, &file, "X"));
-                        self.var.inner().0.as_mut()
-                            .map(|x| x.write_rows(j, &file, "var"));
+                        self.var.write_rows(j, &file, "var")?;
                         self.varm.inner().0.as_mut()
                             .map(|x| x.write_subset(j, &file.create_group("varm")?));
                         self.varp.inner().0.as_mut()
@@ -56,8 +54,7 @@ impl AnnData {
                     },
                     None => {
                         self.x.inner().0.as_mut().map(|x| x.write_rows(i, &file, "X"));
-                        self.var.inner().0.as_mut()
-                            .map(|x| x.write(&file, "var"));
+                        self.var.write(&file, "var")?;
                         self.varm.inner().0.as_mut()
                             .map(|x| x.write(&file.create_group("varm")?));
                         self.varp.inner().0.as_mut()
@@ -71,15 +68,13 @@ impl AnnData {
             None => match var_idx {
                 Some(j) => {
                     let file = File::create(filename)?;
-                    self.obs.inner().0.as_mut()
-                        .map(|x| x.write(&file, "obs"));
+                    self.obs.write(&file, "obs")?;
                     self.obsm.inner().0.as_mut()
                         .map(|x| x.write(&file.create_group("obsm")?));
                     self.obsp.inner().0.as_mut()
                         .map(|x| x.write(&file.create_group("obsp")?));
                     self.x.inner().0.as_mut().map(|x| x.write_columns(j, &file, "X"));
-                    self.var.inner().0.as_mut()
-                        .map(|x| x.write_rows(j, &file, "var"));
+                    self.var.write_rows(j, &file, "var")?;
                     self.varm.inner().0.as_mut()
                         .map(|x| x.write_subset(j, &file.create_group("varm")?));
                     self.varp.inner().0.as_mut()
@@ -127,7 +122,7 @@ impl AnnData {
 
         // Read obs
         let obs = if file.link_exists("obs") {
-            let obs = DataFrameElem::new_elem(DataContainer::open(&file, "obs")?)?;
+            let obs = DataFrameElem::try_from(DataContainer::open(&file, "obs")?)?;
             let n = *n_obs.lock();
             if n == 0 {
                 *n_obs.lock() = obs.nrows();
@@ -144,14 +139,14 @@ impl AnnData {
 
         // Read var
         let var = if file.link_exists("var") {
-            let var = DataFrameElem::new_elem(DataContainer::open(&file, "var")?)?;
+            let var = DataFrameElem::try_from(DataContainer::open(&file, "var")?)?;
             let n = *n_vars.lock();
             if n == 0 {
-                *n_vars.lock() = var.ncols();
+                *n_vars.lock() = var.nrows();
             } else {
-                assert!(n == var.ncols(),
+                assert!(n == var.nrows(),
                     "Inconsistent number of variables: {} (X) != {} (var)",
-                    n, var.ncols(),
+                    n, var.nrows(),
                 );
             }
             var

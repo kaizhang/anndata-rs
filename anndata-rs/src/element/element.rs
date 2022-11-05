@@ -1,80 +1,17 @@
 use crate::{
     data::*,
     iterator::{ChunkedMatrix, StackedChunkedMatrix},
-    element::{RawMatrixElem, RawElem},
-    utils::hdf5::{read_str_vec_attr, read_str_attr, read_str_vec},
+    element::{RawMatrixElem, RawElem, Slot, DataFrameElem},
 };
 
 use polars::{frame::DataFrame, series::Series};
-use std::collections::HashSet;
 use hdf5::Group; 
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use std::sync::Arc;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use itertools::Itertools;
-use std::ops::{Deref, DerefMut};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-
-pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
-
-impl<T> Clone for Slot<T> {
-    fn clone(&self) -> Self { Slot(self.0.clone()) }
-}
-
-impl<T> std::fmt::Display for Slot<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_empty() {
-            write!(f, "Empty or closed slot")
-        } else {
-            write!(f, "{}", self.inner().deref())
-        }
-    }
-}
-
-impl<T> Slot<T> {
-    pub fn new(x: T) -> Self { Slot(Arc::new(Mutex::new(Some(x)))) }
-
-    pub fn empty() -> Self { Slot(Arc::new(Mutex::new(None))) }
-
-    pub fn is_empty(&self) -> bool { self.0.lock().is_none() }
-
-    pub fn inner(&self) -> Inner<'_, T> { Inner(self.0.lock()) }
-
-    pub fn insert(&self, data: T) -> Option<T> {
-        std::mem::replace(self.0.lock().deref_mut(), Some(data))
-    }
-
-    pub fn extract(&self) -> Option<T> {
-        std::mem::replace(self.0.lock().deref_mut(), None)
-    } 
-
-    pub fn drop(&self) { let _ = self.extract(); } 
-}
-
-pub struct Inner<'a, T>(pub MutexGuard<'a, Option<T>>);
-
-impl<T> Deref for Inner<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match &self.0.deref() {
-            None => panic!("accessing an empty slot"),
-            Some(x) => x,
-        }
-    }
-}
-
-impl<T> DerefMut for Inner<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self.0.deref_mut() {
-            None => panic!("accessing an empty slot"),
-            Some(ref mut x) => x,
-        }
-    }
-}
+use indexmap::set::IndexSet;
 
 pub type Elem = Slot<RawElem<dyn DataIO>>;
 
@@ -141,97 +78,6 @@ impl MatrixElem {
             size: self.nrows(),
             current_index: 0,
         }
-    }
-}
-
-pub type DataFrameElem = Slot<RawMatrixElem<DataFrame>>;
-
-impl DataFrameElem {
-    pub fn new_elem(container: DataContainer) -> Result<Self> {
-        let mut elem = RawMatrixElem::<DataFrame>::new_elem(container)?;
-        elem.enable_cache();
-        Ok(Slot::new(elem))
-    }
-
-    pub fn enable_cache(&self) {
-        self.inner().enable_cache();
-    }
-
-    pub fn disable_cache(&self) {
-        self.inner().disable_cache();
-    }
-
-    pub fn read(&self) -> Result<DataFrame> {
-        self.inner().read()
-    }
-
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.inner().write(location, name)
-    }
-
-    pub fn update(&self, data: &DataFrame) {
-        self.inner().update(data).unwrap()
-    }
-
-    pub fn column(&self, name: &str) -> Result<Series> {
-        let elem = self.inner();
-        match &elem.inner.element {
-            Some(el) => Ok(el.column(name)?.clone()),
-            None => {
-                let grp = elem.inner.container.get_group_ref()?;
-                Ok(ReadData::read(&DataContainer::open(grp, name)?)?)
-                /*
-                let mut r = read_str_vec_attr(grp, "column-order")?;
-                r.insert(0, read_str_attr(grp, "_index")?);
-                */
-            }
-        }
-    }
-
-    pub fn get_column_names(&self) -> Result<Vec<String>> {
-        let elem = self.inner();
-        match &elem.inner.element {
-            Some(el) => Ok(el.get_column_names_owned()),
-            None => {
-                let grp = elem.inner.container.get_group_ref()?;
-                let mut r = read_str_vec_attr(grp, "column-order")?;
-                r.insert(0, read_str_attr(grp, "_index")?);
-                Ok(r)
-            }
-        }
-    }
-
-    pub fn get_index(&self) -> Result<Vec<String>> {
-        let elem = self.inner();
-        match &elem.inner.element {
-            Some(el) => Ok(el[0].utf8().unwrap().into_iter()
-                .map(|s| s.unwrap().to_string()).collect()),
-            None => {
-                let grp = elem.inner.container.get_group_ref()?;
-                let index = read_str_attr(grp, "_index")?;
-                Ok(read_str_vec(&grp.dataset(index.as_str())?)?)
-            },
-        }
-    }
-
-    pub fn nrows(&self) -> usize {
-        self.inner().nrows()
-    }
-
-    pub fn ncols(&self) -> usize {
-        self.inner().ncols()
-    }
-
-    pub fn subset_rows(&self, idx: &[usize]) {
-        self.inner().0.as_mut().map(|x| x.subset_rows(idx).unwrap());
-    }
-
-    pub fn subset_cols(&self, idx: &[usize]) {
-        self.inner().0.as_mut().map(|x| x.subset_cols(idx).unwrap());
-    }
-
-    pub fn subset(&self, ridx: &[usize], cidx: &[usize]) {
-        self.inner().0.as_mut().map(|x| x.subset(ridx, cidx).unwrap());
     }
 }
 
@@ -312,9 +158,10 @@ impl Stacked<MatrixElem>
         accum: Arc<Mutex<AccumLength>>,
     ) -> Result<Self> {
         if !elems.iter().map(|x| x.dtype()).all_equal() {
-            return Err(anyhow!("dtype not equal"));
+            bail!("dtype not equal")
+        } else {
+            Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
         }
-        Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
     }
 
     pub fn nrows(&self) -> usize { *self.nrows.lock() }
@@ -378,49 +225,41 @@ impl Stacked<MatrixElem>
 
 #[derive(Clone)]
 pub struct StackedDataFrame {
-    pub keys: HashSet<String>,
+    pub column_names: IndexSet<String>,
     pub elems: Arc<Vec<DataFrameElem>>,
 }
 
 impl std::fmt::Display for StackedDataFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let keys: String = self.keys.iter().map(|x| x.as_str()).intersperse(", ").collect();
-        write!(f, "stacked dataframe with columns: {}", keys)
+        let column_names: String = self.column_names.iter().map(|x| x.as_str()).intersperse(", ").collect();
+        write!(f, "stacked dataframe with columns: {}", column_names)
     }
 }
 
 impl StackedDataFrame {
-    pub fn new(elems: Vec<DataFrameElem>) -> Result<Self> {
-        let keys: Result<HashSet<String>> = elems.iter()
-            .map(|x| Ok(x.get_column_names()?.into_iter().collect::<HashSet<String>>()))
-            .reduce(|accum, item| match (accum, item) {
-                (Ok(mut x), Ok(y)) => {
-                    x.retain(|e| y.contains(e));
-                    Ok(x)
-                },
-                (Err(e), _) => Err(e),
-                (_, Err(e)) => Err(e),
-            }).unwrap_or(Ok(HashSet::new()));
-        Ok(Self { keys: keys?, elems: Arc::new(elems) })
+    pub fn new(elems: Vec<DataFrameElem>) -> Self {
+        let column_names = elems.iter().map(|x| x.get_column_names().unwrap_or(IndexSet::new()))
+            .reduce(|shared_keys, next_keys| shared_keys.intersection(&next_keys).map(|x| x.to_owned()).collect())
+            .unwrap_or(IndexSet::new());
+        Self { column_names, elems: Arc::new(elems) }
     }
 
     pub fn read(&self) -> Result<DataFrame> {
-        let mut df = DataFrame::empty();
-        self.elems.iter().try_for_each(|x| df.vstack_mut(&x.read()?).map(|_| ()))?;
-        df.rechunk();
-        Ok(df)
+        let mut merged = DataFrame::empty();
+        self.elems.iter().for_each(|el| {
+            el.with_data_mut_ref(|x| 
+                if let Some((_, df)) = x { merged.vstack_mut(df).unwrap(); }
+            ).unwrap();
+        });
+        merged.rechunk();
+        Ok(merged)
     }
 
     pub fn column(&self, name: &str) -> Result<Series> {
-        if self.keys.contains(name) {
-            let mut series = self.elems.iter().map(|x| x.column(name))
-                .collect::<Result<Vec<_>>>()?;
-            Ok(series.iter_mut().reduce(|accum, item| {
-                accum.append(item).unwrap();
-                accum
-            }).unwrap().clone())
+        if self.column_names.contains(name) {
+            Ok(self.read()?.column(name)?.clone())
         } else {
-            return Err(anyhow!("key is not present"));
+            bail!("key is not present");
         }
     }
 }
