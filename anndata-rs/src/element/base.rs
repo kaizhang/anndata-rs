@@ -5,6 +5,8 @@ use crate::{
         create_dataset,
     },
 };
+use crate::iterator::ChunkedMatrix;
+use crate::iterator::StackedChunkedMatrix;
 
 use std::boxed::Box;
 use hdf5::Group; 
@@ -16,7 +18,10 @@ use std::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
 use std::ops::{Deref, DerefMut};
 use indexmap::set::IndexSet;
+use itertools::Itertools;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
+/// Slot stores an optional object wrapped by Arc and Mutex.
 pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
 impl<T> Clone for Slot<T> {
@@ -37,11 +42,15 @@ where
 }
 
 impl<T> Slot<T> {
+    /// Create a slot from data.
     pub fn new(x: T) -> Self { Slot(Arc::new(Mutex::new(Some(x)))) }
 
+    /// Create an empty slot.
     pub fn empty() -> Self { Slot(Arc::new(Mutex::new(None))) }
 
     pub fn is_empty(&self) -> bool { self.0.lock().is_none() }
+
+    pub fn lock(&self) -> MutexGuard<'_, Option<T>> { self.0.lock() }
 
     pub fn inner(&self) -> Inner<'_, T> { Inner(self.0.lock()) }
 
@@ -53,7 +62,7 @@ impl<T> Slot<T> {
     /// Extract the data from the slot. The slot becomes empty after this operation.
     pub fn extract(&self) -> Option<T> {
         std::mem::replace(self.0.lock().deref_mut(), None)
-    } 
+    }
 
     /// Remove the data from the slot.
     pub fn drop(&self) { let _ = self.extract(); } 
@@ -61,7 +70,6 @@ impl<T> Slot<T> {
 
 pub struct Inner<'a, T>(pub MutexGuard<'a, Option<T>>);
 
-// TODO: change to result type
 impl<T> Deref for Inner<'_, T> {
     type Target = T;
 
@@ -79,395 +87,6 @@ impl<T> DerefMut for Inner<'_, T> {
             None => panic!("accessing an empty slot"),
             Some(ref mut x) => x,
         }
-    }
-}
-
-
-pub struct RawElem<T: ?Sized> {
-    pub dtype: DataType,
-    pub(crate) cache_enabled: bool,
-    pub(crate) container: DataContainer,
-    pub(crate) element: Option<Box<T>>,
-}
-
-impl<T> std::fmt::Display for RawElem<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} element, cache_enabled: {}, cached: {}",
-            self.dtype,
-            if self.cache_enabled { "yes" } else { "no" },
-            if self.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-impl std::fmt::Display for RawElem<dyn DataIO> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} element, cache_enabled: {}, cached: {}",
-            self.dtype,
-            if self.cache_enabled { "yes" } else { "no" },
-            if self.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-impl<T> RawElem<T>
-where
-    T: DataIO + Clone,
-{
-    pub fn read(&mut self) -> Result<T> { 
-        match &self.element {
-            Some(data) => Ok((*data.as_ref()).clone()),
-            None => {
-                let data: T = ReadData::read(&self.container)?;
-                if self.cache_enabled {
-                    self.element = Some(Box::new(data.clone()));
-                }
-                Ok(data)
-            },
-        }
-    }
-
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        match &self.element {
-            Some(data) => data.write(location, name)?,
-            None => T::read(&self.container)?.write(location, name)?,
-        };
-        Ok(())
-    }
-
-    pub fn enable_cache(&mut self) {
-        self.cache_enabled = true;
-    }
-
-    pub fn disable_cache(&mut self) {
-        if self.element.is_some() { self.element = None; }
-        self.cache_enabled = false;
-    }
-}
-
-impl RawElem<dyn DataIO>
-{
-    pub fn new(container: DataContainer) -> Result<Self> {
-        let dtype = container.get_encoding_type()?;
-        Ok(Self { dtype, cache_enabled: false, element: None, container })
-    }
-
-    pub fn read(&mut self) -> Result<Box<dyn DataIO>> {
-        match &self.element {
-            Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
-            None => {
-                let data = <Box<dyn DataIO>>::read(&self.container)?;
-                if self.cache_enabled {
-                    self.element = Some(dyn_clone::clone_box(data.as_ref()));
-                }
-                Ok(data)
-            }
-        }
-    }
-
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        match &self.element {
-            Some(data) => data.write(location, name)?,
-            None => <Box<dyn DataIO>>::read(&self.container)?.write(location, name)?,
-        };
-        Ok(())
-    }
-
-    pub fn enable_cache(&mut self) {
-        self.cache_enabled = true;
-    }
-
-    pub fn disable_cache(&mut self) {
-        if self.element.is_some() { self.element = None; }
-        self.cache_enabled = false;
-    }
-
-    pub fn update<D: DataIO>(&mut self, data: &D) -> Result<()> {
-        self.container = data.update(&self.container)?;
-        self.element = None;
-        Ok(())
-    }
-}
-
-pub struct RawMatrixElem<T: ?Sized> {
-    nrows: usize,
-    ncols: usize,
-    pub inner: RawElem<T>,
-}
-
-impl<T> std::fmt::Display for RawMatrixElem<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} element, cache_enabled: {}, cached: {}",
-            self.inner.dtype,
-            if self.inner.cache_enabled { "yes" } else { "no" },
-            if self.inner.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-impl std::fmt::Display for RawMatrixElem<dyn DataPartialIO> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} element, cache_enabled: {}, cached: {}",
-            self.inner.dtype,
-            if self.inner.cache_enabled { "yes" } else { "no" },
-            if self.inner.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-impl<T> RawMatrixElem<T>
-where
-    T: DataPartialIO + Clone,
-{
-    pub fn dtype(&self) -> DataType { self.inner.dtype.clone() }
-
-    pub fn nrows(&self) -> usize { self.nrows }
-    pub fn ncols(&self) -> usize { self.ncols }
-
-    pub fn new_elem(container: DataContainer) -> Result<Self> {
-        let dtype = container.get_encoding_type()?;
-        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
-        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
-        let inner = RawElem { dtype, cache_enabled: false, element: None, container };
-        Ok(Self { nrows, ncols, inner })
-    }
-    
-    pub fn enable_cache(&mut self) { self.inner.enable_cache() }
-    
-    pub fn disable_cache(&mut self) { self.inner.disable_cache() }
-
-    pub fn read_rows(&self, idx: &[usize]) -> T {
-        match &self.inner.element {
-            Some(data) => data.get_rows(idx),
-            None => MatrixIO::read_rows(&self.inner.container, idx),
-        }
-    }
-
-    pub fn read_columns(&self, idx: &[usize]) -> T {
-        match &self.inner.element {
-            Some(data) => data.get_columns(idx),
-            None => MatrixIO::read_columns(&self.inner.container, idx),
-        }
-    }
-
-    pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> T {
-        match &self.inner.element {
-            Some(data) => data.subset(ridx, cidx),
-            None => MatrixIO::read_partial(&self.inner.container, ridx, cidx),
-        }
-    }
-
-    pub fn read(&mut self) -> Result<T> { self.inner.read() }
-
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        self.inner.write(location, name)
-    }
-
-    pub fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_rows(idx).write(location, name)?;
-        Ok(())
-    }
-
-    pub fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_columns(idx).write(location, name)?;
-        Ok(())
-    }
-
-    pub fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_partial(ridx, cidx).write(location, name)?;
-        Ok(())
-    }
-
-    pub fn subset_rows(&mut self, idx: &[usize]) -> Result<()> {
-        for i in idx {
-            if *i >= self.nrows {
-                panic!("index out of bound")
-            }
-        }
-        let data = self.read_rows(idx);
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(Box::new(data));
-        }
-        self.nrows = idx.len();
-        Ok(())
-    }
-
-    pub fn subset_cols(&mut self, idx: &[usize]) -> Result<()> {
-        for i in idx {
-            if *i >= self.ncols {
-                panic!("index out of bound")
-            }
-        }
-        let data = self.read_columns(idx);
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(Box::new(data));
-        }
-        self.ncols = idx.len();
-        Ok(())
-    }
-
-    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) -> Result<()> {
-        for i in ridx {
-            if *i >= self.nrows {
-                panic!("row index out of bound")
-            }
-        }
-        for j in cidx {
-            if *j >= self.ncols {
-                panic!("column index out of bound")
-            }
-        }
-        let data = self.read_partial(ridx, cidx);
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(Box::new(data));
-        }
-        self.nrows = ridx.len();
-        self.ncols = cidx.len();
-        Ok(())
-    }
-
-    pub fn update(&mut self, data: &T) -> Result<()> {
-        self.nrows = data.nrows();
-        self.ncols = data.ncols();
-        self.inner.container = data.update(&self.inner.container)?;
-        self.inner.element = None;
-        Ok(())
-    }
-}
-
-impl RawMatrixElem<dyn DataPartialIO>
-{
-    pub fn new(container: DataContainer) -> Result<Self> {
-        let dtype = container.get_encoding_type()?;
-        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
-        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
-        let inner = RawElem { dtype, cache_enabled: false, element: None, container };
-        Ok(Self { nrows, ncols, inner })
-    }
-
-    pub fn enable_cache(&mut self) { self.inner.cache_enabled = true; }
-
-    pub fn disable_cache(&mut self) {
-        if self.inner.element.is_some() { self.inner.element = None; }
-        self.inner.cache_enabled = false;
-    }
-
-    pub fn nrows(&self) -> usize { self.nrows }
-    pub fn ncols(&self) -> usize { self.ncols }
-
-    pub fn read_rows(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        Ok(read_dyn_data_subset(&self.inner.container, Some(idx), None)?)
-    }
-
-    pub fn read_dyn_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
-        Ok(<Box<dyn DataPartialIO>>::read_row_slice(&self.inner.container, slice)?)
-    }
-
-    pub fn read_columns(&self, idx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        Ok(read_dyn_data_subset(&self.inner.container, None, Some(idx))?)
-    }
-
-    pub fn read_partial(&self, ridx: &[usize], cidx: &[usize]) -> Result<Box<dyn DataPartialIO>> {
-        Ok(read_dyn_data_subset(&self.inner.container, Some(ridx), Some(cidx))?)
-    }
-
-    pub fn read(&mut self) -> Result<Box<dyn DataPartialIO>> {
-        match &self.inner.element {
-            Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
-            None => {
-                let data = read_dyn_data_subset(&self.inner.container, None, None)?;
-                if self.inner.cache_enabled {
-                    self.inner.element = Some(dyn_clone::clone_box(data.as_ref()));
-                }
-                Ok(data)
-            },
-        }
-    }
-
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        match &self.inner.element {
-            Some(data) => data.write(location, name)?,
-            None => read_dyn_data_subset(&self.inner.container, None, None)?
-                .write(location, name)?,
-        };
-        Ok(())
-    }
-
-    pub fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_rows(idx)?.write(location, name)?;
-        Ok(())
-    }
-
-    pub fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_columns(idx)?.write(location, name)?;
-        Ok(())
-    }
-
-    pub fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<()> {
-        self.read_partial(ridx, cidx)?.write(location, name)?;
-        Ok(())
-    }
-
-    pub fn update<D: DataPartialIO>(&mut self, data: &D) -> Result<()> {
-        self.nrows = data.nrows();
-        self.ncols = data.ncols();
-        self.inner.container = data.update(&self.inner.container)?;
-        self.inner.element = None;
-        Ok(())
-    }
-
-    pub fn subset_rows(&mut self, idx: &[usize]) -> Result<()> {
-        for i in idx {
-            if *i >= self.nrows {
-                panic!("index out of bound")
-            }
-        }
-        let data = self.read_rows(idx)?;
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(data);
-        }
-        self.nrows = idx.len();
-        Ok(())
-    }
-
-    pub fn subset_cols(&mut self, idx: &[usize]) -> Result<()> {
-        for i in idx {
-            if *i >= self.ncols {
-                panic!("index out of bound")
-            }
-        }
-        let data = self.read_columns(idx)?;
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(data);
-        }
-        self.ncols = idx.len();
-        Ok(())
-    }
-
-    pub fn subset(&mut self, ridx: &[usize], cidx: &[usize]) -> Result<()> {
-        for i in ridx {
-            if *i >= self.nrows {
-                panic!("row index out of bound")
-            }
-        }
-        for j in cidx {
-            if *j >= self.ncols {
-                panic!("column index out of bound")
-            }
-        }
-        let data = self.read_partial(ridx, cidx)?;
-        self.inner.container = data.update(&self.inner.container)?;
-        if self.inner.element.is_some() {
-            self.inner.element = Some(data);
-        }
-        self.nrows = ridx.len();
-        self.ncols = cidx.len();
-        Ok(())
     }
 }
 
@@ -687,5 +306,382 @@ impl DataFrameElem {
             inner.container = container;
         }
         Ok(())
+    }
+}
+
+
+/// Container holding general data types.
+pub struct InnerElem {
+    dtype: DataType,
+    cache_enabled: bool,
+    container: DataContainer,
+    element: Option<Box<dyn DataIO>>,
+}
+
+impl std::fmt::Display for InnerElem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} element, cache_enabled: {}, cached: {}",
+            self.dtype,
+            if self.cache_enabled { "yes" } else { "no" },
+            if self.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
+pub type Elem = Slot<InnerElem>;
+
+impl TryFrom<DataContainer> for Elem {
+    type Error = anyhow::Error;
+
+    fn try_from(container: DataContainer) -> Result<Self> {
+        let dtype = container.get_encoding_type()?;
+        Ok(Slot::new(InnerElem { dtype, cache_enabled: false, element: None, container }))
+    }
+}
+
+impl Elem {
+    pub fn dtype(&self) -> Option<DataType> { self.lock().as_ref().map(|x| x.dtype.clone()) }
+
+    pub fn read(&self) -> Result<Box<dyn DataIO>> {
+        if self.is_empty() {
+            bail!("cannot read from an empty element")
+        } else {
+            let mut inner = self.inner();
+            match inner.element.as_ref() {
+                Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
+                None => {
+                    let data = <Box<dyn DataIO>>::read(&inner.container)?;
+                    if inner.cache_enabled { inner.element = Some(dyn_clone::clone_box(data.as_ref())); }
+                    Ok(data)
+                }
+            }
+        }
+    }
+
+    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
+        if !self.is_empty() {
+            let inner = self.inner();
+            match inner.element.as_ref() {
+                Some(data) => data.write(location, name)?,
+                None => <Box<dyn DataIO>>::read(&inner.container)?.write(location, name)?,
+            };
+        }
+        Ok(())
+    }
+
+    pub fn update<D: DataIO>(&self, data: &D) -> Result<()> {
+        if self.is_empty() {
+            bail!("cannot update an empty element")
+        } else {
+            let mut inner = self.inner();
+            inner.container = data.update(&inner.container)?;
+            if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
+            Ok(())
+        }
+    }
+
+    pub fn enable_cache(&self) { self.inner().cache_enabled = true; }
+
+    pub fn disable_cache(&self) {
+        let mut inner = self.inner();
+        if inner.element.is_some() { inner.element = None; }
+        inner.cache_enabled = false;
+    }
+}
+
+/// Container holding matrix data types.
+pub struct InnerMatrixElem {
+    dtype: DataType,
+    cache_enabled: bool,
+    container: DataContainer,
+    nrows: usize,
+    ncols: usize,
+    element: Option<Box<dyn DataPartialIO>>,
+}
+
+impl std::fmt::Display for InnerMatrixElem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} x {} {} element, cache_enabled: {}, cached: {}",
+            self.nrows, self.ncols, self.dtype,
+            if self.cache_enabled { "yes" } else { "no" },
+            if self.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
+pub type MatrixElem = Slot<InnerMatrixElem>;
+
+impl TryFrom<DataContainer> for MatrixElem {
+    type Error = anyhow::Error;
+
+    fn try_from(container: DataContainer) -> Result<Self> {
+        let dtype = container.get_encoding_type()?;
+        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
+        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
+        Ok(Slot::new(InnerMatrixElem { dtype, cache_enabled: false, element: None, container, nrows, ncols }))
+    }
+}
+
+impl MatrixElem {
+    pub fn dtype(&self) -> Option<DataType> { self.lock().as_ref().map(|x| x.dtype.clone()) }
+
+    pub fn enable_cache(&self) { self.inner().cache_enabled = true; }
+    pub fn disable_cache(&self) {
+        let mut inner = self.inner();
+        if inner.element.is_some() { inner.element = None; }
+        inner.cache_enabled = false;
+    }
+
+    pub fn nrows(&self) -> usize { self.inner().nrows }
+    pub fn ncols(&self) -> usize { self.inner().ncols }
+
+    pub fn read(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn DataPartialIO>> {
+        let mut inner = self.inner();
+        match inner.element.as_ref() {
+            Some(data) => match (ridx, cidx) {
+                (None, None) => Ok(dyn_clone::clone_box(data.as_ref())),
+                (Some(i), Some(j)) => Ok(data.subset(i, j)),
+                (Some(i), None) => Ok(data.get_rows(i)),
+                (None, Some(j)) => Ok(data.get_columns(j)),
+            }
+            None => if ridx.is_none() && cidx.is_none() {
+                let data = read_dyn_data_subset(&inner.container, None, None)?;
+                if inner.cache_enabled {
+                    inner.element = Some(dyn_clone::clone_box(data.as_ref()));
+                }
+                Ok(data)
+            } else {
+                Ok(read_dyn_data_subset(&inner.container, ridx, cidx)?)
+            },
+        }
+    }
+
+    // TODO: use in-memory data when possible
+    pub fn read_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
+        let inner = self.inner();
+        Ok(<Box<dyn DataPartialIO>>::read_row_slice(&inner.container, slice)?)
+    }
+    
+    pub fn write(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
+        let inner = self.inner();
+        match inner.element.as_ref() {
+            Some(data) => match (ridx, cidx) {
+                (None, None) => data.write(location, name),
+                (Some(i), Some(j)) => data.subset(i, j).write(location, name),
+                (Some(i), None) => data.get_rows(i).write(location, name),
+                (None, Some(j)) => data.get_columns(j).write(location, name),
+            }
+            None => if ridx.is_none() && cidx.is_none() {
+                read_dyn_data_subset(&inner.container, None, None)?.write(location, name)
+            } else {
+                read_dyn_data_subset(&inner.container, ridx, cidx)?.write(location, name)
+            },
+        }?;
+        Ok(())
+    }
+
+    pub fn subset(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<()> {
+        let mut inner = self.inner();
+        let sub = match inner.element.as_ref() {
+            Some(data) => match (ridx, cidx) {
+                (None, None) => None,
+                (Some(i), Some(j)) => Some(data.subset(i, j)),
+                (Some(i), None) => Some(data.get_rows(i)),
+                (None, Some(j)) => Some(data.get_columns(j)),
+            }
+            None => if ridx.is_none() && cidx.is_none() {
+                None
+            } else {
+                Some(read_dyn_data_subset(&inner.container, ridx, cidx)?)
+            },
+        };
+        if let Some(data) = sub {
+            inner.container = data.update(&inner.container)?;
+            if inner.element.is_some() { inner.element = Some(data); }
+            if let Some(i) = ridx { inner.nrows = i.len(); }
+            if let Some(j) = cidx { inner.ncols = j.len(); }
+        }
+        Ok(())
+    }
+
+    pub fn update<D: DataPartialIO>(&self, data: &D) -> Result<()> {
+        let mut inner = self.inner();
+        inner.nrows = data.nrows();
+        inner.ncols = data.ncols();
+        inner.container = data.update(&inner.container)?;
+        if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
+        Ok(())
+    }
+
+    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+        ChunkedMatrix { elem: self.clone(), chunk_size, size: self.nrows(), current_index: 0 }
+    }
+}
+
+/// This struct stores the accumulated lengths of objects in a vector
+pub struct AccumLength(Vec<usize>);
+
+impl AccumLength {
+    /// convert index to adata index and inner element index
+    pub fn normalize_index(&self, i: usize) -> (usize, usize) {
+        match self.0.binary_search(&i) {
+            Ok(i_) => (i_, 0),
+            Err(i_) => (i_ - 1, i - self.0[i_ - 1]),
+        }
+    }
+
+    /// Reorder indices such that consecutive indices come from the same underlying
+    /// element.
+    pub fn sort_index_to_buckets(&self, indices: &[usize]) -> Vec<usize> {
+        indices.into_iter().map(|x| *x)
+            .sorted_by_cached_key(|x| self.normalize_index(*x).0).collect()
+    }
+
+    pub fn normalize_indices(&self, indices: &[usize]) -> std::collections::HashMap<usize, Vec<usize>> {
+        indices.iter().map(|x| self.normalize_index(*x))
+            .sorted_by_key(|x| x.0).into_iter()
+            .group_by(|x| x.0).into_iter().map(|(key, grp)|
+                (key, grp.map(|x| x.1).collect())
+            ).collect()
+    }
+
+    pub fn size(&self) -> usize { *self.0.last().unwrap_or(&0) }
+}
+
+impl FromIterator<usize> for AccumLength {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = usize>,
+    {
+        let accum: Vec<usize> = std::iter::once(0).chain(
+            iter.into_iter().scan(0, |state, x| {
+                *state = *state + x;
+                Some(*state)
+            })
+        ).collect();
+        AccumLength(accum)
+    }
+}
+
+// TODO: remove Arc.
+#[derive(Clone)]
+pub struct StackedMatrixElem {
+    nrows: Arc<Mutex<usize>>,
+    ncols: Arc<Mutex<usize>>,
+    pub elems: Arc<Vec<MatrixElem>>,
+    pub(crate) accum: Arc<Mutex<AccumLength>>,
+}
+
+impl std::fmt::Display for StackedMatrixElem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.elems.len() == 0 {
+            write!(f, "empty stacked elements")
+        } else {
+            write!(f, "{} x {} stacked elements ({}) with {}",
+                *self.nrows.lock(),
+                *self.ncols.lock(),
+                self.elems.len(),
+                self.elems[0].dtype().unwrap(),
+            )
+        }
+    }
+}
+
+impl StackedMatrixElem
+{
+    pub(crate) fn new(
+        elems: Vec<MatrixElem>,
+        nrows: Arc<Mutex<usize>>,
+        ncols: Arc<Mutex<usize>>,
+        accum: Arc<Mutex<AccumLength>>,
+    ) -> Result<Self> {
+        if !elems.iter().map(|x| x.dtype()).all_equal() {
+            bail!("dtype not equal")
+        } else {
+            Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
+        }
+    }
+
+    pub fn nrows(&self) -> usize { *self.nrows.lock() }
+    pub fn ncols(&self) -> usize { *self.ncols.lock() }
+
+    pub fn read(&self, ridx_: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn DataPartialIO>> {
+        match ridx_ {
+            Some(ridx) => {
+                let accum = self.accum.lock();
+                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx.iter().map(|x| accum.normalize_index(*x))
+                    .enumerate().sorted_by_key(|x| x.1.0).into_iter()
+                    .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
+                        let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
+                        (ori_idx, self.elems[key].read(Some(inner_idx.as_slice()), cidx))
+                    }).unzip();
+                Ok(rstack_with_index(
+                    ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
+                    rows.into_iter().collect::<Result<_>>()?
+                )?)
+            },
+            None => {
+                let mats: Result<Vec<_>> = self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
+                Ok(rstack(mats?)?)
+            }
+        }
+    }
+
+    pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
+        StackedChunkedMatrix {
+            matrices: self.elems.iter().map(|x| x.chunked(chunk_size)).collect(),
+            current_matrix_index: 0,
+            n_mat: self.elems.len(),
+        }
+    }
+
+    pub fn enable_cache(&self) {
+        self.elems.iter().for_each(|x| x.enable_cache())
+    }
+
+    pub fn disable_cache(&self) {
+        self.elems.iter().for_each(|x| x.disable_cache())
+    }
+}
+
+
+#[derive(Clone)]
+pub struct StackedDataFrame {
+    pub column_names: IndexSet<String>,
+    pub elems: Arc<Vec<DataFrameElem>>,
+}
+
+impl std::fmt::Display for StackedDataFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let column_names: String = self.column_names.iter().map(|x| x.as_str()).intersperse(", ").collect();
+        write!(f, "stacked dataframe with columns: {}", column_names)
+    }
+}
+
+impl StackedDataFrame {
+    pub fn new(elems: Vec<DataFrameElem>) -> Self {
+        let column_names = elems.iter().map(|x| x.get_column_names().unwrap_or(IndexSet::new()))
+            .reduce(|shared_keys, next_keys| shared_keys.intersection(&next_keys).map(|x| x.to_owned()).collect())
+            .unwrap_or(IndexSet::new());
+        Self { column_names, elems: Arc::new(elems) }
+    }
+
+    pub fn read(&self) -> Result<DataFrame> {
+        let mut merged = DataFrame::empty();
+        self.elems.iter().for_each(|el| {
+            el.with_data_mut_ref(|x| 
+                if let Some((_, df)) = x { merged.vstack_mut(df).unwrap(); }
+            ).unwrap();
+        });
+        merged.rechunk();
+        Ok(merged)
+    }
+
+    pub fn column(&self, name: &str) -> Result<Series> {
+        if self.column_names.contains(name) {
+            Ok(self.read()?.column(name)?.clone())
+        } else {
+            bail!("key is not present");
+        }
     }
 }

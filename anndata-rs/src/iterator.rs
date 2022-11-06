@@ -1,7 +1,7 @@
 use crate::{
     data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{AxisArrays, MatrixElem, RawMatrixElem},
+    element::{AxisArrays, MatrixElem, Slot},
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
@@ -237,19 +237,20 @@ impl AxisArrays {
             container
         };
  
-        let elem = MatrixElem::new_elem(container)?;
+        let elem = MatrixElem::try_from(container)?;
         self.insert(key.to_string(), elem);
         Ok(())
     }
 }
 
+/*
 pub trait IntoRowsIterator {
     type Rows;
     type IntoRowsIter: Iterator<Item = Self::Rows>;
     fn into_row_iter(self, chunk_size: usize) -> Self::IntoRowsIter;
 }
 
-impl<'a, T> IntoRowsIterator for &'a RawMatrixElem<CsrMatrix<T>>
+impl<'a, T> IntoRowsIterator for &'a MatrixElem<CsrMatrix<T>>
 where
     T: H5Type + Copy,
 {
@@ -266,26 +267,6 @@ where
                     .read_1d().unwrap().to_vec();
                 CsrRowsIterator::Disk((data, indices, indptr, 0, chunk_size))
             },
-        }
-    }
-}
-
-/*
-impl RawMatrixElem<dyn DataPartialIO>
-{
-    pub fn into_csr_u32_iter<'a>(
-        &'a self,
-        chunk_size: usize
-    ) -> impl Iterator<Item = Vec<Vec<(usize, u32)>>> + 'a
-    {
-        match self.inner.dtype {
-            DataType::CsrMatrix(Integer(IntSize::U8)) =>
-                self.downcast::<CsrMatrix<i64>>().into_row_iter(chunk_size).map(|x|
-                    x.into_iter().map(|vec|
-                        vec.into_iter().map(|(i, v)| (i, v.try_into().unwrap())).collect()
-                    ).collect()
-                ),
-            _ => todo!()
         }
     }
 }
@@ -356,7 +337,7 @@ impl Iterator for ChunkedMatrix {
             let i = self.current_index;
             let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
             self.current_index = j;
-            let data = self.elem.inner().read_dyn_row_slice(i..j).unwrap();
+            let data = self.elem.read_row_slice(i..j).unwrap();
             Some(data)
         }
     }

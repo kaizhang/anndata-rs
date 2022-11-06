@@ -11,11 +11,11 @@ use itertools::Itertools;
 
 pub struct ElemCollection {
     container: Group,
-    data: HashMap<String, RawElem<dyn DataIO>>,
+    data: HashMap<String, Elem>,
 }
 
 impl Deref for ElemCollection {
-    type Target = HashMap<String, RawElem<dyn DataIO>>;
+    type Target = HashMap<String, Elem>;
 
     fn deref(&self) -> &Self::Target { &self.data }
 }
@@ -24,19 +24,23 @@ impl DerefMut for ElemCollection {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
-impl ElemCollection {
-    pub(crate) fn new(container: Group) -> Self {
-        let data = get_all_data(&container).map(|(k, v)|
-            (k, RawElem::new(v).unwrap())
-        ).collect();
-        Self { container, data }
-    }
+impl TryFrom<Group> for ElemCollection {
+    type Error = anyhow::Error;
 
+    fn try_from(container: Group) -> Result<Self> {
+        let data: Result<HashMap<_, _>> = get_all_data(&container)
+            .map(|(k, v)| Ok((k, Elem::try_from(v)?))).collect();
+        Ok(Self { container, data: data? })
+    }
+}
+
+
+impl ElemCollection {
     pub fn add_data<D: DataIO>(&mut self, key: &str, data: &D) -> Result<()> {
         match self.data.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
-                let elem = RawElem::new(container)?;
+                let elem = Elem::try_from(container)?;
                 self.data.insert(key.to_string(), elem);
             }
             Some(elem) => elem.update(data)?,
@@ -130,7 +134,7 @@ impl std::fmt::Display for AxisArrays {
 impl AxisArrays {
     pub(crate) fn new(group: Group, axis: Axis, size: Arc<Mutex<usize>>) -> Self {
         let data: HashMap<_, _> = get_all_data(&group).map(|(k, v)|
-            (k, MatrixElem::new_elem(v).unwrap())
+            (k, MatrixElem::try_from(v).unwrap())
         ).collect();
         {
             let mut size_guard = size.lock();
@@ -159,25 +163,25 @@ impl AxisArrays {
         match self.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
-                let elem = MatrixElem::new_elem(container)?;
+                let elem = MatrixElem::try_from(container)?;
                 self.data.insert(key.to_string(), elem);
             }
-            Some(elem) => elem.inner().update(data)?,
+            Some(elem) => elem.update(data)?,
         }
         Ok(())
     }
     
     pub(crate) fn subset(&mut self, idx: &[usize]) {
         match self.axis {
-            Axis::Row => self.data.values_mut().for_each(|x| x.inner().subset_rows(idx).unwrap()),
-            Axis::Column => self.data.values_mut().for_each(|x| x.inner().subset_cols(idx).unwrap()),
-            Axis::Both => self.data.values_mut().for_each(|x| x.inner().subset(idx, idx).unwrap()),
+            Axis::Row => self.data.values_mut().for_each(|x| x.subset(Some(idx), None).unwrap()),
+            Axis::Column => self.data.values_mut().for_each(|x| x.subset(None, Some(idx)).unwrap()),
+            Axis::Both => self.data.values_mut().for_each(|x| x.subset(Some(idx), Some(idx)).unwrap()),
         }
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
         for (key, val) in self.data.iter() {
-            val.write(location, key)?;
+            val.write(None, None, location, key)?;
         }
         Ok(())
     }
@@ -185,13 +189,13 @@ impl AxisArrays {
     pub fn write_subset(&self, idx: &[usize], location: &Group) -> Result<()> {
         match self.axis {
             Axis::Row => {
-                self.data.iter().for_each(|(k, x)| x.inner().write_rows(idx, location, k).unwrap());
+                self.data.iter().for_each(|(k, x)| x.write(Some(idx), None, location, k).unwrap());
             },
             Axis::Column => {
-                self.data.iter().for_each(|(k, x)| x.inner().write_columns(idx, location, k).unwrap());
+                self.data.iter().for_each(|(k, x)| x.write(None, Some(idx), location, k).unwrap());
             },
             Axis::Both => {
-                self.data.iter().for_each(|(k, x)| x.inner().write_partial(idx, idx, location, k).unwrap());
+                self.data.iter().for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k).unwrap());
             },
         }
         Ok(())
@@ -201,7 +205,7 @@ impl AxisArrays {
 #[derive(Clone)]
 pub struct StackedAxisArrays {
     pub axis: Axis,
-    pub data: HashMap<String, Stacked<MatrixElem>>,
+    pub data: HashMap<String, StackedMatrixElem>,
 }
 
 impl std::fmt::Display for StackedAxisArrays {
@@ -237,7 +241,7 @@ impl StackedAxisArrays {
             let elems = arrays.iter()
                 .map(|x| x.get(&k).unwrap().clone()).collect();
             Ok((
-                k, Stacked::new(elems, nrows.clone(), ncols.clone(), accum.clone())?
+                k, StackedMatrixElem::new(elems, nrows.clone(), ncols.clone(), accum.clone())?
             ))
         }).collect::<Result<HashMap<_, _>>>()?;
         Ok(Self { axis: arrays[0].axis, data })

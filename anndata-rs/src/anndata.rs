@@ -115,11 +115,11 @@ impl AnnData {
                 self.set_n_obs(data.nrows());
                 self.set_n_vars(data.ncols());
                 if !self.x.is_empty() { self.file.unlink("X")?; }
-                *self.x.inner().0 = Some(RawMatrixElem::new(data.write(&self.file, "X")?)?);
+                self.x.insert(MatrixElem::try_from(data.write(&self.file, "X")?)?.extract().unwrap());
             },
             None => if !self.x.is_empty() {
                 self.file.unlink("X")?;
-                *self.x.inner().0 = None;
+                self.x.drop();
             },
         }
         Ok(())
@@ -175,7 +175,7 @@ impl AnnData {
             None => { *guard.0 = None; },
             Some(uns) => {
                 let container = self.file.create_group("uns")?;
-                let mut item = ElemCollection::new(container);
+                let mut item = ElemCollection::try_from(container)?;
                 for (key, data) in uns.iter() {
                     item.add_data(key, data)?;
                 }
@@ -207,7 +207,7 @@ impl AnnData {
         };
         let uns = {
             let container = file.create_group("uns")?;
-            ElemCollection::new(container)
+            ElemCollection::try_from(container)?
         };
         Ok(Self { file, n_obs, n_vars, x: Slot::empty(), uns: Slot::new(uns),
             obs: Slot::empty(), obsm: Slot::new(obsm), obsp: Slot::new(obsp),
@@ -236,13 +236,8 @@ impl AnnData {
     }
 
     pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
-        match (obs_idx, var_idx) {
-            (Some(i), Some(j)) => self.x.inner().0.as_mut().map(|x| x.subset(i, j)),
-            (Some(i), None) => self.x.inner().0.as_mut().map(|x| x.subset_rows(i)),
-            (None, Some(j)) => self.x.inner().0.as_mut().map(|x| x.subset_cols(j)),
-            (None, None) => None,
-        };
-        
+        if !self.x.is_empty() { self.x.subset(obs_idx, var_idx).unwrap(); }
+
         if let Some(i) = obs_idx {
             self.obs.subset_rows(i).unwrap();
             self.obsm.inner().0.as_mut().map(|x| x.subset(i));
@@ -264,7 +259,7 @@ pub struct StackedAnnData {
     accum: Arc<Mutex<AccumLength>>,
     n_obs: Arc<Mutex<usize>>,
     n_vars: Arc<Mutex<usize>>,
-    pub x: Stacked<MatrixElem>,
+    pub x: StackedMatrixElem,
     pub obs: StackedDataFrame,
     pub obsm: StackedAxisArrays,
 }
@@ -293,7 +288,7 @@ impl StackedAnnData {
         let accum = Arc::new(Mutex::new(accum_));
         let n_vars = adatas.values().next().unwrap().n_vars.clone();
 
-        let x = Stacked::new(
+        let x = StackedMatrixElem::new(
             adatas.values().map(|x| x.get_x().clone()).collect(),
             n_obs.clone(),
             n_vars.clone(),
@@ -523,7 +518,7 @@ impl AnnDataSet {
     pub fn get_obs(&self) -> &DataFrameElem { &self.annotation.obs }
     pub fn get_var(&self) -> &DataFrameElem { &self.annotation.var }
 
-    pub fn get_x(&self) -> Stacked<MatrixElem> { self.anndatas.inner().x.clone() }
+    pub fn get_x(&self) -> StackedMatrixElem { self.anndatas.inner().x.clone() }
 
     def_accessor!(
         AxisArrays,
@@ -800,7 +795,7 @@ impl AnnDataOp for AnnData {
         if !self.x.is_empty() { self.file.unlink("X")?; }
         let (container, nrows) = data.write(&self.file, "X")?;
         self.set_n_obs(nrows);
-        *self.x.inner().0 = Some(RawMatrixElem::new(container)?);
+        self.x.insert(MatrixElem::try_from(container)?.extract().unwrap());
         Ok(())
     }
 

@@ -15,7 +15,7 @@ impl AnnData {
     {
         let file = File::create(filename)?;
 
-        self.get_x().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file, "X"))?;
+        self.get_x().write(None, None, &file, "X")?;
         self.get_obs().write(&file, "obs")?;
         self.get_var().write(&file, "var")?;
         self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
@@ -27,6 +27,7 @@ impl AnnData {
         Ok(())
     }
 
+    // TODO: refactoring
     pub fn write_subset<P: AsRef<Path>>(
         &self,
         obs_idx: Option<&[usize]>,
@@ -44,8 +45,7 @@ impl AnnData {
                     .map(|x| x.write_subset(i, &file.create_group("obsp")?));
                 match var_idx {
                     Some(j) => {
-                        self.x.inner().0.as_mut()
-                            .map(|x| x.write_partial(i, j, &file, "X"));
+                        self.x.write(Some(i), Some(j), &file, "X")?;
                         self.var.write_rows(j, &file, "var")?;
                         self.varm.inner().0.as_mut()
                             .map(|x| x.write_subset(j, &file.create_group("varm")?));
@@ -53,7 +53,7 @@ impl AnnData {
                             .map(|x| x.write_subset(j, &file.create_group("varp")?));
                     },
                     None => {
-                        self.x.inner().0.as_mut().map(|x| x.write_rows(i, &file, "X"));
+                        self.x.write(Some(i), None, &file, "X")?;
                         self.var.write(&file, "var")?;
                         self.varm.inner().0.as_mut()
                             .map(|x| x.write(&file.create_group("varm")?));
@@ -73,7 +73,7 @@ impl AnnData {
                         .map(|x| x.write(&file.create_group("obsm")?));
                     self.obsp.inner().0.as_mut()
                         .map(|x| x.write(&file.create_group("obsp")?));
-                    self.x.inner().0.as_mut().map(|x| x.write_columns(j, &file, "X"));
+                    self.x.write(None, Some(j), &file, "X")?;
                     self.var.write_rows(j, &file, "var")?;
                     self.varm.inner().0.as_mut()
                         .map(|x| x.write_subset(j, &file.create_group("varm")?));
@@ -112,10 +112,10 @@ impl AnnData {
 
         // Read X
         let x = if file.link_exists("X") {
-            let x = RawMatrixElem::new(DataContainer::open(&file, "X")?)?;
+            let x = MatrixElem::try_from(DataContainer::open(&file, "X")?)?;
             *n_obs.lock() = x.nrows();
             *n_vars.lock() = x.ncols();
-            Slot::new(x)
+            x
         } else {
             Slot::empty()
         };
@@ -170,7 +170,7 @@ impl AnnData {
         def_item!(obsp, |x| AxisArrays::new(x, Axis::Both, n_obs.clone()));
         def_item!(varm, |x| AxisArrays::new(x, Axis::Row, n_vars.clone()));
         def_item!(varp, |x| AxisArrays::new(x, Axis::Both, n_vars.clone()));
-        def_item!(uns, |x| ElemCollection::new(x));
+        def_item!(uns, |x| ElemCollection::try_from(x).unwrap());
 
         Ok(Self { file, n_obs, n_vars, x, obs, obsm, obsp, var, varm, varp, uns })
     }

@@ -567,7 +567,7 @@ impl ReadData for Mapping {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let group: &Group = container.get_group_ref()?;
 
-        let m: Result<HashMap<_, _>>= get_all_data(group)
+        let m: Result<HashMap<_, _>> = get_all_data(group)
             .map(|(k, c)| Ok((k, <Box<dyn DataIO>>::read(&c)?))).collect();
         Ok(Mapping(m?))
     }
