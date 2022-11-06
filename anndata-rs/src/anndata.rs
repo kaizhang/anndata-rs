@@ -6,7 +6,7 @@ use std::path::Path;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::File; 
-use anyhow::{bail, anyhow, Result, Context};
+use anyhow::{bail, anyhow, ensure, Result, Context};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use std::ops::Deref;
 use indexmap::map::IndexMap;
@@ -351,6 +351,7 @@ impl StackedAnnData {
 
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
+    /// TODO: return rearraged indices
     pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
         let mut accum_len = self.accum.lock();
 
@@ -566,7 +567,8 @@ impl AnnDataSet {
 
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
+        ensure!(!self.anndatas.is_empty(), "anndatas is empty");
         match self.anndatas.inner().0.deref() {
             None => self.annotation.subset(obs_idx, var_idx),
             Some(ann) => {
@@ -578,6 +580,7 @@ impl AnnDataSet {
                 ann.subset(i, var_idx);
             }
         }
+        Ok(())
     }
 
     pub fn write_subset<P: AsRef<Path>>(

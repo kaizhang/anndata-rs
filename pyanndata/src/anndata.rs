@@ -214,6 +214,14 @@ impl AnnData {
     #[getter]
     fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
+    #[setter(var_names)]
+    fn set_var_names<'py>(&self, py: Python<'py>, names: &'py PyAny) -> PyResult<()> {
+        let var_names: PyResult<DataFrameIndex> = PyIterator::from_object(py, names)?
+            .map(|x| x.unwrap().extract::<String>()).collect();
+        self.0.inner().set_var_names(var_names?).unwrap();
+        Ok(())
+    }
+
     #[pyo3(text_signature = "($self, names)")]
     fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().var_ix(&names).unwrap()
@@ -222,6 +230,14 @@ impl AnnData {
     /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
+
+    #[setter(obs_names)]
+    fn set_obs_names<'py>(&self, py: Python<'py>, names: &'py PyAny) -> PyResult<()> {
+        let obs_names: PyResult<DataFrameIndex> = PyIterator::from_object(py, names)?
+            .map(|x| x.unwrap().extract::<String>()).collect();
+        self.0.inner().set_obs_names(obs_names?).unwrap();
+        Ok(())
+    }
 
     #[pyo3(text_signature = "($self, names)")]
     fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
@@ -518,7 +534,7 @@ impl AnnDataSet {
                 self.0.inner().subset(
                     i.as_ref().map(Vec::as_slice),
                     j.as_ref().map(Vec::as_slice),
-                );
+                ).unwrap();
                 None
             },
             Some(dir) => Some(AnnDataSet::wrap(

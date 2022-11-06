@@ -4,7 +4,7 @@ mod matrix;
 pub use base::*;
 pub use matrix::*;
 
-use crate::{proc_numeric_data, _box};
+use crate::{proc_numeric_data, proc_numeric_data_ref, _box};
 
 use ndarray::{ArrayD, Axis};
 use itertools::Itertools;
@@ -90,9 +90,30 @@ impl MatrixLike for Box<dyn DataPartialIO> {
     fn shape(&self) -> (usize, usize) { self.deref().shape() }
     fn nrows(&self) -> usize { self.deref().nrows() }
     fn ncols(&self) -> usize { self.deref().ncols() }
-    fn get_rows(&self, idx: &[usize]) -> Self { unimplemented!() }
-    fn get_columns(&self, idx: &[usize]) -> Self { unimplemented!() }
-    fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self { unimplemented!() }
+    fn get_rows(&self, idx: &[usize]) -> Self {
+        macro_rules! _get { ($x:expr) => { Box::new($x.get_rows(idx)) }; }
+        match self.get_dtype() {
+            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
+            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
+        }
+    }
+    fn get_columns(&self, idx: &[usize]) -> Self {
+        macro_rules! _get { ($x:expr) => { Box::new($x.get_columns(idx)) }; }
+        match self.get_dtype() {
+            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
+            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
+        }
+    }
+    fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
+        macro_rules! _get { ($x:expr) => { Box::new($x.subset(ridx, cidx)) }; }
+        match self.get_dtype() {
+            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
+            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
+        }
+    }
 }
 
 macro_rules! size_reader {

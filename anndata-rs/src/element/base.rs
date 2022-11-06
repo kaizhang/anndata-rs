@@ -10,7 +10,7 @@ use crate::iterator::StackedChunkedMatrix;
 
 use std::boxed::Box;
 use hdf5::Group; 
-use anyhow::{Result, bail};
+use anyhow::{Result, ensure, bail};
 use ndarray::Array1;
 use polars::{frame::DataFrame, series::Series};
 use std::collections::HashMap;
@@ -343,17 +343,14 @@ impl Elem {
     pub fn dtype(&self) -> Option<DataType> { self.lock().as_ref().map(|x| x.dtype.clone()) }
 
     pub fn read(&self) -> Result<Box<dyn DataIO>> {
-        if self.is_empty() {
-            bail!("cannot read from an empty element")
-        } else {
-            let mut inner = self.inner();
-            match inner.element.as_ref() {
-                Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
-                None => {
-                    let data = <Box<dyn DataIO>>::read(&inner.container)?;
-                    if inner.cache_enabled { inner.element = Some(dyn_clone::clone_box(data.as_ref())); }
-                    Ok(data)
-                }
+        ensure!(!self.is_empty(), "cannot read from an empty element");
+        let mut inner = self.inner();
+        match inner.element.as_ref() {
+            Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
+            None => {
+                let data = <Box<dyn DataIO>>::read(&inner.container)?;
+                if inner.cache_enabled { inner.element = Some(dyn_clone::clone_box(data.as_ref())); }
+                Ok(data)
             }
         }
     }
@@ -370,14 +367,11 @@ impl Elem {
     }
 
     pub fn update<D: DataIO>(&self, data: &D) -> Result<()> {
-        if self.is_empty() {
-            bail!("cannot update an empty element")
-        } else {
-            let mut inner = self.inner();
-            inner.container = data.update(&inner.container)?;
-            if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
-            Ok(())
-        }
+        ensure!(!self.is_empty(), "cannot update an empty element");
+        let mut inner = self.inner();
+        inner.container = data.update(&inner.container)?;
+        if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
+        Ok(())
     }
 
     pub fn enable_cache(&self) { self.inner().cache_enabled = true; }
@@ -436,6 +430,7 @@ impl MatrixElem {
     pub fn ncols(&self) -> usize { self.inner().ncols }
 
     pub fn read(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn DataPartialIO>> {
+        ensure!(!self.is_empty(), "cannot read an empty MatrixElem");
         let mut inner = self.inner();
         match inner.element.as_ref() {
             Some(data) => match (ridx, cidx) {
@@ -458,53 +453,59 @@ impl MatrixElem {
 
     // TODO: use in-memory data when possible
     pub fn read_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
+        ensure!(!self.is_empty(), "cannot read rows from an empty MatrixElem");
         let inner = self.inner();
         Ok(<Box<dyn DataPartialIO>>::read_row_slice(&inner.container, slice)?)
     }
     
     pub fn write(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
-        let inner = self.inner();
-        match inner.element.as_ref() {
-            Some(data) => match (ridx, cidx) {
-                (None, None) => data.write(location, name),
-                (Some(i), Some(j)) => data.subset(i, j).write(location, name),
-                (Some(i), None) => data.get_rows(i).write(location, name),
-                (None, Some(j)) => data.get_columns(j).write(location, name),
-            }
-            None => if ridx.is_none() && cidx.is_none() {
-                read_dyn_data_subset(&inner.container, None, None)?.write(location, name)
-            } else {
-                read_dyn_data_subset(&inner.container, ridx, cidx)?.write(location, name)
-            },
-        }?;
+        if !self.is_empty() {
+            let inner = self.inner();
+            match inner.element.as_ref() {
+                Some(data) => match (ridx, cidx) {
+                    (None, None) => data.write(location, name),
+                    (Some(i), Some(j)) => data.subset(i, j).write(location, name),
+                    (Some(i), None) => data.get_rows(i).write(location, name),
+                    (None, Some(j)) => data.get_columns(j).write(location, name),
+                }
+                None => if ridx.is_none() && cidx.is_none() {
+                    read_dyn_data_subset(&inner.container, None, None)?.write(location, name)
+                } else {
+                    read_dyn_data_subset(&inner.container, ridx, cidx)?.write(location, name)
+                },
+            }?;
+        }
         Ok(())
     }
 
     pub fn subset(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<()> {
-        let mut inner = self.inner();
-        let sub = match inner.element.as_ref() {
-            Some(data) => match (ridx, cidx) {
-                (None, None) => None,
-                (Some(i), Some(j)) => Some(data.subset(i, j)),
-                (Some(i), None) => Some(data.get_rows(i)),
-                (None, Some(j)) => Some(data.get_columns(j)),
+        if !self.is_empty() {
+            let mut inner = self.inner();
+            let sub = match inner.element.as_ref() {
+                Some(data) => match (ridx, cidx) {
+                    (None, None) => None,
+                    (Some(i), Some(j)) => Some(data.subset(i, j)),
+                    (Some(i), None) => Some(data.get_rows(i)),
+                    (None, Some(j)) => Some(data.get_columns(j)),
+                }
+                None => if ridx.is_none() && cidx.is_none() {
+                    None
+                } else {
+                    Some(read_dyn_data_subset(&inner.container, ridx, cidx)?)
+                },
+            };
+            if let Some(data) = sub {
+                inner.container = data.update(&inner.container)?;
+                if inner.element.is_some() { inner.element = Some(data); }
+                if let Some(i) = ridx { inner.nrows = i.len(); }
+                if let Some(j) = cidx { inner.ncols = j.len(); }
             }
-            None => if ridx.is_none() && cidx.is_none() {
-                None
-            } else {
-                Some(read_dyn_data_subset(&inner.container, ridx, cidx)?)
-            },
-        };
-        if let Some(data) = sub {
-            inner.container = data.update(&inner.container)?;
-            if inner.element.is_some() { inner.element = Some(data); }
-            if let Some(i) = ridx { inner.nrows = i.len(); }
-            if let Some(j) = cidx { inner.ncols = j.len(); }
         }
         Ok(())
     }
 
     pub fn update<D: DataPartialIO>(&self, data: &D) -> Result<()> {
+        ensure!(!self.is_empty(), "cannot update an empty MatrixElem");
         let mut inner = self.inner();
         inner.nrows = data.nrows();
         inner.ncols = data.ncols();

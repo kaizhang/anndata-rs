@@ -1,7 +1,7 @@
 use crate::{
     data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{AxisArrays, MatrixElem, Slot},
+    element::{AxisArrays, MatrixElem},
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
