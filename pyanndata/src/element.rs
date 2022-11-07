@@ -65,35 +65,23 @@ impl PyMatrixElem {
     #[getter]
     fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
 
-    // TODO: refactoring
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        let ridx;
+        let cidx;
         if is_none_slice(py, subscript)? {
-            to_py_data2(py, self.0.read(None, None).unwrap())
+            ridx = None;
+            cidx = None;
         } else if subscript.is_instance_of::<pyo3::types::PyTuple>()? {
             let (r, c) = self.shape();
-            let (ridx, cidx) = subscript.extract()?;
-            if is_none_slice(py, ridx)? && is_none_slice(py, cidx)? {
-                to_py_data2(py, self.0.read(None, None).unwrap())
-            } else if is_none_slice(py, ridx)? {
-                to_py_data2(py, self.0.read(
-                    None,
-                    Some(to_indices(py, cidx, c)?.as_slice()),
-                ).unwrap())
-            } else if is_none_slice(py, cidx)? {
-                to_py_data2(py, self.0.read(
-                    Some(to_indices(py, ridx, r)?.as_slice()),
-                    None,
-                ).unwrap())
-            } else {
-                to_py_data2(py, self.0.read(
-                    Some(to_indices(py, ridx, r)?.as_slice()),
-                    Some(to_indices(py, cidx, c)?.as_slice()),
-                ).unwrap())
-            }
+            let (i, j) = subscript.extract()?;
+            ridx = to_indices(py, i, r)?;
+            cidx = to_indices(py, j, c)?;
         } else {
-            let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
-            data.call_method1(py, "__getitem__", (subscript,))
+            panic!("index type '{}' is not supported", subscript.get_type());
+            //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
+            //data.call_method1(py, "__getitem__", (subscript,))
         }
+        to_py_data2(py, self.0.read(ridx.as_ref().map(Vec::as_slice), cidx.as_ref().map(Vec::as_slice)).unwrap())
     }
 
     /// Return a chunk of the matrix with random indices.
@@ -416,49 +404,23 @@ impl PyStackedMatrixElem {
         to_py_data2(py, self.0.read(Some(idx.as_slice()), None).unwrap())
     }
 
-    /*
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
-        if subscript.eq(py.eval("...", None, None)?)? ||
-            subscript.eq(py.eval("slice(None, None, None)", None, None)?)? {
-            to_py_data2(py, self.0.read().unwrap())
-        } else {
-            let idx = crate::utils::to_indices(py, subscript, self.0.nrows())?;
-            to_py_data2(py, self.0.read_rows(idx.as_slice()).unwrap())
-        }
-    }
-    */
-
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
+        let ridx;
+        let cidx;
         if is_none_slice(py, subscript)? {
-            to_py_data2(py, self.0.read(None, None).unwrap())
+            ridx = None;
+            cidx = None;
         } else if subscript.is_instance_of::<pyo3::types::PyTuple>()? {
             let (r, c) = self.shape();
-            let (ridx, cidx) = subscript.extract()?;
-            if is_none_slice(py, ridx)? && is_none_slice(py, cidx)? {
-                to_py_data2(py, self.0.read(None, None).unwrap())
-            } else if is_none_slice(py, ridx)? {
-                to_py_data2(py, self.0.read(
-                    None,
-                    Some(to_indices(py, cidx, c)?.as_slice()),
-                ).unwrap())
-            } else if is_none_slice(py, cidx)? {
-                to_py_data2(py, self.0.read(
-                    Some(to_indices(py, ridx, r)?.as_slice()),
-                    None,
-                ).unwrap())
-            } else {
-                to_py_data2(py, self.0.read(
-                    Some(to_indices(py, ridx, r)?.as_slice()),
-                    Some(to_indices(py, cidx, c)?.as_slice()),
-                ).unwrap())
-            }
+            let (i, j) = subscript.extract()?;
+            ridx = to_indices(py, i, r)?;
+            cidx = to_indices(py, j, c)?;
         } else {
-            let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
-            data.call_method1(py, "__getitem__", (subscript,))
+            panic!("index type '{}' is not supported", subscript.get_type());
+            //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
+            //data.call_method1(py, "__getitem__", (subscript,))
         }
-    }
-
-
+        to_py_data2(py, self.0.read(ridx.as_ref().map(Vec::as_slice), cidx.as_ref().map(Vec::as_slice)).unwrap()) }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
 

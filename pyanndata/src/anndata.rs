@@ -124,24 +124,17 @@ impl AnnData {
         }
     }
 
-    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Vec<usize>> {
-        let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
-
-        match PyIterator::from_object(py, indices)?
-            .map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>()
-        {
-            Ok(names) => {
-                if names.len() == 0 { return Ok(Vec::new()) }
-                let idx_map: HashMap<_, _> = if axis == 0 {
-                    self.obs_names().into_iter().enumerate()
-                        .map(|(a, b)| (b,a)).collect()
-                } else {
-                    self.var_names().into_iter().enumerate()
-                        .map(|(a, b)| (b,a)).collect()
-                };
-                Ok(names.into_iter().map(|x| *idx_map.get(&x).unwrap()).collect())
+    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
+        match PyIterator::from_object(py, indices)?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
+            Ok(names) => if axis == 0 {
+                Ok(Some(self.obs_ix(names)))
+            } else {
+                Ok(Some(self.var_ix(names)))
             },
-            _ => to_indices(py, indices, length),
+            _ => {
+                let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
+                to_indices(py, indices, length)
+            },
         }
     }
 }
@@ -301,22 +294,15 @@ impl AnnData {
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
     ) -> PyResult<Option<AnnData>> {
-        let i = obs_indices.map(|oidx| self.normalize_index(py, oidx, 0)).transpose()?;
-        let j = var_indices.map(|vidx| self.normalize_index(py, vidx, 1)).transpose()?;
+        let i = obs_indices.and_then(|x| self.normalize_index(py, x, 0).unwrap());
+        let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
         Ok(match out {
             None => {
-                self.0.inner().subset(
-                    i.as_ref().map(Vec::as_slice),
-                    j.as_ref().map(Vec::as_slice),
-                );
+                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice));
                 None
             },
             Some(file) => Some(AnnData::wrap(
-                self.0.inner().copy_subset(
-                    i.as_ref().map(Vec::as_slice),
-                    j.as_ref().map(Vec::as_slice),
-                    file,
-                ).unwrap()
+                self.0.inner().copy_subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice), file).unwrap()
             )),
         })
     }
@@ -434,6 +420,20 @@ impl AnnDataSet {
     pub fn wrap(anndata: anndata::AnnDataSet) -> Self {
         AnnDataSet(Slot::new(anndata))
     }
+
+    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
+        match PyIterator::from_object(py, indices)?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
+            Ok(names) => if axis == 0 {
+                Ok(Some(self.obs_ix(names)))
+            } else {
+                Ok(Some(self.var_ix(names)))
+            },
+            _ => {
+                let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
+                to_indices(py, indices, length)
+            },
+        }
+    }
 }
 
 #[pymethods]
@@ -524,34 +524,22 @@ impl AnnDataSet {
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
     ) -> PyResult<Option<AnnDataSet>> {
-        let n_obs = self.n_obs();
-        let n_vars = self.n_vars();
-        
-        let i = obs_indices.map(|oidx| to_indices(py, oidx, n_obs)).transpose()?;
-        let j = var_indices.map(|vidx| to_indices(py, vidx, n_vars)).transpose()?;
+        let i = obs_indices.and_then(|x| self.normalize_index(py, x, 0).unwrap());
+        let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
         Ok(match out {
             None => {
-                self.0.inner().subset(
-                    i.as_ref().map(Vec::as_slice),
-                    j.as_ref().map(Vec::as_slice),
-                ).unwrap();
+                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice)).unwrap();
                 None
             },
             Some(dir) => Some(AnnDataSet::wrap(
-                self.0.inner().copy_subset(
-                    i.as_ref().map(Vec::as_slice),
-                    j.as_ref().map(Vec::as_slice),
-                    dir,
-                ).unwrap()
+                self.0.inner().copy_subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir).unwrap()
             )),
         })
     }
  
     /// :class:`.StackedAnnData`.
     #[getter(adatas)]
-    fn adatas(&self) -> StackedAnnData {
-        StackedAnnData(self.0.inner().anndatas.clone())
-    }
+    fn adatas(&self) -> StackedAnnData { StackedAnnData(self.0.inner().anndatas.clone()) }
 
     /// Copy the AnnDataSet object to a new location.
     /// 
@@ -567,16 +555,12 @@ impl AnnDataSet {
     /// -------
     /// AnnDataSet
     #[pyo3(text_signature = "($self, dirname)")]
-    fn copy(&self, dirname: &str) -> Self {
-        AnnDataSet::wrap(self.0.inner().copy(dirname).unwrap())
-    }
+    fn copy(&self, dirname: &str) -> Self { AnnDataSet::wrap(self.0.inner().copy(dirname).unwrap()) }
 
     /// Close the AnnDataSet object.
     #[pyo3(text_signature = "($self)")]
     fn close(&self) {
-        if let Some(dataset) = self.0.extract() {
-            dataset.close().unwrap();
-        }
+        if let Some(dataset) = self.0.extract() { dataset.close().unwrap(); }
     }
 
     /// If the AnnData object has been closed.

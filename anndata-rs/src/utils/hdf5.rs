@@ -36,8 +36,8 @@ where
 
 pub fn create_str_attr(location: &Location, name: &str, value: &str) -> Result<()>
 {
-    let attr = location.new_attr::<VarLenUnicode>().create(name)?;
     let value_: VarLenUnicode = value.parse().unwrap();
+    let attr = location.attr(name).or(location.new_attr::<VarLenUnicode>().create(name))?;
     attr.write_scalar(&value_)
 }
 

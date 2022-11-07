@@ -41,8 +41,6 @@ def test_basic(x, tmp_path):
     adata.uns['df'] = df
     assert df.frame_equal(adata.uns['df'])
 
-    #adata.uns['str-array'] = np.array(["a", "b", "c"])
-
     """
     def mk_iter(a):
         yield a
@@ -86,6 +84,12 @@ def test_creation(tmp_path):
 
     adata.uns['df'] = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
     adata.uns['df'] = pd.DataFrame([[1, 2, 3], [4, 5, 6]], columns=["a", "b", "c"])
+
+    adata.obs = pl.DataFrame({"a": ['1', '2'], "b": [3, 4]})
+    adata.obs_names = adata.obs['a']
+
+    adata.var = pl.DataFrame({"a": [1, 2], "b": ['3', '4']})
+    adata.var_names = adata.var['b']
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
