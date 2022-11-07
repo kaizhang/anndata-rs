@@ -246,7 +246,7 @@ impl AnnData {
     #[setter(X)]
     fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
         match data {
-            None => self.0.inner().set_x(None).unwrap(),
+            None => self.0.inner().set_x::<Box<dyn DataPartialIO>>(None).unwrap(),
             Some(d) => if is_iterator(py, d)? {
                 panic!("Setting X by an iterator is not implemented")
             } else {
@@ -298,11 +298,11 @@ impl AnnData {
         let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
         Ok(match out {
             None => {
-                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice));
+                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice)).unwrap();
                 None
             },
             Some(file) => Some(AnnData::wrap(
-                self.0.inner().copy_subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice), file).unwrap()
+                self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice), file).unwrap()
             )),
         })
     }
@@ -323,7 +323,7 @@ impl AnnData {
     /// AnnData
     #[pyo3(text_signature = "($self, filename)")]
     fn copy(&self, filename: &str) -> Self {
-        AnnData::wrap(self.0.inner().copy(filename).unwrap())
+        AnnData::wrap(self.0.inner().copy(None, None, filename).unwrap())
     }
 
     /// Write .h5ad-formatted hdf5 file.
@@ -334,7 +334,7 @@ impl AnnData {
     ///     File name of the output `.h5ad` file. 
     #[pyo3(text_signature = "($self, filename)")]
     fn write(&self, filename: &str) {
-        self.0.inner().write(filename).unwrap();
+        self.0.inner().write(None, None, filename).unwrap();
     }
 
     /// Close the AnnData object.
@@ -532,7 +532,7 @@ impl AnnDataSet {
                 None
             },
             Some(dir) => Some(AnnDataSet::wrap(
-                self.0.inner().copy_subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir).unwrap()
+                self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir).unwrap()
             )),
         })
     }
@@ -555,7 +555,7 @@ impl AnnDataSet {
     /// -------
     /// AnnDataSet
     #[pyo3(text_signature = "($self, dirname)")]
-    fn copy(&self, dirname: &str) -> Self { AnnDataSet::wrap(self.0.inner().copy(dirname).unwrap()) }
+    fn copy(&self, dirname: &str) -> Self { AnnDataSet::wrap(self.0.inner().copy(None, None, dirname).unwrap()) }
 
     /// Close the AnnDataSet object.
     #[pyo3(text_signature = "($self)")]

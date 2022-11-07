@@ -1,14 +1,13 @@
 use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator};
 use crate::element::base::InnerDataFrameElem;
+use crate::element::base::InnerMatrixElem;
+use crate::element::collection::InnerAxisArrays;
 
-use std::sync::Arc;
-use std::path::Path;
+use std::{sync::Arc, path::Path, collections::HashMap, ops::Deref};
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use hdf5::File; 
 use anyhow::{bail, anyhow, ensure, Result, Context};
 use polars::prelude::{NamedFrom, DataFrame, Series};
-use std::ops::Deref;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
@@ -20,12 +19,12 @@ pub struct AnnData {
     pub n_vars: Arc<Mutex<usize>>,
     pub(crate) x: MatrixElem,
     pub(crate) obs: DataFrameElem,
-    pub(crate) obsm: Slot<AxisArrays>,
-    pub(crate) obsp: Slot<AxisArrays>,
+    pub(crate) obsm: AxisArrays,
+    pub(crate) obsp: AxisArrays,
     pub(crate) var: DataFrameElem,
-    pub(crate) varm: Slot<AxisArrays>,
-    pub(crate) varp: Slot<AxisArrays>,
-    pub(crate) uns: Slot<ElemCollection>,
+    pub(crate) varm: AxisArrays,
+    pub(crate) varp: AxisArrays,
+    pub(crate) uns: ElemCollection,
 }
 
 impl std::fmt::Display for AnnData {
@@ -85,11 +84,11 @@ macro_rules! anndata_setter {
                     None => { *guard.0 = None; },
                     Some(data) => {
                         let container = self.file.create_group(field)?;
-                        let mut item = AxisArrays::new(container, $ty, self.$n.clone());
+                        let item = Slot::new(InnerAxisArrays::new(container, $ty, self.$n.clone()));
                         for (key, val) in data.iter() {
                             item.add_data(key, val)?;
                         }
-                        *guard.0 = Some(item);
+                        *guard.0 = Some(item.extract().unwrap());
                     },
                 }
                 Ok(())
@@ -103,19 +102,19 @@ impl AnnData {
     pub fn get_x(&self) -> &MatrixElem { &self.x }
     pub fn get_obs(&self) -> &DataFrameElem { &self.obs }
     pub fn get_var(&self) -> &DataFrameElem { &self.var }
-    pub fn get_obsm(&self) -> &Slot<AxisArrays> { &self.obsm }
-    pub fn get_obsp(&self) -> &Slot<AxisArrays> { &self.obsp }
-    pub fn get_varm(&self) -> &Slot<AxisArrays> { &self.varm }
-    pub fn get_varp(&self) -> &Slot<AxisArrays> { &self.varp }
-    pub fn get_uns(&self) -> &Slot<ElemCollection> { &self.uns }
+    pub fn get_obsm(&self) -> &AxisArrays { &self.obsm }
+    pub fn get_obsp(&self) -> &AxisArrays { &self.obsp }
+    pub fn get_varm(&self) -> &AxisArrays { &self.varm }
+    pub fn get_varp(&self) -> &AxisArrays { &self.varp }
+    pub fn get_uns(&self) -> &ElemCollection { &self.uns }
 
-    pub fn set_x(&self, data_: Option<&Box<dyn DataPartialIO>>) -> Result<()> {
+    pub fn set_x<D: MatrixIO>(&self, data_: Option<&D>) -> Result<()> {
         match data_ {
             Some(data) => {
                 self.set_n_obs(data.nrows());
                 self.set_n_vars(data.ncols());
                 if !self.x.is_empty() { self.file.unlink("X")?; }
-                self.x.insert(MatrixElem::try_from(data.write(&self.file, "X")?)?.extract().unwrap());
+                self.x.insert(InnerMatrixElem::try_from(data.write(&self.file, "X")?)?);
             },
             None => if !self.x.is_empty() {
                 self.file.unlink("X")?;
@@ -168,18 +167,17 @@ impl AnnData {
         (varp, Axis::Both, n_vars)
     );
 
-    pub fn set_uns(&mut self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
-        let mut guard = self.uns.inner();
-        if guard.0.is_some() { self.file.unlink("uns")?; }
+    pub fn set_uns(&self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
+        if !self.uns.is_empty() { self.file.unlink("uns")?; }
         match uns_ {
-            None => { *guard.0 = None; },
+            None => { self.uns.drop(); },
             Some(uns) => {
                 let container = self.file.create_group("uns")?;
-                let mut item = ElemCollection::try_from(container)?;
+                let elem = ElemCollection::try_from(container)?;
                 for (key, data) in uns.iter() {
-                    item.add_data(key, data)?;
+                    elem.add_data(key, data)?;
                 }
-                *guard.0 = Some(item);
+                self.uns.insert(elem.extract().unwrap());
             },
         }
         Ok(())
@@ -191,25 +189,25 @@ impl AnnData {
         let n_vars = Arc::new(Mutex::new(n_vars));
         let obsm = {
             let container = file.create_group("obsm")?;
-            AxisArrays::new(container, Axis::Row, n_obs.clone())
+            InnerAxisArrays::new(container, Axis::Row, n_obs.clone())
         };
         let obsp = {
             let container = file.create_group("obsp")?;
-            AxisArrays::new(container, Axis::Both, n_obs.clone())
+            InnerAxisArrays::new(container, Axis::Both, n_obs.clone())
         };
         let varm = {
             let container = file.create_group("varm")?;
-            AxisArrays::new(container, Axis::Row, n_vars.clone())
+            InnerAxisArrays::new(container, Axis::Row, n_vars.clone())
         };
         let varp = {
             let container = file.create_group("varp")?;
-            AxisArrays::new(container, Axis::Both, n_vars.clone())
+            InnerAxisArrays::new(container, Axis::Both, n_vars.clone())
         };
         let uns = {
             let container = file.create_group("uns")?;
             ElemCollection::try_from(container)?
         };
-        Ok(Self { file, n_obs, n_vars, x: Slot::empty(), uns: Slot::new(uns),
+        Ok(Self { file, n_obs, n_vars, x: Slot::empty(), uns: uns,
             obs: Slot::empty(), obsm: Slot::new(obsm), obsp: Slot::new(obsp),
             var: Slot::empty(), varm: Slot::new(varm), varp: Slot::new(varp),
         })
@@ -235,22 +233,21 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
-        if !self.x.is_empty() { self.x.subset(obs_idx, var_idx).unwrap(); }
-
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
+        if !self.x.is_empty() { self.x.subset(obs_idx, var_idx)?; }
         if let Some(i) = obs_idx {
-            self.obs.subset_rows(i).unwrap();
-            self.obsm.inner().0.as_mut().map(|x| x.subset(i));
-            self.obsp.inner().0.as_mut().map(|x| x.subset(i));
+            self.obs.subset_rows(i)?;
+            self.obsm.subset(i)?;
+            self.obsp.subset(i)?;
             *self.n_obs.lock() = i.len();
         }
-
         if let Some(j) = var_idx {
-            self.var.subset_rows(j).unwrap();
-            self.varm.inner().0.as_mut().map(|x| x.subset(j));
-            self.varp.inner().0.as_mut().map(|x| x.subset(j));
+            self.var.subset_rows(j)?;
+            self.varm.subset(j)?;
+            self.varp.subset(j)?;
             *self.n_vars.lock() = j.len();
         }
+        Ok(())
     }
 }
 
@@ -320,39 +317,32 @@ impl StackedAnnData {
 
     pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData> { self.anndatas.keys() }
 
-    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> {
-        self.anndatas.iter()
-    }
+    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> { self.anndatas.iter() }
 
     /// Write a part of stacked AnnData objects to disk, return the key and
     /// file name (without parent paths)
-    fn write_subset<P>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        dir: P,
-    ) -> HashMap<String, String>
+    fn write<P>(&self, obs_idx_: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<HashMap<String, String>>
     where
         P: AsRef<Path> + std::marker::Sync,
     {
-        let obs_idx_ = match obs_idx {
+        let obs_idx = match obs_idx_ {
             Some(i) => self.accum.lock().normalize_indices(i),
             None => HashMap::new(),
         };
         self.anndatas.iter().enumerate().map(|(i, (k, data))| {
             let file = dir.as_ref().join(k.to_string() + ".h5ad");
-            match obs_idx_.get(&i) {
-                None => data.write_subset(Some(&[]), var_idx, file.clone()),
-                Some(idx) => data.write_subset(Some(idx.as_slice()), var_idx, file.clone()),
-            }.unwrap();
-            (k.clone(), file.file_name().unwrap().to_str().unwrap().to_string())
+            match obs_idx.get(&i) {
+                None => data.write(Some(&[]), var_idx, file.clone()),
+                Some(idx) => data.write(Some(idx.as_slice()), var_idx, file.clone()),
+            }?;
+            Ok((k.clone(), file.file_name().unwrap().to_str().unwrap().to_string()))
         }).collect()
     }
 
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
     /// TODO: return rearraged indices
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) {
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
         let mut accum_len = self.accum.lock();
 
         let obs_idx_ = match obs_idx {
@@ -365,13 +355,12 @@ impl StackedAnnData {
         if let Some(j) = var_idx {
             *self.n_vars.lock() = j.len();
         }
-        self.anndatas.values().enumerate().for_each(|(i, data)|
-            match obs_idx_.get(&i) {
-                None => data.subset(Some(&[]), var_idx),
-                Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
-            }
-        );
+        self.anndatas.values().enumerate().try_for_each(|(i, data)| match obs_idx_.get(&i) {
+            None => data.subset(Some(&[]), var_idx),
+            Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
+        })?;
         *accum_len = self.anndatas.values().map(|x| x.n_obs()).collect();
+        Ok(())
     }
 }
 
@@ -435,7 +424,7 @@ macro_rules! def_accessor {
     ($get_type:ty, $set_type:ty, { $($field:ident),* }) => {
         paste! {
             $(
-                pub fn [<get_ $field>](&self) -> &Slot<$get_type> {
+                pub fn [<get_ $field>](&self) -> &$get_type {
                     &self.annotation.$field
                 }
 
@@ -464,7 +453,7 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
         keys.clone(),
         Series::new("file_path", new_files),
     ]).unwrap();
-    ann.get_uns().inner().add_data("AnnDataSet", &data)?;
+    ann.get_uns().add_data("AnnDataSet", &data)?;
     Ok(())
 }
 
@@ -484,7 +473,7 @@ impl AnnDataSet {
                 Series::new("keys", keys),
                 Series::new("file_path", filenames),
             ]).unwrap());
-            annotation.get_uns().inner().add_data("AnnDataSet", &data)?;
+            annotation.get_uns().add_data("AnnDataSet", &data)?;
         }
 
         // Set OBS.
@@ -527,11 +516,10 @@ impl AnnDataSet {
         { obsm, obsp, varm, varp }
     );
 
-    def_accessor!(
-        ElemCollection,
-        Option<&HashMap<String, Box<dyn DataIO>>>,
-        { uns }
-    );
+    pub fn get_uns(&self) -> &ElemCollection { &self.annotation.uns }
+    pub fn set_uns(&self, data: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
+        self.annotation.set_uns(data)
+    }
 
     pub fn read(file: File, adata_files_: Option<HashMap<String, String>>, check: bool) -> Result<Self> {
         let annotation = AnnData::read(file)?;
@@ -570,39 +558,34 @@ impl AnnDataSet {
     pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
         ensure!(!self.anndatas.is_empty(), "anndatas is empty");
         match self.anndatas.inner().0.deref() {
-            None => self.annotation.subset(obs_idx, var_idx),
+            None => self.annotation.subset(obs_idx, var_idx)?,
             Some(ann) => {
                 let obs_idx_ = obs_idx.map(|x|
                     ann.accum.lock().sort_index_to_buckets(x)
                 );
                 let i = obs_idx_.as_ref().map(|x| x.as_slice());
-                self.annotation.subset(i, var_idx);
-                ann.subset(i, var_idx);
+                self.annotation.subset(i, var_idx)?;
+                ann.subset(i, var_idx)?;
             }
         }
         Ok(())
     }
 
-    pub fn write_subset<P: AsRef<Path>>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        dir: P,
-    ) -> Result<()>
+    pub fn write<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<()>
     {
         let file = dir.as_ref().join("_dataset.h5ads");
         let anndata_dir = dir.as_ref().join("anndatas");
         std::fs::create_dir_all(anndata_dir.clone())?;
         match self.anndatas.inner().0.deref() {
-            None => self.annotation.write_subset(obs_idx, var_idx, file)?,
+            None => self.annotation.write(obs_idx, var_idx, file)?,
             Some(ann) => {
                 let obs_idx_ = obs_idx.map(|x|
                     ann.accum.lock().sort_index_to_buckets(x)
                 );
                 let i = obs_idx_.as_ref().map(|x| x.as_slice());
-                let adata = self.annotation.copy_subset(i, var_idx, file)?;
+                let adata = self.annotation.copy(i, var_idx, file)?;
 
-                let mut filenames = ann.write_subset(i, var_idx, anndata_dir.clone());
+                let mut filenames = ann.write(i, var_idx, anndata_dir.clone())?;
                 let parent_dir = if anndata_dir.is_absolute() {
                     anndata_dir
                 } else {
@@ -621,24 +604,10 @@ impl AnnDataSet {
 
     /// Copy and save the AnnDataSet to a new directory.
     /// This will copy all children AnnData files.
-    pub fn copy_subset<P: AsRef<Path>>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        dir: P
-    ) -> Result<Self>
-    {
+    pub fn copy<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<Self> {
         let file = dir.as_ref().join("_dataset.h5ads");
-        self.write_subset(obs_idx, var_idx, dir)?;
+        self.write(obs_idx, var_idx, dir)?;
         AnnDataSet::read(File::open_rw(file)?, None, false)
-    }
-
-    /// Copy and save the AnnDataSet to a new directory.
-    /// This will copy all children AnnData files.
-    pub fn copy<P: AsRef<Path>>(&self, dir: P) -> Result<Self> {
-        let anndata_dir = dir.as_ref().join("anndatas");
-        std::fs::create_dir_all(anndata_dir)?;
-        todo!()
     }
 
     pub fn close(self) -> Result<()> {
@@ -787,7 +756,7 @@ impl AnnDataOp for AnnData {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
     fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_uns().inner().add_data(key, data)
+        self.get_uns().add_data(key, data)
     }
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
@@ -798,15 +767,15 @@ impl AnnDataOp for AnnData {
         if !self.x.is_empty() { self.file.unlink("X")?; }
         let (container, nrows) = data.write(&self.file, "X")?;
         self.set_n_obs(nrows);
-        self.x.insert(MatrixElem::try_from(container)?.extract().unwrap());
+        self.x.insert(InnerMatrixElem::try_from(container)?);
         Ok(())
     }
 
     fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_obsm().inner().add_data(key, data)
+        self.get_obsm().add_data(key, data)
     }
     fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
-        self.get_obsm().inner().insert_from_row_iter(key, data)
+        self.get_obsm().insert_from_row_iter(key, data)
     }
 
 }
@@ -832,7 +801,7 @@ impl AnnDataOp for AnnDataSet {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
     fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_uns().inner().add_data(key, data)
+        self.get_uns().add_data(key, data)
     }
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
@@ -843,7 +812,7 @@ impl AnnDataOp for AnnDataSet {
     }
 
     fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_obsm().inner().add_data(key, data)
+        self.get_obsm().add_data(key, data)
     }
     fn write_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
         bail!("Not implemented")

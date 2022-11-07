@@ -1,4 +1,5 @@
 use crate::{anndata::{AnnData, AnnDataOp}, data::*, element::*, iterator::IndexedCsrIterator};
+use crate::element::collection::InnerAxisArrays;
 
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -11,97 +12,29 @@ use polars::{
 use std::path::Path;
 
 impl AnnData {
-    pub fn write<P: AsRef<Path>>(&self, filename: P) -> Result<()>
+    pub fn write<P>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, filename: P) -> Result<()>
+    where
+        P: AsRef<Path>,
     {
         let file = File::create(filename)?;
 
-        self.get_x().write(None, None, &file, "X")?;
-        self.get_obs().write(&file, "obs")?;
-        self.get_var().write(&file, "var")?;
-        self.get_obsm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsm")?))?;
-        self.get_obsp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("obsp")?))?;
-        self.get_varm().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varm")?))?;
-        self.get_varp().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("varp")?))?;
-        self.get_uns().inner().0.as_ref().map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
+        self.get_x().write(obs_idx, var_idx, &file, "X")?;
+        self.get_obs().write(obs_idx, &file, "obs")?;
+        self.get_var().write(var_idx, &file, "var")?;
+        self.get_obsm().write(obs_idx, &file.create_group("obsm")?)?;
+        self.get_obsp().write(obs_idx, &file.create_group("obsp")?)?;
+        self.get_varm().write(var_idx, &file.create_group("varm")?)?;
+        self.get_varp().write(var_idx, &file.create_group("varp")?)?;
+        self.get_uns().write(&file.create_group("uns")?)?;
         file.close()?;
         Ok(())
     }
 
-    // TODO: refactoring
-    pub fn write_subset<P: AsRef<Path>>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        filename: P,
-    ) -> Result<()>
+    pub fn copy<P>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, filename: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
     {
-        match obs_idx {
-            Some(i) => {
-                let file = File::create(filename)?;
-                self.obs.write_rows(i, &file, "obs")?;
-                self.obsm.inner().0.as_mut()
-                    .map(|x| x.write_subset(i, &file.create_group("obsm")?));
-                self.obsp.inner().0.as_mut()
-                    .map(|x| x.write_subset(i, &file.create_group("obsp")?));
-                match var_idx {
-                    Some(j) => {
-                        self.x.write(Some(i), Some(j), &file, "X")?;
-                        self.var.write_rows(j, &file, "var")?;
-                        self.varm.inner().0.as_mut()
-                            .map(|x| x.write_subset(j, &file.create_group("varm")?));
-                        self.varp.inner().0.as_mut()
-                            .map(|x| x.write_subset(j, &file.create_group("varp")?));
-                    },
-                    None => {
-                        self.x.write(Some(i), None, &file, "X")?;
-                        self.var.write(&file, "var")?;
-                        self.varm.inner().0.as_mut()
-                            .map(|x| x.write(&file.create_group("varm")?));
-                        self.varp.inner().0.as_mut()
-                            .map(|x| x.write(&file.create_group("varp")?));
-                    },
-                }
-                self.get_uns().inner().0.as_ref()
-                    .map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
-                file.close()?;
-            },
-            None => match var_idx {
-                Some(j) => {
-                    let file = File::create(filename)?;
-                    self.obs.write(&file, "obs")?;
-                    self.obsm.inner().0.as_mut()
-                        .map(|x| x.write(&file.create_group("obsm")?));
-                    self.obsp.inner().0.as_mut()
-                        .map(|x| x.write(&file.create_group("obsp")?));
-                    self.x.write(None, Some(j), &file, "X")?;
-                    self.var.write_rows(j, &file, "var")?;
-                    self.varm.inner().0.as_mut()
-                        .map(|x| x.write_subset(j, &file.create_group("varm")?));
-                    self.varp.inner().0.as_mut()
-                        .map(|x| x.write_subset(j, &file.create_group("varp")?));
-                    self.get_uns().inner().0.as_ref()
-                        .map_or(Ok(()), |x| x.write(&file.create_group("uns")?))?;
-                    file.close()?;
-                },
-                None => { self.write(filename)?; },
-            },
-        }
-        Ok(())
-    }
-
-    pub fn copy<P: AsRef<Path>>(&self, filename: P) -> Result<Self> {
-        self.write(filename.as_ref().clone())?;
-        Self::read(File::open_rw(filename)?)
-    }
-
-    pub fn copy_subset<P: AsRef<Path>>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        filename: P,
-    ) -> Result<Self>
-    {
-        self.write_subset(obs_idx, var_idx, filename.as_ref().clone())?;
+        self.write(obs_idx, var_idx, filename.as_ref().clone())?;
         Self::read(File::open_rw(filename)?)
     }
 
@@ -166,11 +99,11 @@ impl AnnData {
                 };
             }
         }
-        def_item!(obsm, |x| AxisArrays::new(x, Axis::Row, n_obs.clone()));
-        def_item!(obsp, |x| AxisArrays::new(x, Axis::Both, n_obs.clone()));
-        def_item!(varm, |x| AxisArrays::new(x, Axis::Row, n_vars.clone()));
-        def_item!(varp, |x| AxisArrays::new(x, Axis::Both, n_vars.clone()));
-        def_item!(uns, |x| ElemCollection::try_from(x).unwrap());
+        def_item!(obsm, |x| InnerAxisArrays::new(x, Axis::Row, n_obs.clone()));
+        def_item!(obsp, |x| InnerAxisArrays::new(x, Axis::Both, n_obs.clone()));
+        def_item!(varm, |x| InnerAxisArrays::new(x, Axis::Row, n_vars.clone()));
+        def_item!(varp, |x| InnerAxisArrays::new(x, Axis::Both, n_vars.clone()));
+        let uns = ElemCollection::try_from(file.group("uns").or(file.create_group("uns"))?)?;
 
         Ok(Self { file, n_obs, n_vars, x, obs, obsm, obsp, var, varm, varp, uns })
     }

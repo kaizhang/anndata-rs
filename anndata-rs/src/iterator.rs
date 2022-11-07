@@ -216,16 +216,14 @@ where
 }
 
 impl AxisArrays {
-    pub fn insert_from_row_iter<I>(&mut self, key: &str, data: I) -> Result<()>
-    where
-        I: RowIterator,
-    {
+    pub fn insert_from_row_iter<I: RowIterator>(&self, key: &str, data: I) -> Result<()> {
         let container = {
-            let mut size_guard = self.size.lock();
+            let inner = self.inner();
+            let mut size_guard = inner.size.lock();
             let mut n = *size_guard;
 
-            if self.contains_key(key) { self.container.unlink(key)?; } 
-            let (container, nrows) = data.write(&self.container, key)?;
+            if inner.contains_key(key) { inner.container.unlink(key)?; } 
+            let (container, nrows) = data.write(&inner.container, key)?;
 
             if n == 0 { n = nrows; }
             assert!(
@@ -238,39 +236,10 @@ impl AxisArrays {
         };
  
         let elem = MatrixElem::try_from(container)?;
-        self.insert(key.to_string(), elem);
+        self.inner().insert(key.to_string(), elem);
         Ok(())
     }
 }
-
-/*
-pub trait IntoRowsIterator {
-    type Rows;
-    type IntoRowsIter: Iterator<Item = Self::Rows>;
-    fn into_row_iter(self, chunk_size: usize) -> Self::IntoRowsIter;
-}
-
-impl<'a, T> IntoRowsIterator for &'a MatrixElem<CsrMatrix<T>>
-where
-    T: H5Type + Copy,
-{
-    type Rows = Vec<Vec<(usize, T)>>;
-    type IntoRowsIter = CsrRowsIterator<'a, T>;
-    fn into_row_iter(self, chunk_size: usize) -> Self::IntoRowsIter {
-        match &self.inner.element {
-            Some(csr) => CsrRowsIterator::Memory((csr.row_iter(), chunk_size)),
-            None => { 
-                let container = self.inner.container.get_group_ref().unwrap();
-                let data = container.dataset("data").unwrap();
-                let indices = container.dataset("indices").unwrap();
-                let indptr: Vec<usize> = container.dataset("indptr").unwrap()
-                    .read_1d().unwrap().to_vec();
-                CsrRowsIterator::Disk((data, indices, indptr, 0, chunk_size))
-            },
-        }
-    }
-}
-*/
 
 pub enum CsrRowsIterator<'a, T> {
     Memory((CsrRowIter<'a, T>, usize)),

@@ -4,27 +4,35 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use hdf5::Group; 
-use anyhow::{anyhow, Result};
+use anyhow::{ensure, anyhow, Result};
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
 
-pub struct ElemCollection {
+pub struct InnerElemCollection {
     container: Group,
     data: HashMap<String, Elem>,
 }
 
-impl Deref for ElemCollection {
+impl Deref for InnerElemCollection {
     type Target = HashMap<String, Elem>;
 
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
-impl DerefMut for ElemCollection {
+impl DerefMut for InnerElemCollection {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
-impl TryFrom<Group> for ElemCollection {
+impl std::fmt::Display for InnerElemCollection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let keys = self.keys().map(|x| x.to_string())
+            .collect::<Vec<_>>().join(", ");
+        write!(f, "Dict with keys: {}", keys)
+    }
+}
+
+impl TryFrom<Group> for InnerElemCollection {
     type Error = anyhow::Error;
 
     fn try_from(container: Group) -> Result<Self> {
@@ -34,14 +42,24 @@ impl TryFrom<Group> for ElemCollection {
     }
 }
 
+pub type ElemCollection = Slot<InnerElemCollection>;
+
+impl TryFrom<Group> for ElemCollection {
+    type Error = anyhow::Error;
+
+    fn try_from(container: Group) -> Result<Self> {
+        Ok(Slot::new(InnerElemCollection::try_from(container)?))
+    }
+}
 
 impl ElemCollection {
-    pub fn add_data<D: DataIO>(&mut self, key: &str, data: &D) -> Result<()> {
-        match self.data.get_mut(key) {
+    pub fn add_data<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+        ensure!(!self.is_empty(), "cannot add data to an empty ElemCollection");
+        let mut inner = self.inner();
+        match inner.get_mut(key) {
             None => {
-                let container = data.write(&self.container, key)?;
-                let elem = Elem::try_from(container)?;
-                self.data.insert(key.to_string(), elem);
+                let container = data.write(&inner.container, key)?;
+                inner.insert(key.to_string(), Elem::try_from(container)?);
             }
             Some(elem) => elem.update(data)?,
         }
@@ -49,20 +67,14 @@ impl ElemCollection {
     }
 
     pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.iter() {
-            val.write(location, key)?;
+        if !self.is_empty() {
+            let inner = self.inner();
+            for (key, val) in inner.iter() { val.write(location, key)?; }
         }
         Ok(())
     }
 }
 
-impl std::fmt::Display for ElemCollection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let keys = self.data.keys().map(|x| x.to_string())
-            .collect::<Vec<_>>().join(", ");
-        write!(f, "Dict with keys: {}", keys)
-    }
-}
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Axis {
@@ -71,21 +83,34 @@ pub enum Axis {
     Both,
 }
 
-pub struct AxisArrays {
+pub struct InnerAxisArrays {
     pub axis: Axis,
     pub(crate) container: Group,
     pub(crate) size: Arc<Mutex<usize>>,   // shared global reference
     data: HashMap<String, MatrixElem>,
 }
 
-impl Deref for AxisArrays {
+impl Deref for InnerAxisArrays {
     type Target = HashMap<String, MatrixElem>;
 
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
-impl DerefMut for AxisArrays {
+impl DerefMut for InnerAxisArrays {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
+}
+
+impl std::fmt::Display for InnerAxisArrays {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ty = match self.axis {
+            Axis::Row => "row",
+            Axis::Column => "column",
+            Axis::Both => "square",
+        };
+        let keys = self.keys().map(|x| x.to_string())
+            .collect::<Vec<_>>().join(", ");
+        write!(f, "AxisArrays ({}) with keys: {}", ty, keys)
+    }
 }
 
 macro_rules! check_dims {
@@ -118,20 +143,7 @@ macro_rules! check_dims {
     }
 }
 
-impl std::fmt::Display for AxisArrays {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ty = match self.axis {
-            Axis::Row => "row",
-            Axis::Column => "column",
-            Axis::Both => "square",
-        };
-        let keys = self.keys().map(|x| x.to_string())
-            .collect::<Vec<_>>().join(", ");
-        write!(f, "AxisArrays ({}) with keys: {}", ty, keys)
-    }
-}
-
-impl AxisArrays {
+impl InnerAxisArrays {
     pub(crate) fn new(group: Group, axis: Axis, size: Arc<Mutex<usize>>) -> Self {
         let data: HashMap<_, _> = get_all_data(&group).map(|(k, v)|
             (k, MatrixElem::try_from(v).unwrap())
@@ -148,55 +160,58 @@ impl AxisArrays {
         }
         Self { container: group, size, axis, data }
     }
-    
-    pub fn size(&self) -> usize { *self.size.lock() }
+}
 
-    pub fn add_data<D: DataPartialIO>(&mut self, key: &str, data: &D) -> Result<()> {
+pub type AxisArrays = Slot<InnerAxisArrays>;
+
+impl AxisArrays {
+    pub fn size(&self) -> Option<usize> { self.lock().as_ref().map(|x| *x.size.lock()) }
+
+    pub fn add_data<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+        ensure!(!self.is_empty(), "cannot add data to a closed AxisArrays");
+        let mut inner = self.inner();
         {
-            let mut size_guard = self.size.lock();
+            let mut size_guard = inner.size.lock();
             let mut n = *size_guard;
-            if let Some(s) = check_dims!(n, data, self.axis) {
+            if let Some(s) = check_dims!(n, data, inner.axis) {
                 n = s;
             }
             *size_guard = n;
         }
-        match self.get_mut(key) {
+        match inner.get_mut(key) {
             None => {
-                let container = data.write(&self.container, key)?;
+                let container = data.write(&inner.container, key)?;
                 let elem = MatrixElem::try_from(container)?;
-                self.data.insert(key.to_string(), elem);
+                inner.insert(key.to_string(), elem);
             }
             Some(elem) => elem.update(data)?,
         }
         Ok(())
     }
     
-    pub(crate) fn subset(&mut self, idx: &[usize]) {
-        match self.axis {
-            Axis::Row => self.data.values_mut().for_each(|x| x.subset(Some(idx), None).unwrap()),
-            Axis::Column => self.data.values_mut().for_each(|x| x.subset(None, Some(idx)).unwrap()),
-            Axis::Both => self.data.values_mut().for_each(|x| x.subset(Some(idx), Some(idx)).unwrap()),
-        }
-    }
-
-    pub fn write(&self, location: &Group) -> Result<()> {
-        for (key, val) in self.data.iter() {
-            val.write(None, None, location, key)?;
+    pub fn subset(&self, idx: &[usize]) -> Result<()> {
+        if !self.is_empty() {
+            let inner = self.inner();
+            match inner.axis {
+                Axis::Row => inner.values().try_for_each(|x| x.subset(Some(idx), None)),
+                Axis::Column => inner.values().try_for_each(|x| x.subset(None, Some(idx))),
+                Axis::Both => inner.values().try_for_each(|x| x.subset(Some(idx), Some(idx))),
+            }?;
         }
         Ok(())
     }
 
-    pub fn write_subset(&self, idx: &[usize], location: &Group) -> Result<()> {
-        match self.axis {
-            Axis::Row => {
-                self.data.iter().for_each(|(k, x)| x.write(Some(idx), None, location, k).unwrap());
-            },
-            Axis::Column => {
-                self.data.iter().for_each(|(k, x)| x.write(None, Some(idx), location, k).unwrap());
-            },
-            Axis::Both => {
-                self.data.iter().for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k).unwrap());
-            },
+    pub fn write(&self, idx_: Option<&[usize]>, location: &Group) -> Result<()> {
+        if !self.is_empty() {
+            let inner = self.inner();
+            match idx_ {
+                None => inner.iter().try_for_each(|(k, x)| x.write(None, None, location, k)),
+                Some(idx) => match inner.axis {
+                    Axis::Row => inner.iter().try_for_each(|(k, x)| x.write(Some(idx), None, location, k)),
+                    Axis::Column => inner.iter().try_for_each(|(k, x)| x.write(None, Some(idx), location, k)),
+                    Axis::Both => inner.iter().try_for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k)),
+                },
+            }?;
         }
         Ok(())
     }
@@ -223,7 +238,7 @@ impl std::fmt::Display for StackedAxisArrays {
 
 impl StackedAxisArrays {
     pub(crate) fn new(
-        arrays: Vec<&AxisArrays>,
+        arrays: Vec<&InnerAxisArrays>,
         nrows: &Arc<Mutex<usize>>,
         ncols: &Arc<Mutex<usize>>,
         accum: &Arc<Mutex<AccumLength>>,

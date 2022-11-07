@@ -185,7 +185,7 @@ impl PyDataFrameElem {
 /// Unstructured annotations (ordered dictionary).
 #[pyclass]
 #[repr(transparent)]
-pub struct PyElemCollection(pub(crate) Slot<ElemCollection>);
+pub struct PyElemCollection(pub(crate) ElemCollection);
 
 #[pymethods]
 impl PyElemCollection {
@@ -193,9 +193,7 @@ impl PyElemCollection {
         self.0.inner().keys().map(|x| x.to_string()).collect()
     }
 
-    fn __contains__(&self, key: &str) -> bool {
-        self.0.inner().contains_key(key)
-    }
+    fn __contains__(&self, key: &str) -> bool { self.0.inner().contains_key(key) }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get_mut(key) {
@@ -205,7 +203,7 @@ impl PyElemCollection {
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.inner().0.as_mut().unwrap().add_data(key, &to_rust_data1(py, data)?).unwrap();
+        self.0.add_data(key, &to_rust_data1(py, data)?).unwrap();
         Ok(())
     }
 
@@ -234,7 +232,7 @@ impl PyElemCollection {
 /// Array(Float(U4)) element, cache_enabled: no, cached: no
 #[pyclass]
 #[repr(transparent)]
-pub struct PyAxisArrays(pub(crate) Slot<AxisArrays>);
+pub struct PyAxisArrays(pub(crate) AxisArrays);
 
 #[pymethods]
 impl PyAxisArrays {
@@ -298,7 +296,7 @@ impl PyAxisArrays {
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.inner().0.as_mut().unwrap().add_data(key, &to_rust_data2(py, data)?).unwrap();
+        self.0.add_data(key, &to_rust_data2(py, data)?).unwrap();
         Ok(())
     }
 

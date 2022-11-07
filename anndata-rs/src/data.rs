@@ -66,7 +66,7 @@ dyn_clone::clone_trait_object!(DataPartialIO);
 impl<T> DataPartialIO for T where T: MatrixIO + DataIO {}
 
 impl ReadData for Box<dyn DataPartialIO> {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self> {
         read_dyn_data_subset(container, None, None)
     }
 }
@@ -86,7 +86,6 @@ impl WriteData for Box<dyn DataPartialIO> {
 }
 
 impl MatrixLike for Box<dyn DataPartialIO> {
-
     fn shape(&self) -> (usize, usize) { self.deref().shape() }
     fn nrows(&self) -> usize { self.deref().nrows() }
     fn ncols(&self) -> usize { self.deref().ncols() }
@@ -168,7 +167,7 @@ impl MatrixIO for Box<dyn DataPartialIO> {
     }
 }
 
-pub fn read_dyn_data_subset(
+fn read_dyn_data_subset(
     container: &DataContainer,
     ridx: Option<&[usize]>,
     cidx: Option<&[usize]>,

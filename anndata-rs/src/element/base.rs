@@ -1,22 +1,14 @@
 use crate::{
-    data::*,
-    utils::hdf5::{
-        create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
-        create_dataset,
-    },
+    data::*, iterator::{ChunkedMatrix, StackedChunkedMatrix},
+    utils::hdf5::{create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, create_dataset},
 };
-use crate::iterator::ChunkedMatrix;
-use crate::iterator::StackedChunkedMatrix;
 
-use std::boxed::Box;
 use hdf5::Group; 
 use anyhow::{Result, ensure, bail};
 use ndarray::Array1;
 use polars::{frame::DataFrame, series::Series};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{boxed::Box, collections::HashMap, sync::Arc, ops::{Deref, DerefMut}};
 use parking_lot::{Mutex, MutexGuard};
-use std::ops::{Deref, DerefMut};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -233,28 +225,20 @@ impl DataFrameElem {
         self.with_data_ref(|x| x.map(|(_, df)| df.clone()).unwrap_or(DataFrame::empty()))
     }
 
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
+    pub fn write(&self, idx_: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
         self.with_data_ref(|x| {
             if let Some((index, df)) = x {
-                let container = df.write(location, name)?;
-                index.write(&container)?;
+                match idx_ {
+                    None => index.write(&df.write(location, name)?),
+                    Some(idx) => {
+                        let new_df = df.take_iter(idx.into_iter().map(|x| *x))?;
+                        let new_index: DataFrameIndex = idx.into_iter().map(|i| index.names[*i].clone()).collect();
+                        new_index.write(&new_df.write(location, name)?)
+                    },
+                }?;
             }
             Ok(())
         })?
-    }
-
-    pub fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<()> {
-        let subset = self.with_data_ref(|x| x.map(|(index, df)| {
-            let new_df = df.take_iter(idx.into_iter().map(|x| *x))?;
-            let new_index: DataFrameIndex = idx.into_iter().map(|i| index.names[*i].clone()).collect();
-            Ok::<_, anyhow::Error>((new_index, new_df))
-        }))?.transpose()?;
-
-        if let Some((index, df)) = subset {
-            let container = df.write(location, name)?;
-            index.write(&container)?;
-        }
-        Ok(())
     }
 
     pub fn update(&self, data: &DataFrame) -> Result<()> {
@@ -403,17 +387,22 @@ impl std::fmt::Display for InnerMatrixElem {
     }
 }
 
-pub type MatrixElem = Slot<InnerMatrixElem>;
-
-impl TryFrom<DataContainer> for MatrixElem {
+impl TryFrom<DataContainer> for InnerMatrixElem {
     type Error = anyhow::Error;
 
     fn try_from(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
         let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
         let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
-        Ok(Slot::new(InnerMatrixElem { dtype, cache_enabled: false, element: None, container, nrows, ncols }))
+        Ok(Self { dtype, cache_enabled: false, element: None, container, nrows, ncols })
     }
+}
+
+pub type MatrixElem = Slot<InnerMatrixElem>;
+
+impl TryFrom<DataContainer> for MatrixElem {
+    type Error = anyhow::Error;
+    fn try_from(container: DataContainer) -> Result<Self> { Ok(Slot::new(InnerMatrixElem::try_from(container)?)) }
 }
 
 impl MatrixElem {
@@ -439,15 +428,18 @@ impl MatrixElem {
                 (Some(i), None) => Ok(data.get_rows(i)),
                 (None, Some(j)) => Ok(data.get_columns(j)),
             }
-            None => if ridx.is_none() && cidx.is_none() {
-                let data = read_dyn_data_subset(&inner.container, None, None)?;
-                if inner.cache_enabled {
-                    inner.element = Some(dyn_clone::clone_box(data.as_ref()));
-                }
-                Ok(data)
-            } else {
-                Ok(read_dyn_data_subset(&inner.container, ridx, cidx)?)
-            },
+            None => match (ridx, cidx) {
+                (None, None) => {
+                    let data = <Box<dyn DataPartialIO>>::read(&inner.container)?;
+                    if inner.cache_enabled {
+                        inner.element = Some(dyn_clone::clone_box(data.as_ref()));
+                    }
+                    Ok(data)
+                },
+                (Some(i), Some(j)) => Ok(<Box<dyn DataPartialIO>>::read_partial(&inner.container, i, j)),
+                (Some(i), None) => Ok(<Box<dyn DataPartialIO>>::read_rows(&inner.container, i)),
+                (None, Some(j)) => Ok(<Box<dyn DataPartialIO>>::read_columns(&inner.container, j)),
+            }
         }
     }
 
@@ -460,20 +452,7 @@ impl MatrixElem {
     
     pub fn write(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
         if !self.is_empty() {
-            let inner = self.inner();
-            match inner.element.as_ref() {
-                Some(data) => match (ridx, cidx) {
-                    (None, None) => data.write(location, name),
-                    (Some(i), Some(j)) => data.subset(i, j).write(location, name),
-                    (Some(i), None) => data.get_rows(i).write(location, name),
-                    (None, Some(j)) => data.get_columns(j).write(location, name),
-                }
-                None => if ridx.is_none() && cidx.is_none() {
-                    read_dyn_data_subset(&inner.container, None, None)?.write(location, name)
-                } else {
-                    read_dyn_data_subset(&inner.container, ridx, cidx)?.write(location, name)
-                },
-            }?;
+            self.read(ridx, cidx)?.write(location, name)?;
         }
         Ok(())
     }
@@ -488,10 +467,11 @@ impl MatrixElem {
                     (Some(i), None) => Some(data.get_rows(i)),
                     (None, Some(j)) => Some(data.get_columns(j)),
                 }
-                None => if ridx.is_none() && cidx.is_none() {
-                    None
-                } else {
-                    Some(read_dyn_data_subset(&inner.container, ridx, cidx)?)
+                None => match (ridx, cidx) {
+                    (None, None) => None,
+                    (Some(i), Some(j)) => Some(<Box<dyn DataPartialIO>>::read_partial(&inner.container, i, j)),
+                    (Some(i), None) => Some(<Box<dyn DataPartialIO>>::read_rows(&inner.container, i)),
+                    (None, Some(j)) => Some(<Box<dyn DataPartialIO>>::read_columns(&inner.container, j)),
                 },
             };
             if let Some(data) = sub {
