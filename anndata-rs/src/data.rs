@@ -15,15 +15,16 @@ use dyn_clone::DynClone;
 use downcast_rs::Downcast;
 use downcast_rs::impl_downcast;
 use std::ops::Deref;
+use std::fmt::Debug;
 
 /// Super trait to deal with regular data IO.
-pub trait DataIO: Send + Sync + DynClone + Downcast + WriteData + ReadData {}
-impl_downcast!(DataIO);
-dyn_clone::clone_trait_object!(DataIO);
+pub trait Data: Send + Sync + Debug + DynClone + Downcast + WriteData + ReadData {}
+impl_downcast!(Data);
+dyn_clone::clone_trait_object!(Data);
 
-impl<T> DataIO for T where T: Clone + Send + Sync + WriteData + ReadData + 'static {}
+impl<T> Data for T where T: Clone + Send + Sync + Debug + WriteData + ReadData + 'static {}
 
-impl ReadData for Box<dyn DataIO> {
+impl ReadData for Box<dyn Data> {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         match container.get_encoding_type()? {
             DataType::String => Ok(Box::new(String::read(container)?)),
@@ -45,7 +46,7 @@ impl ReadData for Box<dyn DataIO> {
     }
 }
 
-impl WriteData for Box<dyn DataIO> {
+impl WriteData for Box<dyn Data> {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         self.deref().write(location, name)
     }
@@ -59,19 +60,19 @@ impl WriteData for Box<dyn DataIO> {
     }
 }
 
-pub trait DataPartialIO: MatrixIO + DataIO + DynClone + Downcast {}
-impl_downcast!(DataPartialIO);
-dyn_clone::clone_trait_object!(DataPartialIO);
+pub trait MatrixData: PartialIO + Data + DynClone + Downcast {}
+impl_downcast!(MatrixData);
+dyn_clone::clone_trait_object!(MatrixData);
 
-impl<T> DataPartialIO for T where T: MatrixIO + DataIO {}
+impl<T> MatrixData for T where T: PartialIO + Data {}
 
-impl ReadData for Box<dyn DataPartialIO> {
+impl ReadData for Box<dyn MatrixData> {
     fn read(container: &DataContainer) -> Result<Self> {
         read_dyn_data_subset(container, None, None)
     }
 }
 
-impl WriteData for Box<dyn DataPartialIO> {
+impl WriteData for Box<dyn MatrixData> {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         self.deref().write(location, name)
     }
@@ -85,7 +86,7 @@ impl WriteData for Box<dyn DataPartialIO> {
     }
 }
 
-impl MatrixLike for Box<dyn DataPartialIO> {
+impl MatrixOp for Box<dyn MatrixData> {
     fn shape(&self) -> (usize, usize) { self.deref().shape() }
     fn nrows(&self) -> usize { self.deref().nrows() }
     fn ncols(&self) -> usize { self.deref().ncols() }
@@ -126,19 +127,19 @@ macro_rules! size_reader {
     };
 }
 
-impl MatrixIO for Box<dyn DataPartialIO> {
-    fn get_nrows(container: &DataContainer) -> usize { size_reader!(container, MatrixIO, get_nrows) }
-    fn get_ncols(container: &DataContainer) -> usize { size_reader!(container, MatrixIO, get_ncols) }
+impl PartialIO for Box<dyn MatrixData> {
+    fn get_nrows(container: &DataContainer) -> usize { size_reader!(container, PartialIO, get_nrows) }
+    fn get_ncols(container: &DataContainer) -> usize { size_reader!(container, PartialIO, get_ncols) }
 
     fn read_rows(container: &DataContainer, idx: &[usize]) -> Self { read_dyn_data_subset(container, Some(idx), None).unwrap() }
 
     fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Result<Self> {
         match container.get_encoding_type()? {
             DataType::Array(ty) => proc_numeric_data!(
-                ty, MatrixIO::read_row_slice(container, slice)?, _box, ArrayD
+                ty, PartialIO::read_row_slice(container, slice)?, _box, ArrayD
             ),
             DataType::CsrMatrix(ty) => proc_numeric_data!(
-                ty, MatrixIO::read_row_slice(container, slice)?, _box, CsrMatrix
+                ty, PartialIO::read_row_slice(container, slice)?, _box, CsrMatrix
             ),
             unknown => Err(hdf5::Error::Internal(
                 format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
@@ -171,8 +172,8 @@ fn read_dyn_data_subset(
     container: &DataContainer,
     ridx: Option<&[usize]>,
     cidx: Option<&[usize]>,
-) -> Result<Box<dyn DataPartialIO>> {
-    fn read_data_subset<T: DataPartialIO>(
+) -> Result<Box<dyn MatrixData>> {
+    fn read_data_subset<T: MatrixData>(
         container: &DataContainer,
         ridx: Option<&[usize]>,
         cidx: Option<&[usize]>,
@@ -180,11 +181,11 @@ fn read_dyn_data_subset(
         match ridx {
             None => match cidx {
                 None => ReadData::read(container).unwrap(),
-                Some(j) => MatrixIO::read_columns(container, j),
+                Some(j) => PartialIO::read_columns(container, j),
             },
             Some(i) => match cidx {
-                None => MatrixIO::read_rows(container, i),
-                Some(j) => MatrixIO::read_partial(container, i, j),
+                None => PartialIO::read_rows(container, i),
+                Some(j) => PartialIO::read_partial(container, i, j),
             },
         }
     }
@@ -209,14 +210,14 @@ fn read_dyn_data_subset(
 
 pub(crate) fn rstack_with_index(
     index: &[usize],
-    mats: Vec<Box<dyn DataPartialIO>>
-) -> Result<Box<dyn DataPartialIO>> {
+    mats: Vec<Box<dyn MatrixData>>
+) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
             ty,
             rstack_arr_with_index(
                 index,
-                mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
+                mats.into_iter().map(|x| x.downcast().unwrap()).collect(),
             ),
             _box,
             ArrayD
@@ -225,7 +226,7 @@ pub(crate) fn rstack_with_index(
             ty,
             rstack_csr_with_index(
                 index,
-                mats.into_iter().map(|x| x.into_any().downcast().unwrap()).collect(),
+                mats.into_iter().map(|x| x.downcast().unwrap()).collect(),
             ),
             _box,
             CsrMatrix
@@ -270,16 +271,16 @@ fn rstack_csr_with_index<T: Clone>(
     CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
 }
 
-pub(crate) fn rstack(mats: Vec<Box<dyn DataPartialIO>>) -> Result<Box<dyn DataPartialIO>> {
+pub(crate) fn rstack(mats: Vec<Box<dyn MatrixData>>) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
             ty,
-            rstack_arr(mats.into_iter().map(|x| x.into_any().downcast().unwrap())),
+            rstack_arr(mats.into_iter().map(|x| x.downcast().unwrap())),
             _box, ArrayD
         ),
         DataType::CsrMatrix(ty) => proc_numeric_data!(
             ty,
-            rstack_csr(mats.into_iter().map(|x| x.into_any().downcast().unwrap())),
+            rstack_csr(mats.into_iter().map(|x| x.downcast().unwrap())),
             _box, CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),

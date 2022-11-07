@@ -8,7 +8,7 @@ use anndata_rs::anndata::AnnDataOp;
 use anndata_rs::element::DataFrameIndex;
 use anndata_rs::iterator::RowIterator;
 use anndata_rs::{anndata, element::Slot};
-use anndata_rs::data::{DataIO, DataPartialIO};
+use anndata_rs::data::{Data, MatrixData};
 use polars::frame::DataFrame;
 use anyhow::Result;
 use pyo3::{prelude::*, PyResult, Python, types::PyIterator, exceptions::PyException};
@@ -246,7 +246,7 @@ impl AnnData {
     #[setter(X)]
     fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
         match data {
-            None => self.0.inner().set_x::<Box<dyn DataPartialIO>>(None).unwrap(),
+            None => self.0.inner().set_x::<Box<dyn MatrixData>>(None).unwrap(),
             Some(d) => if is_iterator(py, d)? {
                 panic!("Setting X by an iterator is not implemented")
             } else {
@@ -807,10 +807,10 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {todo!()}
-    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {todo!()}
+    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         // TODO: remove the Box.
-        let data_: Box<dyn DataIO> = Box::new(dyn_clone::clone(data));
+        let data_: Box<dyn Data> = Box::new(dyn_clone::clone(data));
         self.0.getattr("uns")?.call_method1(
             "__setitem__",
             (key, to_py_data1(self.0.py(), data_)?),
@@ -821,10 +821,10 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {todo!()}
     fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {todo!()}
 
-    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.set_n_obs(data.nrows()).unwrap_or(());
         // TODO: remove the Box.
-        let data_: Box<dyn DataPartialIO> = Box::new(dyn_clone::clone(data));
+        let data_: Box<dyn MatrixData> = Box::new(dyn_clone::clone(data));
         self.0.getattr("obsm")?.call_method1(
             "__setitem__",
             (key, to_py_data2(self.0.py(), data_)?),

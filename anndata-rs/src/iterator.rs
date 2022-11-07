@@ -1,5 +1,5 @@
 use crate::{
-    data::{DataType, DataContainer, DataPartialIO, create_csr_from_rows},
+    data::{DataType, DataContainer, MatrixData, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
     element::{AxisArrays, MatrixElem},
 };
@@ -297,7 +297,7 @@ pub struct ChunkedMatrix {
 }
 
 impl Iterator for ChunkedMatrix {
-    type Item = Box<dyn DataPartialIO>;
+    type Item = Box<dyn MatrixData>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_index >= self.size {
@@ -326,7 +326,7 @@ pub struct StackedChunkedMatrix {
 }
 
 impl Iterator for StackedChunkedMatrix {
-    type Item = Box<dyn DataPartialIO>;
+    type Item = Box<dyn MatrixData>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let i = self.current_matrix_index;

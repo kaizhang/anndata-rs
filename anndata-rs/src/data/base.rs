@@ -1,10 +1,11 @@
 use crate::{
-    data::DataIO,
+    data::Data,
     utils::hdf5::{
         create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
         create_dataset,
     },
 };
+use crate::element::base::DataFrameIndex;
 
 use std::fmt;
 use ndarray::{Array1, ArrayD, ArrayView, Dimension};
@@ -438,7 +439,11 @@ impl WriteData for DataFrame {
             .map(|x| x.parse().unwrap()).collect();
         group.new_attr_builder().with_data(&columns).create("column-order")?;
         self.iter().try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
-        Ok(DataContainer::H5Group(group))
+
+        let container = DataContainer::H5Group(group);
+        // Create an index as python anndata package enforce it.
+        DataFrameIndex::from(self.height()).write(&container)?;
+        Ok(container)
     }
 
     fn get_dtype(&self) -> DataType { DataType::DataFrame }
@@ -544,8 +549,8 @@ impl ReadData for Series {
 ////////////////////////////////////////////////////////////////////////////////
 // Mapping
 ////////////////////////////////////////////////////////////////////////////////
-#[derive(Clone)]
-pub struct Mapping(pub HashMap<String, Box<dyn DataIO>>);
+#[derive(Debug, Clone)]
+pub struct Mapping(pub HashMap<String, Box<dyn Data>>);
 
 impl WriteData for Mapping {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
@@ -568,7 +573,7 @@ impl ReadData for Mapping {
         let group: &Group = container.get_group_ref()?;
 
         let m: Result<HashMap<_, _>> = get_all_data(group)
-            .map(|(k, c)| Ok((k, <Box<dyn DataIO>>::read(&c)?))).collect();
+            .map(|(k, c)| Ok((k, <Box<dyn Data>>::read(&c)?))).collect();
         Ok(Mapping(m?))
     }
 }

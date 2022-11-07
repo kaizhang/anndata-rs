@@ -8,7 +8,7 @@ use hdf5::{Result, Group, H5Type};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 
-pub trait MatrixLike {
+pub trait MatrixOp {
     fn shape(&self) -> (usize, usize) { (self.nrows(), self.ncols()) }
     fn nrows(&self) -> usize { self.shape().0 }
     fn ncols(&self) -> usize { self.shape().1 }
@@ -24,7 +24,7 @@ pub trait MatrixLike {
 }
 
 
-impl MatrixLike for DataFrame {
+impl MatrixOp for DataFrame {
     fn nrows(&self) -> usize { self.height() }
 
     fn ncols(&self) -> usize { self.height() }
@@ -37,7 +37,7 @@ impl MatrixLike for DataFrame {
 }
 
 
-impl<T> MatrixLike for ArrayD<T>
+impl<T> MatrixOp for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
@@ -51,7 +51,7 @@ where
     fn get_columns(&self, idx: &[usize]) -> Self { self.select(Axis(1), idx) }
 }
 
-impl<T> MatrixLike for CsrMatrix<T>
+impl<T> MatrixOp for CsrMatrix<T>
 where
     T: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug
 {
@@ -118,7 +118,7 @@ where
     }
 }
 
-pub trait MatrixIO: MatrixLike + ReadData + WriteData {
+pub trait PartialIO: MatrixOp + ReadData + WriteData {
     fn get_shape(container: &DataContainer) -> (usize, usize) where Self: Sized {
         (Self::get_nrows(container), Self::get_ncols(container))
     }
@@ -162,7 +162,7 @@ pub trait MatrixIO: MatrixLike + ReadData + WriteData {
 }
 
 
-impl MatrixIO for DataFrame {
+impl PartialIO for DataFrame {
     fn get_nrows(container: &DataContainer) -> usize {
         let group = container.get_group_ref().unwrap();
         let attr = read_str_attr(group, "_index").unwrap();
@@ -174,20 +174,20 @@ impl MatrixIO for DataFrame {
     }
 
     fn write_rows(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
-        WriteData::write(&<Self as MatrixLike>::get_rows(self, idx), location, name)
+        WriteData::write(&<Self as MatrixOp>::get_rows(self, idx), location, name)
     }
 
     fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
-        WriteData::write(&<Self as MatrixLike>::get_columns(self, idx), location, name)
+        WriteData::write(&<Self as MatrixOp>::get_columns(self, idx), location, name)
     }
 
     fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
-        WriteData::write(&<Self as MatrixLike>::subset(self, ridx, cidx), location, name)
+        WriteData::write(&<Self as MatrixOp>::subset(self, ridx, cidx), location, name)
     }
 }
 
 
-impl<T> MatrixIO for ArrayD<T>
+impl<T> PartialIO for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
@@ -212,7 +212,7 @@ where
     }
 }
 
-impl<T> MatrixIO for CsrMatrix<T>
+impl<T> PartialIO for CsrMatrix<T>
 where
     T: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug
 {

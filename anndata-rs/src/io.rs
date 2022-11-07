@@ -174,7 +174,7 @@ impl AnnData {
                 &DataFrame::new(vec![Series::new("Index", colnames)])?
             ))?;
         }
-        let data: Box<dyn DataPartialIO> = Box::new(
+        let data: Box<dyn MatrixData> = Box::new(
             df.to_ndarray::<polars::datatypes::Float64Type>()?.into_dyn()
         );
         self.set_x(Some(&data))?;

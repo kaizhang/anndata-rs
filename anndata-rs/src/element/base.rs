@@ -95,7 +95,7 @@ impl DataFrameIndex {
 
     pub fn is_empty(&self) -> bool { self.names.is_empty() }
 
-    fn write(&self, container: &DataContainer) -> Result<()> {
+    pub fn write(&self, container: &DataContainer) -> hdf5::Result<()> {
         let group = container.get_group_ref()?;
         create_str_attr(group, "_index", &self.index_name)?;
 
@@ -113,6 +113,10 @@ impl From<Vec<String>> for DataFrameIndex {
         let index_map = names.clone().into_iter().enumerate().map(|(a, b)| (b, a)).collect();
         Self { index_name: "index".to_owned(), names, index_map }
     }
+}
+
+impl From<usize> for DataFrameIndex {
+    fn from(size: usize) -> Self { (0..size).map(|x| x.to_string()).collect() }
 }
 
 impl FromIterator<String> for DataFrameIndex {
@@ -146,14 +150,14 @@ pub struct InnerDataFrameElem {
 
 impl InnerDataFrameElem {
     pub fn new(location: &Group, name: &str, index: DataFrameIndex, df: &DataFrame) -> Result<Self> {
-        if df.height() == 0 || index.len() == df.height() {
-            let container = df.write(location, name)?;
-            index.write(&container)?;
-            let column_names = df.get_column_names_owned().into_iter().collect();
-            Ok(Self { element: None, container, column_names, index })
-        } else {
-            bail!("cannot create dataframe element as lengths of index and dataframe differ")
-        }
+        ensure!(
+            df.height() == 0 || index.len() == df.height(),
+            "cannot create dataframe element as lengths of index and dataframe differ"
+        );
+        let container = df.write(location, name)?;
+        index.write(&container)?;
+        let column_names = df.get_column_names_owned().into_iter().collect();
+        Ok(Self { element: None, container, column_names, index })
     }
 }
 
@@ -185,7 +189,7 @@ impl TryFrom<DataContainer> for DataFrameElem {
 }
 
 impl DataFrameElem {
-    pub fn nrows(&self) -> usize { self.inner().index.len() }
+    pub fn nrows(&self) -> usize { self.lock().as_ref().map(|x| x.index.len()).unwrap_or(0) }
 
     pub fn with_data_ref<F, O>(&self, f: F) -> Result<O>
     where
@@ -242,15 +246,14 @@ impl DataFrameElem {
     }
 
     pub fn update(&self, data: &DataFrame) -> Result<()> {
+        ensure!(!self.is_empty(), "cannot update an empty DataFrameElem");
         let mut inner = self.inner();
-        if inner.index.len() == data.height() {
-            inner.container = data.update(&inner.container)?;
-            inner.element = None;
-            inner.column_names = data.get_column_names_owned().into_iter().collect();
-            Ok(())
-        } else {
-            bail!("cannot update dataframe as lengths differ")
-        }
+        ensure!(inner.index.len() == data.height(), "cannot update dataframe as lengths differ");
+        inner.container = data.update(&inner.container)?;  // Note updating the container removes the index
+        inner.index.write(&inner.container)?; // add back the index
+        if inner.element.is_some() { inner.element = Some(data.clone()); }
+        inner.column_names = data.get_column_names_owned().into_iter().collect();
+        Ok(())
     }
 
     pub fn column(&self, name: &str) -> Result<Series> {
@@ -258,19 +261,15 @@ impl DataFrameElem {
     }
 
     pub fn get_column_names(&self) -> Option<IndexSet<String>> {
-        if self.is_empty() { None } else { Some(self.inner().column_names.clone()) }
+        self.lock().as_ref().map(|x| x.column_names.clone())
     }
 
     pub fn set_index(&self, index: DataFrameIndex) -> Result<()> {
         let mut inner = self.inner();
-        let container = &inner.container;
-        if inner.index.len() == index.len() {
-            index.write(container)?;
-            inner.index = index;
-            Ok(())
-        } else {
-            bail!("cannot change the index as the lengths differ");
-        }
+        ensure!(inner.index.len() == index.len(), "cannot change the index as the lengths differ");
+        inner.index = index;
+        inner.index.write(&inner.container)?;
+        Ok(())
     }
 
     pub fn subset_rows(&self, idx: &[usize]) -> Result<()> {
@@ -282,12 +281,11 @@ impl DataFrameElem {
 
         if let Some((index, df)) = subset {
             let mut inner = self.inner();
-            let container = df.update(&inner.container)?;
+            inner.container = df.update(&inner.container)?;
+            index.write(&inner.container)?;
             inner.column_names = df.get_column_names_owned().into_iter().collect();
-            inner.element = None;
-            index.write(&container)?;
+            if inner.element.is_some() { inner.element = Some(df); }
             inner.index = index;
-            inner.container = container;
         }
         Ok(())
     }
@@ -299,7 +297,7 @@ pub struct InnerElem {
     dtype: DataType,
     cache_enabled: bool,
     container: DataContainer,
-    element: Option<Box<dyn DataIO>>,
+    element: Option<Box<dyn Data>>,
 }
 
 impl std::fmt::Display for InnerElem {
@@ -326,13 +324,13 @@ impl TryFrom<DataContainer> for Elem {
 impl Elem {
     pub fn dtype(&self) -> Option<DataType> { self.lock().as_ref().map(|x| x.dtype.clone()) }
 
-    pub fn read(&self) -> Result<Box<dyn DataIO>> {
+    pub fn read(&self) -> Result<Box<dyn Data>> {
         ensure!(!self.is_empty(), "cannot read from an empty element");
         let mut inner = self.inner();
         match inner.element.as_ref() {
             Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
             None => {
-                let data = <Box<dyn DataIO>>::read(&inner.container)?;
+                let data = <Box<dyn Data>>::read(&inner.container)?;
                 if inner.cache_enabled { inner.element = Some(dyn_clone::clone_box(data.as_ref())); }
                 Ok(data)
             }
@@ -344,13 +342,13 @@ impl Elem {
             let inner = self.inner();
             match inner.element.as_ref() {
                 Some(data) => data.write(location, name)?,
-                None => <Box<dyn DataIO>>::read(&inner.container)?.write(location, name)?,
+                None => <Box<dyn Data>>::read(&inner.container)?.write(location, name)?,
             };
         }
         Ok(())
     }
 
-    pub fn update<D: DataIO>(&self, data: &D) -> Result<()> {
+    pub fn update<D: Data>(&self, data: &D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty element");
         let mut inner = self.inner();
         inner.container = data.update(&inner.container)?;
@@ -374,7 +372,7 @@ pub struct InnerMatrixElem {
     container: DataContainer,
     nrows: usize,
     ncols: usize,
-    element: Option<Box<dyn DataPartialIO>>,
+    element: Option<Box<dyn MatrixData>>,
 }
 
 impl std::fmt::Display for InnerMatrixElem {
@@ -392,8 +390,8 @@ impl TryFrom<DataContainer> for InnerMatrixElem {
 
     fn try_from(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
-        let nrows = <Box<dyn DataPartialIO>>::get_nrows(&container);
-        let ncols = <Box<dyn DataPartialIO>>::get_ncols(&container);
+        let nrows = <Box<dyn MatrixData>>::get_nrows(&container);
+        let ncols = <Box<dyn MatrixData>>::get_ncols(&container);
         Ok(Self { dtype, cache_enabled: false, element: None, container, nrows, ncols })
     }
 }
@@ -418,7 +416,7 @@ impl MatrixElem {
     pub fn nrows(&self) -> usize { self.inner().nrows }
     pub fn ncols(&self) -> usize { self.inner().ncols }
 
-    pub fn read(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn DataPartialIO>> {
+    pub fn read(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn MatrixData>> {
         ensure!(!self.is_empty(), "cannot read an empty MatrixElem");
         let mut inner = self.inner();
         match inner.element.as_ref() {
@@ -430,24 +428,24 @@ impl MatrixElem {
             }
             None => match (ridx, cidx) {
                 (None, None) => {
-                    let data = <Box<dyn DataPartialIO>>::read(&inner.container)?;
+                    let data = <Box<dyn MatrixData>>::read(&inner.container)?;
                     if inner.cache_enabled {
                         inner.element = Some(dyn_clone::clone_box(data.as_ref()));
                     }
                     Ok(data)
                 },
-                (Some(i), Some(j)) => Ok(<Box<dyn DataPartialIO>>::read_partial(&inner.container, i, j)),
-                (Some(i), None) => Ok(<Box<dyn DataPartialIO>>::read_rows(&inner.container, i)),
-                (None, Some(j)) => Ok(<Box<dyn DataPartialIO>>::read_columns(&inner.container, j)),
+                (Some(i), Some(j)) => Ok(<Box<dyn MatrixData>>::read_partial(&inner.container, i, j)),
+                (Some(i), None) => Ok(<Box<dyn MatrixData>>::read_rows(&inner.container, i)),
+                (None, Some(j)) => Ok(<Box<dyn MatrixData>>::read_columns(&inner.container, j)),
             }
         }
     }
 
     // TODO: use in-memory data when possible
-    pub fn read_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn DataPartialIO>> {
+    pub fn read_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn MatrixData>> {
         ensure!(!self.is_empty(), "cannot read rows from an empty MatrixElem");
         let inner = self.inner();
-        Ok(<Box<dyn DataPartialIO>>::read_row_slice(&inner.container, slice)?)
+        Ok(<Box<dyn MatrixData>>::read_row_slice(&inner.container, slice)?)
     }
     
     pub fn write(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
@@ -469,9 +467,9 @@ impl MatrixElem {
                 }
                 None => match (ridx, cidx) {
                     (None, None) => None,
-                    (Some(i), Some(j)) => Some(<Box<dyn DataPartialIO>>::read_partial(&inner.container, i, j)),
-                    (Some(i), None) => Some(<Box<dyn DataPartialIO>>::read_rows(&inner.container, i)),
-                    (None, Some(j)) => Some(<Box<dyn DataPartialIO>>::read_columns(&inner.container, j)),
+                    (Some(i), Some(j)) => Some(<Box<dyn MatrixData>>::read_partial(&inner.container, i, j)),
+                    (Some(i), None) => Some(<Box<dyn MatrixData>>::read_rows(&inner.container, i)),
+                    (None, Some(j)) => Some(<Box<dyn MatrixData>>::read_columns(&inner.container, j)),
                 },
             };
             if let Some(data) = sub {
@@ -484,7 +482,7 @@ impl MatrixElem {
         Ok(())
     }
 
-    pub fn update<D: DataPartialIO>(&self, data: &D) -> Result<()> {
+    pub fn update<D: MatrixData>(&self, data: &D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty MatrixElem");
         let mut inner = self.inner();
         inner.nrows = data.nrows();
@@ -586,7 +584,7 @@ impl StackedMatrixElem
     pub fn nrows(&self) -> usize { *self.nrows.lock() }
     pub fn ncols(&self) -> usize { *self.ncols.lock() }
 
-    pub fn read(&self, ridx_: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn DataPartialIO>> {
+    pub fn read(&self, ridx_: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn MatrixData>> {
         match ridx_ {
             Some(ridx) => {
                 let accum = self.accum.lock();
@@ -634,8 +632,7 @@ pub struct StackedDataFrame {
 
 impl std::fmt::Display for StackedDataFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let column_names: String = self.column_names.iter().map(|x| x.as_str()).intersperse(", ").collect();
-        write!(f, "stacked dataframe with columns: {}", column_names)
+        write!(f, "stacked dataframe with columns: '{}'", self.column_names.iter().join("', '"))
     }
 }
 

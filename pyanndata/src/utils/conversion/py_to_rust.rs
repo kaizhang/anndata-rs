@@ -11,7 +11,7 @@ use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
 use std::collections::HashMap;
 
-use anndata_rs::data::{Mapping, Scalar, DataIO, DataPartialIO};
+use anndata_rs::data::{Mapping, Scalar, Data, MatrixData};
 
 macro_rules! proc_py_numeric {
     ($obj:expr, $reader:expr, $fun:ident, $ty:tt) => {
@@ -35,7 +35,7 @@ macro_rules! proc_py_numeric {
 pub fn to_rust_data1<'py>(
     py: Python<'py>,
     obj: &'py PyAny,
-) -> PyResult<Box<dyn DataIO>>
+) -> PyResult<Box<dyn Data>>
 {
     macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
 
@@ -84,7 +84,7 @@ pub fn to_rust_data1<'py>(
 pub fn to_rust_data2<'py>(
     py: Python<'py>,
     obj: &'py PyAny,
-) -> PyResult<Box<dyn DataPartialIO>>
+) -> PyResult<Box<dyn MatrixData>>
 {
     macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
 

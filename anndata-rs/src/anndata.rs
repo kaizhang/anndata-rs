@@ -1,7 +1,8 @@
-use crate::{data::*, element::*, iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator};
-use crate::element::base::InnerDataFrameElem;
-use crate::element::base::InnerMatrixElem;
-use crate::element::collection::InnerAxisArrays;
+use crate::{
+    data::*, element::*,
+    element::{base::{InnerDataFrameElem, InnerMatrixElem}, collection::{InnerAxisArrays, AxisArrays}},
+    iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator,
+};
 
 use std::{sync::Arc, path::Path, collections::HashMap, ops::Deref};
 use parking_lot::Mutex;
@@ -30,40 +31,30 @@ pub struct AnnData {
 impl std::fmt::Display for AnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            f,
-            "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
+            f, "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
             self.n_obs(), self.n_vars(), self.filename(),
         )?;
-
-        macro_rules! fmt_df {
-            ($($df:ident),*) => {
-                $(
-                if !self.$df.is_empty() {
-                    write!(
-                        f, "\n    {}: {}", stringify!($df),
-                        self.$df.get_column_names().unwrap().into_iter().join(", "),
-                    )?;
-                }
-                )*
-            }
+        if let Some(obs) = self.obs.get_column_names() {
+            if !obs.is_empty() { write!(f, "\n    obs: '{}'", obs.into_iter().join("', '"))?; }
         }
-        fmt_df!(obs, var);
-
-        macro_rules! fmt_item {
-            ($($item:ident),*) => {
-                $(
-                if let Some($item) = self.$item.inner().0.as_ref() {
-                    let data: String = $item.keys().
-                        map(|x| x.as_str()).intersperse(", ").collect();
-                    if !data.is_empty() {
-                        write!(f, "\n    {}: {}", stringify!($item), data)?;
-                    }
-                }
-                )*
-            }
+        if let Some(var) = self.var.get_column_names() {
+            if !var.is_empty() { write!(f, "\n    var: '{}'", var.into_iter().join("', '"))?; }
         }
-        fmt_item!(uns, obsm, obsp, varm, varp);
-
+        if let Some(keys) = self.uns.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    uns: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.obsm.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    obsm: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.obsp.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    obsp: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.varm.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    varm: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.varp.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    varp: '{}'", keys)?; }
+        }
         Ok(())
     }
 }
@@ -74,7 +65,7 @@ macro_rules! anndata_setter {
             $(
             pub fn [<set_ $field>](
                 &self,
-                data_: Option<&HashMap<String, Box<dyn DataPartialIO>>>,
+                data_: Option<&HashMap<String, Box<dyn MatrixData>>>,
             ) -> Result<()>
             {
                 let mut guard = self.$field.inner();
@@ -108,7 +99,7 @@ impl AnnData {
     pub fn get_varp(&self) -> &AxisArrays { &self.varp }
     pub fn get_uns(&self) -> &ElemCollection { &self.uns }
 
-    pub fn set_x<D: MatrixIO>(&self, data_: Option<&D>) -> Result<()> {
+    pub fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> {
         match data_ {
             Some(data) => {
                 self.set_n_obs(data.nrows());
@@ -167,7 +158,7 @@ impl AnnData {
         (varp, Axis::Both, n_vars)
     );
 
-    pub fn set_uns(&self, uns_: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
+    pub fn set_uns(&self, uns_: Option<&HashMap<String, Box<dyn Data>>>) -> Result<()> {
         if !self.uns.is_empty() { self.file.unlink("uns")?; }
         match uns_ {
             None => { self.uns.drop(); },
@@ -264,12 +255,8 @@ pub struct StackedAnnData {
 impl std::fmt::Display for StackedAnnData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stacked AnnData objects:")?;
-        let obs: String = self.obs.column_names.iter()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        write!(f, "\n    obs: {}", obs)?;
-        let obsm: String = self.obsm.data.keys()
-            .map(|x| x.as_str()).intersperse(", ").collect();
-        write!(f, "\n    obsm: {}", obsm)?;
+        write!(f, "\n    obs: '{}'", self.obs.column_names.iter().join("', '"))?;
+        write!(f, "\n    obsm: '{}'", self.obsm.data.keys().join("', '"))?;
         Ok(())
     }
 }
@@ -372,50 +359,33 @@ pub struct AnnDataSet {
 impl std::fmt::Display for AnnDataSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            f,
-            "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
-            self.n_obs(),
-            self.n_vars(),
-            self.annotation.filename(),
+            f, "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
+            self.n_obs(), self.n_vars(), self.annotation.filename(),
         )?;
-
-        {
-            let adatas = self.anndatas.inner();
-            write!(
-                f,
-                "\ncontains {} AnnData objects with keys: {}",
-                adatas.0.as_ref().map_or(0, |x| x.len()),
-                adatas.0.as_ref().unwrap().keys()
-                    .map(|x| x.as_str()).intersperse(", ").collect::<String>(),
-            )?;
+        if let Some((n, keys)) = self.anndatas.lock().as_ref().map(|x| (x.len(), x.keys().join("', '"))) {
+            if n > 0 { write!(f, "\ncontains {} AnnData objects with keys: '{}'", n, keys)?; }
         }
-
-        if !self.annotation.obs.is_empty() {
-            write!(f, "\n    obs: {}",
-                self.annotation.obs.get_column_names().unwrap().into_iter().join(", "),
-            )?;
+        if let Some(obs) = self.annotation.obs.get_column_names() {
+            if !obs.is_empty() { write!(f, "\n    obs: '{}'", obs.into_iter().join("', '"))?; }
         }
-        if !self.annotation.var.is_empty() {
-            write!(f, "\n    var: {}",
-                self.annotation.var.get_column_names().unwrap().into_iter().join(", "),
-            )?;
+        if let Some(var) = self.annotation.var.get_column_names() {
+            if !var.is_empty() { write!(f, "\n    var: '{}'", var.into_iter().join("', '"))?; }
         }
-
-        macro_rules! fmt_item {
-            ($($item:ident),*) => {
-                $(
-                if let Some($item) = self.annotation.$item.inner().0.as_ref() {
-                    let data: String = $item.keys().
-                        map(|x| x.as_str()).intersperse(", ").collect();
-                    if !data.is_empty() {
-                        write!(f, "\n    {}: {}", stringify!($item), data)?;
-                    }
-                }
-                )*
-            }
+        if let Some(keys) = self.annotation.uns.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    uns: '{}'", keys)?; }
         }
-        fmt_item!(obsm, obsp, varm, varp, uns);
-
+        if let Some(keys) = self.annotation.obsm.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    obsm: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.annotation.obsp.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    obsp: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.annotation.varm.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    varm: '{}'", keys)?; }
+        }
+        if let Some(keys) = self.annotation.varp.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() { write!(f, "\n    varp: '{}'", keys)?; }
+        }
         Ok(())
     }
 }
@@ -438,10 +408,7 @@ macro_rules! def_accessor {
 
 
 fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String>) -> Result<()> {
-    let df: Box<DataFrame> = {
-        ann.get_uns().inner().get_mut("AnnDataSet").unwrap().read()?
-            .into_any().downcast().unwrap()
-    };
+    let df = ann.read_uns_item("AnnDataSet")?.downcast::<DataFrame>().unwrap();
     let keys = df.column("keys").unwrap();
     let filenames = df.column("file_path").unwrap().utf8()
         .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
@@ -467,12 +434,8 @@ impl AnnDataSet {
 
         // Set UNS. UNS includes children anndata locations.
         {
-            let (keys, filenames): (Vec<_>, Vec<_>) = anndatas.iter()
-                .map(|(k, v)| (k.clone(), v.filename())).unzip();
-            let data: Box<dyn DataIO> = Box::new(DataFrame::new(vec![
-                Series::new("keys", keys),
-                Series::new("file_path", filenames),
-            ]).unwrap());
+            let (keys, filenames): (Vec<_>, Vec<_>) = anndatas.iter().map(|(k, v)| (k.clone(), v.filename())).unzip();
+            let data = DataFrame::new(vec![Series::new("keys", keys), Series::new("file_path", filenames)])?;
             annotation.get_uns().add_data("AnnDataSet", &data)?;
         }
 
@@ -512,12 +475,12 @@ impl AnnDataSet {
 
     def_accessor!(
         AxisArrays,
-        Option<&HashMap<String, Box<dyn DataPartialIO>>>,
+        Option<&HashMap<String, Box<dyn MatrixData>>>,
         { obsm, obsp, varm, varp }
     );
 
     pub fn get_uns(&self) -> &ElemCollection { &self.annotation.uns }
-    pub fn set_uns(&self, data: Option<&HashMap<String, Box<dyn DataIO>>>) -> Result<()> {
+    pub fn set_uns(&self, data: Option<&HashMap<String, Box<dyn Data>>>) -> Result<()> {
         self.annotation.set_uns(data)
     }
 
@@ -526,8 +489,7 @@ impl AnnDataSet {
         let filename = annotation.filename();
         let file_path = Path::new(&filename).read_link()
             .unwrap_or(Path::new(&filename).to_path_buf());
-        let df: Box<DataFrame> = annotation.get_uns().inner().get_mut("AnnDataSet").unwrap()
-            .read()?.into_any().downcast().unwrap();
+        let df = annotation.read_uns_item("AnnDataSet")?.downcast::<DataFrame>().unwrap();
         let keys = df.column("keys").unwrap().utf8().unwrap()
             .into_iter().collect::<Option<Vec<_>>>().unwrap();
         let filenames = df.column("file_path").unwrap().utf8()
@@ -543,14 +505,8 @@ impl AnnDataSet {
             Ok((k.to_string(), AnnData::read(fl)?))
         }).collect::<Result<_>>()?;
 
-        if !adata_files.is_empty() {
-            update_anndata_locations(&annotation, adata_files)?;
-        }
-
-        Ok(Self {
-            annotation,
-            anndatas: Slot::new(StackedAnnData::new(anndatas, check)?),
-        })
+        if !adata_files.is_empty() { update_anndata_locations(&annotation, adata_files)?; }
+        Ok(Self { annotation, anndatas: Slot::new(StackedAnnData::new(anndatas, check)?) })
     }
 
     /// Subsetting an AnnDataSet will not rearrange the data between
@@ -653,13 +609,13 @@ pub trait AnnDataOp {
     /// removed.
     fn write_var(&self, var: Option<&DataFrame>) -> Result<()>;
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>>;
-    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()>;
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>>;
+    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()>;
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
     fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator;
 
-    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()>;
+    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()>;
     fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator;
 }
 
@@ -720,9 +676,7 @@ impl AnnDataOp for AnnData {
                 let nrows = obs.nrows();
                 self.set_n_obs(nrows);
                 if self.obs.is_empty() {
-                    let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
-                    let df = InnerDataFrameElem::new(&self.file, "obs", index, obs)?;
-                    self.obs.insert(df);
+                    self.obs.insert(InnerDataFrameElem::new(&self.file, "obs", DataFrameIndex::from(nrows), obs)?);
                 } else {
                     self.obs.update(obs)?;
                 }
@@ -752,10 +706,10 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         self.get_uns().add_data(key, data)
     }
 
@@ -771,7 +725,7 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
     fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
@@ -797,10 +751,10 @@ impl AnnDataOp for AnnDataSet {
     fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()> { self.annotation.write_obs(obs) }
     fn write_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.write_var(var) }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn DataIO>> {
+    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn write_uns_item<D: DataIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         self.get_uns().add_data(key, data)
     }
 
@@ -811,7 +765,7 @@ impl AnnDataOp for AnnDataSet {
         bail!("cannot change X in AnnDataSet")
     }
 
-    fn write_obsm_item<D: DataPartialIO>(&self, key: &str, data: &D) -> Result<()> {
+    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
     fn write_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
