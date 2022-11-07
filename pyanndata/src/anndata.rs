@@ -4,13 +4,12 @@ use crate::utils::{
     conversion::{to_py_data1, to_py_data2, to_py_df, to_rust_df, to_rust_data1, to_rust_data2},
 };
 
-use anndata_rs::anndata::AnnDataOp;
-use anndata_rs::element::DataFrameIndex;
-use anndata_rs::iterator::RowIterator;
-use anndata_rs::{anndata, element::Slot};
-use anndata_rs::data::{Data, MatrixData};
+use anndata_rs::{
+    data::PartialIO, anndata::AnnDataOp, element::DataFrameIndex, iterator::RowIterator,
+    {anndata, element::Slot}, data::{Data, MatrixData},
+};
 use polars::frame::DataFrame;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pyo3::{prelude::*, PyResult, Python, types::PyIterator, exceptions::PyException};
 use std::collections::HashMap;
 use paste::paste;
@@ -51,7 +50,7 @@ macro_rules! def_df_accessor {
                         };
                         to_rust_df(df_)
                     }).transpose()?;
-                    self.0.inner().[<write_ $field>](data.as_ref()).unwrap();
+                    self.0.inner().[<set_ $field>](data.as_ref()).unwrap();
                     Ok(())
                 }
             )*
@@ -142,19 +141,8 @@ impl AnnData {
 #[pymethods]
 impl AnnData {
     #[new]
-    #[args(
-        "*",
-        filename,
-        X = "None",
-        n_obs = "None",
-        n_vars = "None",
-        obs = "None",
-        var = "None",
-        obsm = "None",
-        obsp = "None",
-        varm = "None",
-        varp = "None",
-        uns = "None",
+    #[args("*", filename, X = "None", n_obs = "None", n_vars = "None", obs = "None", var = "None",
+        obsm = "None", obsp = "None", varm = "None", varp = "None", uns = "None",
     )]
     fn new<'py>(
         py: Python<'py>,
@@ -216,9 +204,7 @@ impl AnnData {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
-        self.0.inner().var_ix(&names).unwrap()
-    }
+    fn var_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().var_ix(&names).unwrap() }
 
     /// Names of observations.
     #[getter]
@@ -233,9 +219,7 @@ impl AnnData {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
-        self.0.inner().obs_ix(&names).unwrap()
-    }
+    fn obs_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().obs_ix(&names).unwrap() }
 
     /// :class:`.PyMatrixElem` of shape `n_obs` x `n_vars`.
     #[getter(X)]
@@ -440,7 +424,7 @@ impl AnnDataSet {
 impl AnnDataSet {
     #[new]
     fn new(adatas: Vec<(String, AnnData)>, filename: &str, add_key: &str) -> Self {
-        let data = adatas.into_iter().map(|(k, v)| (k, v.0.inner().clone())).collect();
+        let data = adatas.into_iter().map(|(k, v)| (k, v.0.extract().unwrap())).collect();
         AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename, add_key).unwrap())
     }
 
@@ -687,7 +671,7 @@ pub fn create_dataset<'py>(
             obj.extract::<AnnData>()?
         } else {
             todo!()
-        }.0.inner().clone();
+        }.0.extract().unwrap();
         Ok((key, data))
     }).collect::<PyResult<_>>()?;
     Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(adatas, storage, add_key).unwrap()))
@@ -768,6 +752,7 @@ impl<'py> ToPyObject for PyAnnData<'py> {
 
 impl<'py> AnnDataOp for PyAnnData<'py> {
     type MatrixIter = PyObject;
+    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
     fn n_obs(&self) -> usize { self.0.getattr("n_obs").unwrap().extract().unwrap() }
     fn n_vars(&self) -> usize { self.0.getattr("n_vars").unwrap().extract().unwrap() }
     fn obs_names(&self) -> Vec<String> {todo!()}
@@ -780,7 +765,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
 
     fn read_obs(&self) -> Result<DataFrame> { todo!() }
     fn read_var(&self) -> Result<DataFrame> {todo!()}
-    fn write_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+    fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
         match obs_ {
             None => { self.0.setattr("obs", None::<PyObject>)?; },
             Some(obs) => {
@@ -793,7 +778,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         }
         Ok(())
     }
-    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+    fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
         match var_ {
             None => { self.0.setattr("var", None::<PyObject>)?; },
             Some(var) => {
@@ -808,7 +793,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {todo!()}
-    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         // TODO: remove the Box.
         let data_: Box<dyn Data> = Box::new(dyn_clone::clone(data));
         self.0.getattr("uns")?.call_method1(
@@ -819,9 +804,9 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {todo!()}
-    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {todo!()}
+    fn set_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {todo!()}
 
-    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.set_n_obs(data.nrows()).unwrap_or(());
         // TODO: remove the Box.
         let data_: Box<dyn MatrixData> = Box::new(dyn_clone::clone(data));
@@ -831,5 +816,5 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         )?;
         Ok(())
     }
-    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {todo!()}
+    fn add_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {todo!()}
 }

@@ -124,7 +124,7 @@ impl AnnData {
                 crate::utils::io::DataType::Integer => {
                     let (num_rows, num_cols, iter) = crate::utils::io::
                         read_sorted_mm_body_from_bufread::<R, i64>(reader);
-                    self.write_x_from_row_iter(IndexedCsrIterator {
+                    self.set_x_from_row_iter(IndexedCsrIterator {
                         iterator: iter.group_by(|x| x.0).into_iter().map(|(k, grp)|
                             (k, grp.map(|(_, j, v)| (j, v)).collect())
                         ),
@@ -135,7 +135,7 @@ impl AnnData {
                 _ => {
                     let (num_rows, num_cols, iter) = crate::utils::io::
                         read_sorted_mm_body_from_bufread::<R, f64>(reader);
-                    self.write_x_from_row_iter(IndexedCsrIterator {
+                    self.set_x_from_row_iter(IndexedCsrIterator {
                         iterator: iter.group_by(|x| x.0).into_iter().map(|(k, grp)|
                             (k, grp.map(|(_, j, v)| (j, v)).collect())
                         ),
@@ -151,6 +151,7 @@ impl AnnData {
         }
     }
 
+    // TODO: fix dataframe index
     pub fn import_csv<P>(&self,
         path: P,
         has_header: bool,
@@ -167,10 +168,10 @@ impl AnnData {
         let mut colnames = df.get_column_names_owned();
         if let Some(idx_col) = index_column {
             let series = df.drop_in_place(&colnames.remove(idx_col))?;
-            self.write_obs(Some(&DataFrame::new(vec![series])?))?;
+            self.set_obs(Some(&DataFrame::new(vec![series])?))?;
         }
         if has_header {
-            self.write_var(Some(
+            self.set_var(Some(
                 &DataFrame::new(vec![Series::new("Index", colnames)])?
             ))?;
         }

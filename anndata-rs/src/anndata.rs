@@ -13,11 +13,10 @@ use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
 
-#[derive(Clone)]
 pub struct AnnData {
     pub(crate) file: File,
-    pub n_obs: Arc<Mutex<usize>>,
-    pub n_vars: Arc<Mutex<usize>>,
+    pub(crate) n_obs: Arc<Mutex<usize>>,
+    pub(crate) n_vars: Arc<Mutex<usize>>,
     pub(crate) x: MatrixElem,
     pub(crate) obs: DataFrameElem,
     pub(crate) obsm: AxisArrays,
@@ -98,22 +97,6 @@ impl AnnData {
     pub fn get_varm(&self) -> &AxisArrays { &self.varm }
     pub fn get_varp(&self) -> &AxisArrays { &self.varp }
     pub fn get_uns(&self) -> &ElemCollection { &self.uns }
-
-    pub fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> {
-        match data_ {
-            Some(data) => {
-                self.set_n_obs(data.nrows());
-                self.set_n_vars(data.ncols());
-                if !self.x.is_empty() { self.file.unlink("X")?; }
-                self.x.insert(InnerMatrixElem::try_from(data.write(&self.file, "X")?)?);
-            },
-            None => if !self.x.is_empty() {
-                self.file.unlink("X")?;
-                self.x.drop();
-            },
-        }
-        Ok(())
-    }
 
     pub fn set_n_obs(&self, n: usize) {
         let mut n_obs = self.n_obs.lock();
@@ -453,7 +436,7 @@ impl AnnDataSet {
                 .flatten().collect::<Series>(),
             );
             let df = DataFrame::new(vec![keys])?;
-            annotation.write_obs(Some(&df))?;
+            annotation.set_obs(Some(&df))?;
         }
 
         // Set VAR.
@@ -461,7 +444,7 @@ impl AnnDataSet {
             let adata = anndatas.values().next().unwrap();
             if !adata.var_names().is_empty() {
                 annotation.set_var_names(adata.var_names().into_iter().collect())?;
-                annotation.write_var(Some(&adata.get_var().read()?))?;
+                annotation.set_var(Some(&adata.get_var().read()?))?;
             }
         }
         let stacked = StackedAnnData::new(anndatas, true)?;
@@ -577,6 +560,9 @@ impl AnnDataSet {
 
 pub trait AnnDataOp {
     type MatrixIter;
+
+    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()>;
+
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
 
@@ -603,24 +589,41 @@ pub trait AnnDataOp {
 
     /// Change the observation annotations. If `obs == None`, the `obs` will be
     /// removed.
-    fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()>;
+    fn set_obs(&self, obs: Option<&DataFrame>) -> Result<()>;
 
     /// Change the variable annotations. If `var == None`, the `var` will be
     /// removed.
-    fn write_var(&self, var: Option<&DataFrame>) -> Result<()>;
+    fn set_var(&self, var: Option<&DataFrame>) -> Result<()>;
 
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>>;
-    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()>;
+    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()>;
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
-    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator;
+    fn set_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator;
 
-    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()>;
-    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator;
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()>;
+    fn add_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator;
 }
 
 impl AnnDataOp for AnnData {
     type MatrixIter = ChunkedMatrix;
+
+    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> {
+        match data_ {
+            Some(data) => {
+                self.set_n_obs(data.nrows());
+                self.set_n_vars(data.ncols());
+                if !self.x.is_empty() { self.file.unlink("X")?; }
+                self.x.insert(InnerMatrixElem::try_from(data.write(&self.file, "X")?)?);
+            },
+            None => if !self.x.is_empty() {
+                self.file.unlink("X")?;
+                self.x.drop();
+            },
+        }
+        Ok(())
+    }
+
     fn n_obs(&self) -> usize { *self.n_obs.lock() }
     fn n_vars(&self) -> usize { *self.n_vars.lock() }
 
@@ -666,7 +669,7 @@ impl AnnDataOp for AnnData {
 
     fn read_obs(&self) -> Result<DataFrame> { self.get_obs().read() }
     fn read_var(&self) -> Result<DataFrame> { self.get_var().read() }
-    fn write_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+    fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
         match obs_ {
             None => if !self.obs.is_empty() {
                 self.file.unlink("obs")?;
@@ -685,7 +688,7 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn write_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+    fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
         match var_ {
             None => if !self.var.is_empty() {
                 self.file.unlink("var")?;
@@ -709,14 +712,14 @@ impl AnnDataOp for AnnData {
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         self.get_uns().add_data(key, data)
     }
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
         self.get_x().chunked(chunk_size)
     }
-    fn write_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {
+    fn set_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {
         self.set_n_vars(data.ncols());
         if !self.x.is_empty() { self.file.unlink("X")?; }
         let (container, nrows) = data.write(&self.file, "X")?;
@@ -725,10 +728,10 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
-    fn write_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
+    fn add_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
         self.get_obsm().insert_from_row_iter(key, data)
     }
 
@@ -736,6 +739,7 @@ impl AnnDataOp for AnnData {
 
 impl AnnDataOp for AnnDataSet {
     type MatrixIter = StackedChunkedMatrix;
+    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
     fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
     fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
 
@@ -748,27 +752,27 @@ impl AnnDataOp for AnnDataSet {
 
     fn read_obs(&self) -> Result<DataFrame> { self.annotation.read_obs() }
     fn read_var(&self) -> Result<DataFrame> { self.annotation.read_var() }
-    fn write_obs(&self, obs: Option<&DataFrame>) -> Result<()> { self.annotation.write_obs(obs) }
-    fn write_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.write_var(var) }
+    fn set_obs(&self, obs: Option<&DataFrame>) -> Result<()> { self.annotation.set_obs(obs) }
+    fn set_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.set_var(var) }
 
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
         self.get_uns().inner().get_mut(key).unwrap().read()
     }
-    fn write_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         self.get_uns().add_data(key, data)
     }
 
     fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
         self.get_x().chunked(chunk_size)
     }
-    fn write_x_from_row_iter<I>(&self, _: I) -> Result<()> where I: RowIterator {
+    fn set_x_from_row_iter<I>(&self, _: I) -> Result<()> where I: RowIterator {
         bail!("cannot change X in AnnDataSet")
     }
 
-    fn write_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
-    fn write_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
+    fn add_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
         bail!("Not implemented")
     }
 }
