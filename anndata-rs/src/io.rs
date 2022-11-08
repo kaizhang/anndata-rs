@@ -1,5 +1,6 @@
 use crate::{anndata::{AnnData, AnnDataOp}, data::*, element::*, iterator::IndexedCsrIterator};
 use crate::element::collection::InnerAxisArrays;
+use crate::iterator::AnnDataIterator;
 
 use itertools::Itertools;
 use parking_lot::Mutex;

@@ -1,16 +1,18 @@
 use crate::{
+    anndata::{AnnData, StackedAnnData},
     data::{DataType, DataContainer, MatrixData, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
     element::{AxisArrays, MatrixElem},
+    element::base::InnerMatrixElem,
 };
 
 use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
 use ndarray::{s, arr1, Array, Array1};
 use hdf5::{Dataset, Group, H5Type};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use itertools::Itertools;
 
-pub trait RowIterator {
+pub trait RowIterator<T> {
     fn write(self, location: &Group, name: &str) -> Result<(DataContainer, usize)>;
 
     fn version(&self) -> &str;
@@ -37,6 +39,8 @@ pub trait RowIterator {
             self.write(&g, obj)
         }
     }
+
+    fn to_csr_matrix(self) -> CsrMatrix<T>;
 }
 
 pub struct CsrIterator<I> {
@@ -44,16 +48,7 @@ pub struct CsrIterator<I> {
     pub num_cols: usize,
 }
 
-impl<I> CsrIterator<I> {
-    pub fn to_csr_matrix<T>(self) -> CsrMatrix<T>
-    where
-        I: Iterator<Item = Vec<(usize, T)>>,
-    {
-        create_csr_from_rows(self.iterator, self.num_cols)
-    }
-}
-
-impl<I, D> RowIterator for CsrIterator<I>
+impl<I, D> RowIterator<D> for CsrIterator<I>
 where
     I: Iterator<Item = Vec<Vec<(usize, D)>>>,
     D: H5Type + Copy,
@@ -123,6 +118,10 @@ where
     fn ncols(&self) -> usize { self.num_cols }
     fn get_dtype(&self) -> DataType { DataType::CsrMatrix(D::type_descriptor()) }
     fn version(&self) -> &str { "0.1.0" }
+
+    fn to_csr_matrix(self) -> CsrMatrix<D> {
+        create_csr_from_rows(self.iterator.flatten(), self.num_cols)
+    }
 }
 
 pub struct IndexedCsrIterator<I> {
@@ -131,7 +130,7 @@ pub struct IndexedCsrIterator<I> {
     pub num_cols: usize,
 }
 
-impl<I, D> RowIterator for IndexedCsrIterator<I>
+impl<I, D> RowIterator<D> for IndexedCsrIterator<I>
 where
     I: Iterator<Item = (usize, Vec<(usize, D)>)>,
     D: H5Type,
@@ -213,10 +212,15 @@ where
     fn ncols(&self) -> usize { self.num_cols }
     fn get_dtype(&self) -> DataType { DataType::CsrMatrix(D::type_descriptor()) }
     fn version(&self) -> &str { "0.1.0" }
+
+    fn to_csr_matrix(self) -> CsrMatrix<D> {
+        todo!()
+        //create_csr_from_rows(self.iterator, self.num_cols)
+    }
 }
 
 impl AxisArrays {
-    pub fn insert_from_row_iter<I: RowIterator>(&self, key: &str, data: I) -> Result<()> {
+    pub fn insert_from_row_iter<I: RowIterator<D>, D>(&self, key: &str, data: I) -> Result<()> {
         let container = {
             let inner = self.inner();
             let mut size_guard = inner.size.lock();
@@ -238,54 +242,6 @@ impl AxisArrays {
         let elem = MatrixElem::try_from(container)?;
         self.inner().insert(key.to_string(), elem);
         Ok(())
-    }
-}
-
-pub enum CsrRowsIterator<'a, T> {
-    Memory((CsrRowIter<'a, T>, usize)),
-    Disk((Dataset, Dataset, Vec<usize>, usize, usize)),
-}
-
-impl<'a, T> Iterator for CsrRowsIterator<'a, T>
-where
-    T: H5Type + Copy,
-{
-    type Item = Vec<Vec<(usize, T)>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CsrRowsIterator::Memory((iter, chunk_size)) => {
-                let vec: Vec<_> = iter.take(*chunk_size).map(|r| r.col_indices().iter()
-                    .zip(r.values()).map(|(i, v)| (*i, *v)).collect()
-                ).collect();
-                if vec.is_empty() {
-                    None
-                } else {
-                    Some(vec)
-                }
-            },
-            CsrRowsIterator::Disk((data_, indices_, indptr, current_row, chunk_size)) => {
-                if *current_row >= indptr.len() - 1 {
-                    None
-                } else {
-                    let i = *current_row;
-                    let j = (i + *chunk_size).min(indptr.len() - 1);
-                    let lo = indptr[i];
-                    let hi = indptr[j];
-                    let data: Array1<T> = data_.read_slice_1d(lo..hi).unwrap();
-                    let indices: Array1<usize> = indices_.read_slice_1d(lo..hi).unwrap();
-                    let result = (i..j).map(|idx| {
-                        let a = indptr[idx] - lo;
-                        let b = indptr[idx+1] - lo;
-                        indices.slice(s![a..b]).into_iter().zip(
-                            data.slice(s![a..b])
-                        ).map(|(i, v)| (*i, *v)).collect()
-                    }).collect();
-                    *current_row = j;
-                    Some(result)
-                }
-            },
-        }
     }
 }
 
@@ -346,4 +302,81 @@ impl Iterator for StackedChunkedMatrix {
 
 impl ExactSizeIterator for StackedChunkedMatrix {
     fn len(&self) -> usize { self.matrices.iter().map(|x| x.len()).sum() }
+}
+
+
+pub trait AnnDataIterator {
+    type MatrixIter: Iterator<Item = Box<dyn MatrixData>> + ExactSizeIterator + 'static;
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
+    fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug;
+
+    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter>;
+    fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug;
+}
+
+impl AnnDataIterator for AnnData {
+    type MatrixIter = ChunkedMatrix;
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
+        self.get_x().chunked(chunk_size)
+    }
+    fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,
+    {
+        self.set_n_vars(data.ncols());
+        if !self.x.is_empty() { self.file.unlink("X")?; }
+        let (container, nrows) = data.write(&self.file, "X")?;
+        self.set_n_obs(nrows);
+        self.x.insert(InnerMatrixElem::try_from(container)?);
+        Ok(())
+    }
+
+    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter> {
+        let res = self.get_obsm().inner().get(key)
+            .context(format!("key '{}' not present in StackedAxisArrays", key))?.chunked(chunk_size);
+        Ok(res)
+    }
+    fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,
+    {
+        self.get_obsm().insert_from_row_iter(key, data)
+    }
+}
+
+impl AnnDataIterator for StackedAnnData {
+    type MatrixIter = StackedChunkedMatrix;
+
+    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
+        self.get_x().chunked(chunk_size)
+    }
+    fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,
+    {
+        todo!()
+    }
+    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter> {
+        let res = self.get_obsm().data.get(key)
+            .context(format!("key '{}' not present in StackedAxisArrays", key))?.chunked(chunk_size);
+        Ok(res)
+    }
+    fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: RowIterator<D>,
+        D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,
+    {
+        todo!()
+    }
 }

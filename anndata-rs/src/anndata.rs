@@ -1,7 +1,6 @@
 use crate::{
     data::*, element::*,
     element::{base::{InnerDataFrameElem, InnerMatrixElem}, collection::{InnerAxisArrays, AxisArrays}},
-    iterator::{ChunkedMatrix, StackedChunkedMatrix}, iterator::RowIterator,
 };
 
 use std::{sync::Arc, path::Path, collections::HashMap, ops::Deref};
@@ -230,9 +229,9 @@ pub struct StackedAnnData {
     accum: Arc<Mutex<AccumLength>>,
     n_obs: Arc<Mutex<usize>>,
     n_vars: Arc<Mutex<usize>>,
-    pub x: StackedMatrixElem,
+    x: StackedMatrixElem,
     pub obs: StackedDataFrame,
-    pub obsm: StackedAxisArrays,
+    obsm: StackedAxisArrays,
 }
 
 impl std::fmt::Display for StackedAnnData {
@@ -283,9 +282,14 @@ impl StackedAnnData {
         Ok(Self { anndatas: adatas, x, obs, obsm, accum, n_obs, n_vars })
     }
 
+    pub fn get_x(&self) -> &StackedMatrixElem { &self.x }
+    pub fn get_obsm(&self) -> &StackedAxisArrays { &self.obsm }
+
     pub fn len(&self) -> usize { self.anndatas.len() }
 
     pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData> { self.anndatas.keys() }
+
+    pub fn values(&self) -> indexmap::map::Values<'_, String, AnnData> { self.anndatas.values() }
 
     pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> { self.anndatas.iter() }
 
@@ -559,9 +563,7 @@ impl AnnDataSet {
 }
 
 pub trait AnnDataOp {
-    type MatrixIter;
-
-    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()>;
+    fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()>;
 
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
@@ -598,17 +600,11 @@ pub trait AnnDataOp {
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>>;
     fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()>;
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
-    fn set_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator;
-
     fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()>;
-    fn add_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator;
 }
 
 impl AnnDataOp for AnnData {
-    type MatrixIter = ChunkedMatrix;
-
-    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> {
+    fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()> {
         match data_ {
             Some(data) => {
                 self.set_n_obs(data.nrows());
@@ -716,30 +712,13 @@ impl AnnDataOp for AnnData {
         self.get_uns().add_data(key, data)
     }
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
-        self.get_x().chunked(chunk_size)
-    }
-    fn set_x_from_row_iter<I>(&self, data: I) -> Result<()> where I: RowIterator {
-        self.set_n_vars(data.ncols());
-        if !self.x.is_empty() { self.file.unlink("X")?; }
-        let (container, nrows) = data.write(&self.file, "X")?;
-        self.set_n_obs(nrows);
-        self.x.insert(InnerMatrixElem::try_from(container)?);
-        Ok(())
-    }
-
     fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
-    fn add_obsm_item_from_row_iter<I>(&self, key: &str, data: I) -> Result<()> where I: RowIterator {
-        self.get_obsm().insert_from_row_iter(key, data)
-    }
-
 }
 
 impl AnnDataOp for AnnDataSet {
-    type MatrixIter = StackedChunkedMatrix;
-    fn set_x<D: PartialIO>(&self, data_: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
+    fn set_x<D: MatrixData>(&self, _: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
     fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
     fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
 
@@ -762,17 +741,7 @@ impl AnnDataOp for AnnDataSet {
         self.get_uns().add_data(key, data)
     }
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
-        self.get_x().chunked(chunk_size)
-    }
-    fn set_x_from_row_iter<I>(&self, _: I) -> Result<()> where I: RowIterator {
-        bail!("cannot change X in AnnDataSet")
-    }
-
     fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
         self.get_obsm().add_data(key, data)
-    }
-    fn add_obsm_item_from_row_iter<I>(&self, _: &str, _: I) -> Result<()> where I: RowIterator {
-        bail!("Not implemented")
     }
 }
