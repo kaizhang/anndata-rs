@@ -6,5 +6,9 @@ pub mod iterator;
 pub mod utils;
 
 pub use anndata::{AnnData, AnnDataSet, AnnDataOp};
-pub use iterator::AnnDataIterator;
 pub use data::{Data, MatrixData};
+pub use element::{
+    Elem, MatrixElem, DataFrameElem, StackedMatrixElem, StackedDataFrame,
+    AxisArrays, ElemCollection, StackedAxisArrays,
+};
+pub use iterator::{AnnDataIterator, ChunkedMatrix, StackedChunkedMatrix};

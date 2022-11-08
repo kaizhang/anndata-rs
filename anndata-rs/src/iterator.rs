@@ -1,14 +1,13 @@
 use crate::{
-    anndata::{AnnData, StackedAnnData},
+    anndata::{AnnData, AnnDataSet},
     data::{DataType, DataContainer, MatrixData, create_csr_from_rows},
     utils::hdf5::{ResizableVectorData, COMPRESSION, create_str_attr},
-    element::{AxisArrays, MatrixElem},
-    element::base::InnerMatrixElem,
+    element::{AxisArrays, MatrixElem, base::InnerMatrixElem},
 };
 
-use nalgebra_sparse::csr::{CsrMatrix, CsrRowIter};
-use ndarray::{s, arr1, Array, Array1};
-use hdf5::{Dataset, Group, H5Type};
+use nalgebra_sparse::csr::CsrMatrix;
+use ndarray::{arr1, Array};
+use hdf5::{Group, H5Type};
 use anyhow::{Result, Context};
 use itertools::Itertools;
 
@@ -246,11 +245,19 @@ impl AxisArrays {
 }
 
 pub struct ChunkedMatrix {
-    pub(crate) elem: MatrixElem,
-    pub(crate) chunk_size: usize,
-    pub(crate) size: usize,
-    pub(crate) current_index: usize,
+    elem: MatrixElem,
+    chunk_size: usize,
+    size: usize,
+    current_index: usize,
 }
+
+impl ChunkedMatrix {
+    pub(crate) fn new(elem: MatrixElem, chunk_size: usize) -> Self {
+        let size = elem.nrows();
+        Self { elem, chunk_size, size, current_index: 0 }
+    }
+}
+
 
 impl Iterator for ChunkedMatrix {
     type Item = Box<dyn MatrixData>;
@@ -276,22 +283,30 @@ impl ExactSizeIterator for ChunkedMatrix {
 }
 
 pub struct StackedChunkedMatrix {
-    pub(crate) matrices: Vec<ChunkedMatrix>,
-    pub(crate) current_matrix_index: usize,
-    pub(crate) n_mat: usize,
+    matrices: Vec<ChunkedMatrix>,
+    current_outer_index: usize,
+}
+
+impl StackedChunkedMatrix {
+    pub(crate) fn new<I: Iterator<Item = MatrixElem>>(elems: I, chunk_size: usize) -> Self {
+        Self {
+            matrices: elems.map(|x| ChunkedMatrix::new(x, chunk_size)).collect(),
+            current_outer_index: 0,
+        }
+    }
 }
 
 impl Iterator for StackedChunkedMatrix {
     type Item = Box<dyn MatrixData>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let i = self.current_matrix_index;
-        if i >= self.n_mat {
+        let i = self.current_outer_index;
+        if i >= self.matrices.len() {
             None
         } else {
             match self.matrices[i].next() {
                 None => { 
-                    self.current_matrix_index += 1;
+                    self.current_outer_index += 1;
                     self.next()
                 },
                 r => r,
@@ -306,15 +321,15 @@ impl ExactSizeIterator for StackedChunkedMatrix {
 
 
 pub trait AnnDataIterator {
-    type MatrixIter: Iterator<Item = Box<dyn MatrixData>> + ExactSizeIterator + 'static;
+    type MatrixIter<'a>: Iterator<Item = Box<dyn MatrixData>> + ExactSizeIterator where Self: 'a;
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter;
+    fn read_x_iter<'a>(&'a self, chunk_size: usize) -> Self::MatrixIter<'a>;
     fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
     where
         I: RowIterator<D>,
         D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug;
 
-    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter>;
+    fn read_obsm_item_iter<'a>(&'a self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter<'a>>;
     fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: RowIterator<D>,
@@ -322,9 +337,9 @@ pub trait AnnDataIterator {
 }
 
 impl AnnDataIterator for AnnData {
-    type MatrixIter = ChunkedMatrix;
+    type MatrixIter<'a> = ChunkedMatrix;
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
+    fn read_x_iter<'a>(&'a self, chunk_size: usize) -> Self::MatrixIter<'a> {
         self.get_x().chunked(chunk_size)
     }
     fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
@@ -340,9 +355,9 @@ impl AnnDataIterator for AnnData {
         Ok(())
     }
 
-    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter> {
+    fn read_obsm_item_iter<'a>(&'a self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter<'a>> {
         let res = self.get_obsm().inner().get(key)
-            .context(format!("key '{}' not present in StackedAxisArrays", key))?.chunked(chunk_size);
+            .context(format!("key '{}' not present in AxisArrays", key))?.chunked(chunk_size);
         Ok(res)
     }
     fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
@@ -354,25 +369,26 @@ impl AnnDataIterator for AnnData {
     }
 }
 
-impl AnnDataIterator for StackedAnnData {
-    type MatrixIter = StackedChunkedMatrix;
+/// AnnDataIterator trait for AnnDataSet will iterate over the underlying AnnData objects.
+impl AnnDataIterator for AnnDataSet {
+    type MatrixIter<'a> = StackedChunkedMatrix;
 
-    fn read_x_iter(&self, chunk_size: usize) -> Self::MatrixIter {
+    fn read_x_iter<'a>(&'a self, chunk_size: usize) -> Self::MatrixIter<'a> {
         self.get_x().chunked(chunk_size)
     }
-    fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>
+    fn set_x_from_row_iter<I, D>(&self, _: I) -> Result<()>
     where
         I: RowIterator<D>,
         D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,
     {
         todo!()
     }
-    fn read_obsm_item_iter(&self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter> {
-        let res = self.get_obsm().data.get(key)
+    fn read_obsm_item_iter<'a>(&'a self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter<'a>> {
+        let res = self.anndatas.inner().get_obsm().data.get(key)
             .context(format!("key '{}' not present in StackedAxisArrays", key))?.chunked(chunk_size);
         Ok(res)
     }
-    fn add_obsm_item_from_row_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    fn add_obsm_item_from_row_iter<I, D>(&self, _: &str, _: I) -> Result<()>
     where
         I: RowIterator<D>,
         D: H5Type + Copy + Send + Sync + std::cmp::PartialEq + std::fmt::Debug,

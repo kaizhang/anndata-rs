@@ -9,8 +9,9 @@ use anndata_rs::{
     {anndata, element::{Inner, Slot}}, data::{Data, MatrixData},
 };
 use polars::frame::DataFrame;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use pyo3::{prelude::*, PyResult, Python, types::PyIterator, exceptions::PyException};
+use pyo3::types::IntoPyDict;
 use std::collections::HashMap;
 use paste::paste;
 use std::ops::Deref;
@@ -789,23 +790,37 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn var_names(&self) -> Vec<String> { self.0.getattr("var_names").unwrap().extract().unwrap() }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.0.setattr("obs_names", index.names)?;
+        if self.getattr("obs")?.getattr("empty")?.is_true()? {
+            let py = self.py();
+            let df = py.import("pandas")?
+                .call_method("DataFrame", (), Some(&[("index", index.names)].into_py_dict(py)))?;
+            self.setattr("obs", df)?;
+        } else {
+            self.setattr("obs_names", index.names)?;
+        }
         Ok(())
     }
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.0.setattr("var_names", index.names)?;
+        if self.getattr("var")?.getattr("empty")?.is_true()? {
+            let py = self.py();
+            let df = py.import("pandas")?
+                .call_method("DataFrame", (), Some(&[("index", index.names)].into_py_dict(py)))?;
+            self.setattr("var", df)?;
+        } else {
+            self.setattr("var_names", index.names)?;
+        }
         Ok(())
     }
 
-    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {todo!()}
-    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {todo!()}
+    fn obs_ix(&self, _names: &[String]) -> Result<Vec<usize>> {todo!()}
+    fn var_ix(&self, _names: &[String]) -> Result<Vec<usize>> {todo!()}
 
     fn read_obs(&self) -> Result<DataFrame> {
-        let df = self.0.py().import("polars")?.call_method1("from_pandas", (self.0.getattr("obs")?,))?;
+        let df = self.py().import("polars")?.call_method1("from_pandas", (self.0.getattr("obs")?,))?;
         Ok(to_rust_df(df)?)
     }
     fn read_var(&self) -> Result<DataFrame> {
-        let df = self.0.py().import("polars")?.call_method1("from_pandas", (self.0.getattr("var")?,))?;
+        let df = self.py().import("polars")?.call_method1("from_pandas", (self.0.getattr("var")?,))?;
         Ok(to_rust_df(df)?)
     }
 
@@ -813,9 +828,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         match obs_ {
             None => { self.0.setattr("obs", None::<PyObject>)?; },
             Some(obs) => {
-                self.set_n_obs(obs.height())?;
-                let df = to_py_df(obs.clone())?.call_method0(self.py(), "to_pandas")?;
-                self.0.setattr("obs", df)?;
+                let py = self.py();
+                let old_df = self.getattr("obs")?;
+                let df = to_py_df(obs.clone())?.call_method0(py, "to_pandas")?;
+                if !old_df.getattr("empty")?.is_true()? {
+                    df.call_method1(py, "set_index", (old_df.getattr("index")?,))?;
+                }
+                self.setattr("obs", df)?;
             },
         }
         Ok(())
@@ -824,9 +843,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         match var_ {
             None => { self.0.setattr("var", None::<PyObject>)?; },
             Some(var) => {
-                self.set_n_vars(var.height())?;
-                let df = to_py_df(var.clone())?.call_method0(self.py(), "to_pandas")?;
-                self.0.setattr("var", df)?;
+                let py = self.py();
+                let old_df = self.getattr("var")?;
+                let df = to_py_df(var.clone())?.call_method0(py, "to_pandas")?;
+                if !old_df.getattr("empty")?.is_true()? {
+                    df.call_method1(py, "set_index", (old_df.getattr("index")?,))?;
+                }
+                self.setattr("var", df)?;
             },
         }
         Ok(())

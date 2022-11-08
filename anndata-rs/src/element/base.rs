@@ -3,11 +3,11 @@ use crate::{
     utils::hdf5::{create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, create_dataset},
 };
 
+use std::{boxed::Box, collections::HashMap, sync::Arc, ops::{Deref, DerefMut}};
 use hdf5::Group; 
 use anyhow::{Result, ensure, bail};
 use ndarray::Array1;
 use polars::{frame::DataFrame, series::Series};
-use std::{boxed::Box, collections::HashMap, sync::Arc, ops::{Deref, DerefMut}};
 use parking_lot::{Mutex, MutexGuard};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
@@ -492,9 +492,7 @@ impl MatrixElem {
         Ok(())
     }
 
-    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix { elem: self.clone(), chunk_size, size: self.nrows(), current_index: 0 }
-    }
+    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix { ChunkedMatrix::new(self.clone(), chunk_size) }
 }
 
 /// This struct stores the accumulated lengths of objects in a vector
@@ -607,11 +605,7 @@ impl StackedMatrixElem
     }
 
     pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
-        StackedChunkedMatrix {
-            matrices: self.elems.iter().map(|x| x.chunked(chunk_size)).collect(),
-            current_matrix_index: 0,
-            n_mat: self.elems.len(),
-        }
+        StackedChunkedMatrix::new(self.elems.iter().map(|x| x.clone()), chunk_size)
     }
 
     pub fn enable_cache(&self) {

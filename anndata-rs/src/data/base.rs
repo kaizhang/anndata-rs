@@ -1,26 +1,13 @@
 use crate::{
-    data::Data,
-    utils::hdf5::{
-        create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec,
-        create_dataset,
-    },
+    data::Data, element::base::DataFrameIndex,
+    utils::hdf5::{create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, create_dataset},
 };
-use crate::element::base::DataFrameIndex;
 
-use std::fmt;
+use std::{collections::HashMap, fmt};
 use ndarray::{Array1, ArrayD, ArrayView, Dimension};
-use hdf5::{
-    H5Type, Group, Dataset, Result,
-    types::{TypeDescriptor, VarLenUnicode, TypeDescriptor::*}
-};
+use hdf5::{H5Type, Group, Dataset, Result, types::{TypeDescriptor, VarLenUnicode, TypeDescriptor::*}};
 use nalgebra_sparse::csr::CsrMatrix;
-use polars::{
-    prelude::IntoSeries,
-    series::Series,
-    datatypes::CategoricalChunkedBuilder,
-    frame::DataFrame,
-};
-use std::collections::HashMap;
+use polars::{prelude::IntoSeries, series::Series, datatypes::CategoricalChunkedBuilder, frame::DataFrame};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scalar<T>(pub T);

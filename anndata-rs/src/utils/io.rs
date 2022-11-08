@@ -1,11 +1,7 @@
 use crate::data::MatrixData;
 
-use std::error::Error;
-use std::fmt;
-use std::io;
-
-use nalgebra_sparse::coo::CooMatrix;
-use nalgebra_sparse::csr::CsrMatrix;
+use std::{error::Error, fmt, io};
+use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 
 #[derive(Debug)]
 pub(crate) enum IoError {

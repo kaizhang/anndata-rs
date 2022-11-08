@@ -12,10 +12,8 @@ use hdf5::{Result, Group};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 use dyn_clone::DynClone;
-use downcast_rs::Downcast;
-use downcast_rs::impl_downcast;
-use std::ops::Deref;
-use std::fmt::Debug;
+use downcast_rs::{Downcast, impl_downcast};
+use std::{ops::Deref, fmt::Debug};
 
 /// Super trait to deal with regular data IO.
 pub trait Data: Send + Sync + Debug + DynClone + Downcast + WriteData + ReadData {}

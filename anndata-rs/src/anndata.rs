@@ -1,6 +1,6 @@
 use crate::{
     data::*, element::*,
-    element::{base::{InnerDataFrameElem, InnerMatrixElem}, collection::{InnerAxisArrays, AxisArrays}},
+    element::{base::{InnerDataFrameElem, InnerMatrixElem, AccumLength}, collection::{InnerAxisArrays, AxisArrays}},
 };
 
 use std::{sync::Arc, path::Path, collections::HashMap, ops::Deref};

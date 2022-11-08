@@ -1,7 +1,4 @@
-use crate::{
-    data::{DataContainer, ReadData, WriteData},
-    utils::hdf5::{read_str_attr, read_chunks_1d},
-};
+use crate::{data::{DataContainer, ReadData, WriteData}, utils::hdf5::{read_str_attr, read_chunks_1d}};
 
 use ndarray::{Axis, ArrayD};
 use hdf5::{Result, Group, H5Type};

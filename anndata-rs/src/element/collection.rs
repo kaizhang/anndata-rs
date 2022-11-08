@@ -1,12 +1,9 @@
 use crate::{data::*, element::base::*};
 
-use std::sync::Arc;
+use std::{sync::Arc, collections::{HashMap, HashSet}, ops::{Deref, DerefMut}};
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use hdf5::Group; 
 use anyhow::{ensure, anyhow, Result};
-use std::collections::HashSet;
-use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
 
 pub struct InnerElemCollection {

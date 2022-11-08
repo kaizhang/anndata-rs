@@ -1,16 +1,14 @@
-use crate::{anndata::{AnnData, AnnDataOp}, data::*, element::*, iterator::IndexedCsrIterator};
-use crate::element::collection::InnerAxisArrays;
-use crate::iterator::AnnDataIterator;
+use crate::{
+    anndata::{AnnData, AnnDataOp}, data::*, element::*, iterator::IndexedCsrIterator,
+    element::collection::InnerAxisArrays, iterator::AnnDataIterator
+};
 
 use itertools::Itertools;
 use parking_lot::Mutex;
 use hdf5::File; 
 use anyhow::Result;
-use std::{path::PathBuf, sync::Arc};
-use polars::{
-    frame::DataFrame, series::Series, prelude::NamedFrom, prelude::SerReader,
-};
-use std::path::Path;
+use std::{path::{Path, PathBuf}, sync::Arc};
+use polars::{frame::DataFrame, series::Series, prelude::NamedFrom, prelude::SerReader};
 
 impl AnnData {
     pub fn write<P>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, filename: P) -> Result<()>
