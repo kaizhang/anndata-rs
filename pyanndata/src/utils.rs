@@ -61,9 +61,6 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
     Ok(indices)
 }
 
-fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
-where
-    I: Iterator<Item = bool>
-{
+fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize> where I: Iterator<Item = bool> {
     iter.enumerate().filter_map(|(i, x)| if x { Some(i) } else { None }).collect()
 }

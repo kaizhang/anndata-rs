@@ -563,7 +563,7 @@ impl AnnDataSet {
 }
 
 pub trait AnnDataOp {
-    //fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>>;
+    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>>;
     fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()>;
 
     /// Return the number of observations (rows).
@@ -605,6 +605,10 @@ pub trait AnnDataOp {
 }
 
 impl AnnDataOp for AnnData {
+    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>> {
+        let x = self.get_x();
+        if x.is_empty() { Ok(None) } else { x.read(None, None).map(Option::Some) }
+    }
     fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()> {
         match data_ {
             Some(data) => {
@@ -719,6 +723,10 @@ impl AnnDataOp for AnnData {
 }
 
 impl AnnDataOp for AnnDataSet {
+    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>> {
+        let adatas = &self.anndatas;
+        if adatas.is_empty() { Ok(None) } else { adatas.inner().x.read(None, None).map(Option::Some) }
+    }
     fn set_x<D: MatrixData>(&self, _: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
     fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
     fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
@@ -736,13 +744,13 @@ impl AnnDataOp for AnnDataSet {
     fn set_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.set_var(var) }
 
     fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
-        self.get_uns().inner().get_mut(key).unwrap().read()
+        self.annotation.read_uns_item(key)
     }
     fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_uns().add_data(key, data)
+        self.annotation.add_uns_item(key, data)
     }
 
     fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_obsm().add_data(key, data)
+        self.annotation.add_obsm_item(key, data)
     }
 }

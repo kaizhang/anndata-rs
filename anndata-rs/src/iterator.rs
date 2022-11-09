@@ -247,70 +247,72 @@ impl AxisArrays {
 pub struct ChunkedMatrix {
     elem: MatrixElem,
     chunk_size: usize,
-    size: usize,
-    current_index: usize,
+    total_rows: usize,
+    current_row: usize,
 }
 
 impl ChunkedMatrix {
     pub(crate) fn new(elem: MatrixElem, chunk_size: usize) -> Self {
-        let size = elem.nrows();
-        Self { elem, chunk_size, size, current_index: 0 }
+        let total_rows = elem.nrows();
+        Self { elem, chunk_size, total_rows, current_row: 0 }
     }
 }
 
 
 impl Iterator for ChunkedMatrix {
-    type Item = Box<dyn MatrixData>;
+    type Item = (Box<dyn MatrixData>, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_index >= self.size {
+        if self.current_row >= self.total_rows {
             None
         } else {
-            let i = self.current_index;
-            let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
-            self.current_index = j;
+            let i = self.current_row;
+            let j = std::cmp::min(self.total_rows, self.current_row + self.chunk_size);
+            self.current_row = j;
             let data = self.elem.read_row_slice(i..j).unwrap();
-            Some(data)
+            Some((data, i, j))
         }
     }
 }
 
 impl ExactSizeIterator for ChunkedMatrix {
     fn len(&self) -> usize {
-        let n = self.size / self.chunk_size;
-        if self.size % self.chunk_size == 0 { n } else { n + 1 }
+        let n = self.total_rows / self.chunk_size;
+        if self.total_rows % self.chunk_size == 0 { n } else { n + 1 }
     }
 }
 
 pub struct StackedChunkedMatrix {
     matrices: Vec<ChunkedMatrix>,
-    current_outer_index: usize,
+    current_row: usize,
+    current_matrix: usize,
 }
 
 impl StackedChunkedMatrix {
     pub(crate) fn new<I: Iterator<Item = MatrixElem>>(elems: I, chunk_size: usize) -> Self {
         Self {
             matrices: elems.map(|x| ChunkedMatrix::new(x, chunk_size)).collect(),
-            current_outer_index: 0,
+            current_row: 0, current_matrix: 0,
         }
     }
 }
 
 impl Iterator for StackedChunkedMatrix {
-    type Item = Box<dyn MatrixData>;
+    type Item = (Box<dyn MatrixData>, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let i = self.current_outer_index;
-        if i >= self.matrices.len() {
-            None
-        } else {
-            match self.matrices[i].next() {
-                None => { 
-                    self.current_outer_index += 1;
-                    self.next()
-                },
-                r => r,
+        if let Some(mat) = self.matrices.get_mut(self.current_matrix) {
+            if let Some((data, start, stop)) = mat.next() {
+                let new_start = self.current_row;
+                let new_stop = new_start + stop - start;
+                self.current_row = new_stop;
+                Some((data, new_start, new_stop))
+            } else {
+                self.current_matrix += 1;
+                self.next()
             }
+        } else {
+            None
         }
     }
 }
@@ -321,7 +323,8 @@ impl ExactSizeIterator for StackedChunkedMatrix {
 
 
 pub trait AnnDataIterator {
-    type MatrixIter<'a>: Iterator<Item = Box<dyn MatrixData>> + ExactSizeIterator where Self: 'a;
+    type MatrixIter<'a>: Iterator<Item =
+        (Box<dyn MatrixData>, usize, usize)> + ExactSizeIterator where Self: 'a;
 
     fn read_x_iter<'a>(&'a self, chunk_size: usize) -> Self::MatrixIter<'a>;
     fn set_x_from_row_iter<I, D>(&self, data: I) -> Result<()>

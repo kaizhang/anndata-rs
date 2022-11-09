@@ -15,8 +15,8 @@ impl PyChunkedMatrix {
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 
-    fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<PyObject> {
-        slf.0.next().map(|data| to_py_data2(py, data).unwrap())
+    fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<(PyObject, usize, usize)> {
+        slf.0.next().map(|(data, i, j)| (to_py_data2(py, data).unwrap(), i, j))
     }
 }
 
@@ -29,39 +29,39 @@ impl PyStackedChunkedMatrix {
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 
-    fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<PyObject> {
-        slf.0.next().map(|data| to_py_data2(py, data).unwrap())
+    fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<(PyObject, usize, usize)> {
+        slf.0.next().map(|(data, i, j)| (to_py_data2(py, data).unwrap(), i, j))
     }
 }
 
 pub struct PyMatrixIterator<'py> {
     matrix: &'py PyAny,
     chunk_size: usize,
-    size: usize,
-    current_index: usize,
+    total_rows: usize,
+    current_row: usize,
 }
 
 impl<'py> PyMatrixIterator<'py> {
     pub(crate) fn new(matrix: &'py PyAny, chunk_size: usize) -> PyResult<Self> {
-        let size = matrix.getattr("shape")?.downcast::<pyo3::types::PyTuple>()?.get_item(0)?.extract()?;
-        Ok(Self { matrix, chunk_size, size, current_index: 0 })
+        let total_rows = matrix.getattr("shape")?.downcast::<pyo3::types::PyTuple>()?.get_item(0)?.extract()?;
+        Ok(Self { matrix, chunk_size, total_rows, current_row: 0 })
     }
 }
 
 impl<'py> Iterator for PyMatrixIterator<'py> {
-    type Item = Box<dyn MatrixData>;
+    type Item = (Box<dyn MatrixData>, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_index >= self.size {
+        if self.current_row >= self.total_rows {
             None
         } else {
-            let i = self.current_index;
-            let j = std::cmp::min(self.size, self.current_index + self.chunk_size);
-            self.current_index = j;
+            let i = self.current_row;
+            let j = std::cmp::min(self.total_rows, self.current_row + self.chunk_size);
+            self.current_row = j;
             Python::with_gil(|py| -> PyResult<_> {
                 let range = (pyo3::types::PySlice::new(py, i as isize, j as isize, 1), );
                 let data = to_rust_data2(py, self.matrix.call_method1("__getitem__", (range,))?)?;
-                Ok(Some(data))
+                Ok(Some((data, i, j)))
             }).unwrap()
         }
     }
@@ -69,8 +69,8 @@ impl<'py> Iterator for PyMatrixIterator<'py> {
 
 impl ExactSizeIterator for PyMatrixIterator<'_> {
     fn len(&self) -> usize {
-        let n = self.size / self.chunk_size;
-        if self.size % self.chunk_size == 0 { n } else { n + 1 }
+        let n = self.total_rows / self.chunk_size;
+        if self.total_rows % self.chunk_size == 0 { n } else { n + 1 }
     }
 }
 

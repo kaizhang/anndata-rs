@@ -362,7 +362,7 @@ impl PyStackedMatrixElem {
     /// -------
     /// An iterator, of which the elements are matrices.
     #[pyo3(text_signature = "($self, chunk_size)")]
-    fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix{
+    pub fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix{
         PyStackedChunkedMatrix(self.0.chunked(chunk_size))
     }
 
@@ -385,7 +385,7 @@ impl PyStackedMatrixElem {
         seed = 2022,
     )]
     #[pyo3(text_signature = "($self, size, replace, seed)")]
-    fn chunk<'py>(
+    pub fn chunk<'py>(
         &self,
         py: Python<'py>,
         size: usize,

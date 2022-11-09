@@ -1,5 +1,5 @@
 use crate::element::*;
-use crate::iterator::PyChunkedMatrix;
+use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
 use crate::utils::{
     to_indices, instance::*,
     conversion::{to_py_data1, to_py_data2, to_py_df, to_rust_df, to_rust_data1, to_rust_data2},
@@ -350,7 +350,10 @@ impl AnnData {
     /// Return a new AnnData object with all backed arrays loaded into memory.
     fn to_memory<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
         let anndata = PyAnnData::new(py)?;
-        todo!()
+        anndata.set_n_obs(self.n_obs())?;
+        anndata.set_n_vars(self.n_vars())?;
+        anndata.set_x(self.inner().read_x().unwrap().as_ref()).unwrap();
+        Ok(anndata.to_object(py))
     }
 
     /// If the AnnData object has been closed.
@@ -545,6 +548,19 @@ impl AnnDataSet {
                 self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir).unwrap()
             )),
         })
+    }
+
+    /// Return an iterator over the rows of the data matrix X.
+    /// 
+    /// Parameters
+    /// ----------
+    /// chunk_size : int
+    ///     Row size of a single chunk.
+    #[args(chunk_size = "500")]
+    #[pyo3(text_signature = "($self, chunk_size, /)")]
+    #[pyo3(name = "chunked_X")]
+    fn chunked_x(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
+        self.get_x().chunked(chunk_size)
     }
  
     /// :class:`.StackedAnnData`.
@@ -793,12 +809,21 @@ impl<'py> ToPyObject for PyAnnData<'py> {
 }
 
 impl<'py> AnnDataOp for PyAnnData<'py> {
+    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>> {
+        let x = self.getattr("X")?;
+        if x.is_none() {
+            Ok(None)
+        } else {
+            Ok(Some(to_rust_data2(self.py(), x)?))
+        }
+    }
+
     fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()> {
         if let Some(x) = data_ {
             self.set_n_obs(x.nrows())?;
             self.set_n_vars(x.ncols())?;
         }
-        self.0.setattr(
+        self.setattr(
             "X",
             data_.map(|x| {
                 let x_: Box<dyn MatrixData> = Box::new(dyn_clone::clone(x));
