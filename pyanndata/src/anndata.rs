@@ -1,4 +1,5 @@
 use crate::element::*;
+use crate::iterator::PyChunkedMatrix;
 use crate::utils::{
     to_indices, instance::*,
     conversion::{to_py_data1, to_py_data2, to_py_df, to_rust_df, to_rust_data1, to_rust_data2},
@@ -10,11 +11,9 @@ use anndata_rs::{
 };
 use polars::frame::DataFrame;
 use anyhow::Result;
-use pyo3::{prelude::*, PyResult, Python, types::PyIterator, exceptions::PyException};
-use pyo3::types::IntoPyDict;
-use std::collections::HashMap;
+use pyo3::{prelude::*, PyResult, Python, types::{PyIterator, IntoPyDict}, exceptions::{PyException, PyTypeError}};
+use std::{collections::HashMap, ops::Deref};
 use paste::paste;
-use std::ops::Deref;
 
 macro_rules! def_df_accessor {
     ($name:ty, { $($field:ident),* }) => {
@@ -332,6 +331,28 @@ impl AnnData {
         }
     }
 
+    #[getter]
+    fn isbacked(&self) -> bool { true }
+
+    /// Return an iterator over the rows of the data matrix X.
+    /// 
+    /// Parameters
+    /// ----------
+    /// chunk_size : int
+    ///     Row size of a single chunk.
+    #[args(chunk_size = "500")]
+    #[pyo3(text_signature = "($self, chunk_size, /)")]
+    #[pyo3(name = "chunked_X")]
+    fn chunked_x(&self, chunk_size: usize) -> PyChunkedMatrix  {
+        self.get_x().chunked(chunk_size)
+    }
+
+    /// Return a new AnnData object with all backed arrays loaded into memory.
+    fn to_memory<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
+        let anndata = PyAnnData::new(py)?;
+        todo!()
+    }
+
     /// If the AnnData object has been closed.
     /// Returns
     /// -------
@@ -586,13 +607,13 @@ def_arr_accessor!(
 ///
 /// filename
 ///     File name of data file.
-/// mode
+/// backed
 ///     If `'r'`, the file is opened in read-only mode.
 ///     If you want to modify the AnnData object, you need to choose `'r+'`.
-#[pyfunction(mode = "\"r+\"")]
-#[pyo3(text_signature = "(filename, mode)")]
-pub fn read<'py>(py: Python<'py>, filename: &str, mode: Option<&str>) -> PyResult<PyObject> {
-    match mode {
+#[pyfunction(backed = "\"r+\"")]
+#[pyo3(text_signature = "(filename, backed)")]
+pub fn read<'py>(py: Python<'py>, filename: &str, backed: Option<&str>) -> PyResult<PyObject> {
+    match backed {
         Some("r") => {
             let file = hdf5::File::open(filename).unwrap();
             Ok(AnnData::wrap(anndata::AnnData::read(file).unwrap()).into_py(py))
@@ -756,8 +777,12 @@ impl<'py> PyAnnData<'py> {
 }
 
 impl<'py> FromPyObject<'py> for PyAnnData<'py> {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
-        Ok(PyAnnData(ob))
+    fn extract(obj: &'py PyAny) -> PyResult<Self> {
+        Python::with_gil(|py| if isinstance_of_pyanndata(py, obj)? {
+            Ok(PyAnnData(obj))
+        } else {
+            Err(PyTypeError::new_err("Not a Python AnnData object"))
+        })
     }
 }
 
@@ -829,12 +854,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             None => { self.0.setattr("obs", None::<PyObject>)?; },
             Some(obs) => {
                 let py = self.py();
-                let old_df = self.getattr("obs")?;
                 let df = to_py_df(obs.clone())?.call_method0(py, "to_pandas")?;
-                if !old_df.getattr("empty")?.is_true()? {
-                    df.call_method1(py, "set_index", (old_df.getattr("index")?,))?;
+                let index = self.getattr("obs")?.getattr("index")?;
+                if !index.getattr("empty")?.is_true()? {
+                    self.setattr("obs", df.call_method1(py, "set_index", (index,))?)?;
+                } else {
+                    self.setattr("obs", df)?;
                 }
-                self.setattr("obs", df)?;
             },
         }
         Ok(())
@@ -844,12 +870,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             None => { self.0.setattr("var", None::<PyObject>)?; },
             Some(var) => {
                 let py = self.py();
-                let old_df = self.getattr("var")?;
                 let df = to_py_df(var.clone())?.call_method0(py, "to_pandas")?;
-                if !old_df.getattr("empty")?.is_true()? {
-                    df.call_method1(py, "set_index", (old_df.getattr("index")?,))?;
+                let index = self.getattr("var")?.getattr("index")?;
+                if !index.getattr("empty")?.is_true()? {
+                    self.setattr("var", df.call_method1(py, "set_index", (index,))?)?;
+                } else {
+                    self.setattr("var", df)?;
                 }
-                self.setattr("var", df)?;
             },
         }
         Ok(())

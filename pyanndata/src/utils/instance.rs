@@ -17,6 +17,12 @@ pub fn isinstance_of_arr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool
     )
 }
 
+pub fn isinstance_of_pyanndata<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    obj.is_instance(
+        py.import("anndata")?.getattr("AnnData")?.downcast::<PyType>().unwrap()
+    )
+}
+
 pub fn isinstance_of_pandas<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     obj.is_instance(
         py.import("pandas")?.getattr("DataFrame")?.downcast::<PyType>().unwrap()

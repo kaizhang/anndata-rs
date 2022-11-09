@@ -131,7 +131,7 @@ impl PyMatrixElem {
     /// -------
     /// An iterator, of which the elements are matrices.
     #[pyo3(text_signature = "($self, chunk_size)")]
-    fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
+    pub fn chunked(&self, chunk_size: usize) -> PyChunkedMatrix {
         PyChunkedMatrix(self.0.chunked(chunk_size))
     }
 

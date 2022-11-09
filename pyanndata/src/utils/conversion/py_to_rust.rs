@@ -88,15 +88,12 @@ pub fn to_rust_data2<'py>(
 {
     macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
 
+    //TODO: support i64 types
     macro_rules! _csr {
         ($x:expr) => {{
             let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
-            let indices = obj.getattr("indices")?
-                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-                .map(|x| (*x).try_into().unwrap()).collect();
-            let indptr = obj.getattr("indptr")?
-                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-                .map(|x| (*x).try_into().unwrap()).collect();
+            let indices = extract_csr_indicies(obj.getattr("indices")?)?;
+            let indptr = extract_csr_indicies(obj.getattr("indptr")?)?;
             Ok(Box::new(CsrMatrix::try_from_csr_data(
                 shape[0], shape[1], indptr, indices, $x.to_vec().unwrap()
             ).unwrap()))
@@ -106,8 +103,19 @@ pub fn to_rust_data2<'py>(
     if isinstance_of_arr(py, obj)? {
         proc_py_numeric!(obj, obj.extract()?, _arr, PyReadonlyArrayDyn)
     } else if isinstance_of_csr(py, obj)? {
-        proc_py_numeric!(obj, obj.getattr("data")?.extract()?,_csr, PyReadonlyArrayDyn)
+        proc_py_numeric!(obj, obj.getattr("data")?.extract()?, _csr, PyReadonlyArrayDyn)
     } else {
         panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
     }
+}
+
+fn extract_csr_indicies(indicies: &PyAny) -> PyResult<Vec<usize>> {
+    let res = match indicies.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+        "int32" => indicies.extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+            .map(|x| (*x).try_into().unwrap()).collect(),
+        "int64" => indicies.extract::<PyReadonlyArrayDyn<i64>>()?.as_array().iter()
+            .map(|x| (*x).try_into().unwrap()).collect(),
+        other => panic!("CSR indicies type '{}' is not supported", other),
+    };
+    Ok(res)
 }

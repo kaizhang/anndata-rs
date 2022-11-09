@@ -563,6 +563,7 @@ impl AnnDataSet {
 }
 
 pub trait AnnDataOp {
+    //fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>>;
     fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()>;
 
     /// Return the number of observations (rows).
