@@ -1,4 +1,4 @@
-use crate::{PyAnnData, utils::conversion::{to_py_data2, to_rust_data2}};
+use crate::{PyAnnData, utils::conversion::{RustToPy, PyToRust}};
 
 use anndata_rs::{MatrixData, AnnDataIterator, iterator::{ChunkedMatrix, StackedChunkedMatrix}};
 use anndata_rs::iterator::RowIterator;
@@ -16,7 +16,7 @@ impl PyChunkedMatrix {
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 
     fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<(PyObject, usize, usize)> {
-        slf.0.next().map(|(data, i, j)| (to_py_data2(py, data).unwrap(), i, j))
+        slf.0.next().map(|(data, i, j)| (data.rust_into_py(py).unwrap(), i, j))
     }
 }
 
@@ -30,7 +30,7 @@ impl PyStackedChunkedMatrix {
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> { slf }
 
     fn __next__<'py>(mut slf: PyRefMut<Self>, py: Python<'py>) -> Option<(PyObject, usize, usize)> {
-        slf.0.next().map(|(data, i, j)| (to_py_data2(py, data).unwrap(), i, j))
+        slf.0.next().map(|(data, i, j)| (data.rust_into_py(py).unwrap(), i, j))
     }
 }
 
@@ -60,7 +60,7 @@ impl<'py> Iterator for PyMatrixIterator<'py> {
             self.current_row = j;
             Python::with_gil(|py| -> PyResult<_> {
                 let range = (pyo3::types::PySlice::new(py, i as isize, j as isize, 1), );
-                let data = to_rust_data2(py, self.matrix.call_method1("__getitem__", (range,))?)?;
+                let data = self.matrix.call_method1("__getitem__", (range,))?.into_rust(py)?;
                 Ok(Some((data, i, j)))
             }).unwrap()
         }
@@ -88,7 +88,7 @@ impl<'py> AnnDataIterator for PyAnnData<'py> {
         let csr: Box<dyn MatrixData> = Box::new(data.to_csr_matrix());
         self.set_n_obs(csr.nrows())?;
         self.set_n_vars(csr.ncols())?;
-        self.setattr("X", to_py_data2(self.py(), csr)?)?;
+        self.setattr("X", csr.rust_into_py(self.py())?)?;
         Ok(())
     }
 
@@ -105,7 +105,7 @@ impl<'py> AnnDataIterator for PyAnnData<'py> {
         self.set_n_obs(csr.nrows())?;
         self.getattr("obsm")?.call_method1(
             "__setitem__",
-            (key, to_py_data2(self.py(), csr)?),
+            (key, csr.rust_into_py(self.py())?),
         )?;
         Ok(())
     }

@@ -1,12 +1,8 @@
-use crate::utils::{
-    instance::*,
-    conversion::to_rust_df,
-};
+use crate::utils::{instance::*, conversion::dataframe::to_rust_df};
 
-use pyo3::{
-    prelude::*,
-    PyResult, Python,
-};
+use pyo3::{prelude::*, PyResult, Python};
+use polars::frame::DataFrame;
+use ndarray::ArrayD;
 use numpy::PyReadonlyArrayDyn;
 use nalgebra_sparse::csr::CsrMatrix;
 use std::collections::HashMap;
@@ -32,90 +28,85 @@ macro_rules! proc_py_numeric {
     }
 }
 
-pub fn to_rust_data1<'py>(
-    py: Python<'py>,
-    obj: &'py PyAny,
-) -> PyResult<Box<dyn Data>>
-{
-    macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
+macro_rules! _box { ($x:expr) => { Ok(Box::new($x)) }; }
 
-    macro_rules! _csr {
-        ($x:expr) => {{
-            let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
-            let indices = obj.getattr("indices")?
-                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-                .map(|x| (*x).try_into().unwrap()).collect();
-            let indptr = obj.getattr("indptr")?
-                .extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-                .map(|x| (*x).try_into().unwrap()).collect();
-            Ok(Box::new(CsrMatrix::try_from_csr_data(
-                shape[0], shape[1], indptr, indices, $x.to_vec().unwrap()
-            ).unwrap()))
-        }};
-    }
+pub trait PyToRust<T> {
+    fn into_rust<'py>(self, py: Python<'py>) -> PyResult<T>;
+}
 
-    if isinstance_of_arr(py, obj)? {
-        proc_py_numeric!(obj, obj.extract()?, _arr, PyReadonlyArrayDyn)
-    } else if isinstance_of_csr(py, obj)? {
-        proc_py_numeric!(obj, obj.getattr("data")?.extract()?,_csr, PyReadonlyArrayDyn)
-    } else if obj.is_instance_of::<pyo3::types::PyString>()? {
-        Ok(Box::new(obj.extract::<String>()?))
-    } else if obj.is_instance_of::<pyo3::types::PyBool>()? {
-        Ok(Box::new(Scalar(obj.extract::<bool>()?)))
-    } else if obj.is_instance_of::<pyo3::types::PyInt>()? {
-        Ok(Box::new(Scalar(obj.extract::<i64>()?)))
-    } else if obj.is_instance_of::<pyo3::types::PyFloat>()? {
-        Ok(Box::new(Scalar(obj.extract::<f64>()?)))
-    } else if obj.is_instance_of::<pyo3::types::PyDict>()? {
-        let data: HashMap<String, &'py PyAny> = obj.extract()?;
-        let mapping = data.into_iter().map(|(k, v)| Ok((k, to_rust_data1(py, v)?)))
-            .collect::<PyResult<HashMap<_, _>>>()?;
-        Ok(Box::new(Mapping(mapping)))
-    } else if isinstance_of_polars(py, obj)? {
-        Ok(Box::new(to_rust_df(obj)?))
-    } else if isinstance_of_pandas(py, obj)? {
-        let obj_ = py.import("polars")?.call_method1("from_pandas", (obj, ))?;
-        Ok(Box::new(to_rust_df(obj_)?))
-    } else {
-        panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
+impl<T: numpy::Element> PyToRust<CsrMatrix<T>> for &PyAny {
+    fn into_rust<'py>(self, _py: Python<'py>) -> PyResult<CsrMatrix<T>> {
+        fn extract_csr_indicies(indicies: &PyAny) -> PyResult<Vec<usize>> {
+            let res = match indicies.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
+                "int32" => indicies.extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
+                    .map(|x| (*x).try_into().unwrap()).collect(),
+                "int64" => indicies.extract::<PyReadonlyArrayDyn<i64>>()?.as_array().iter()
+                    .map(|x| (*x).try_into().unwrap()).collect(),
+                other => panic!("CSR indicies type '{}' is not supported", other),
+            };
+            Ok(res)
+        }
+
+        let shape: Vec<usize> = self.getattr("shape")?.extract()?;
+        let indices = extract_csr_indicies(self.getattr("indices")?)?;
+        let indptr = extract_csr_indicies(self.getattr("indptr")?)?;
+        let data = self.getattr("data")?.extract::<PyReadonlyArrayDyn<T>>()?;
+        let mat = CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data.to_vec().unwrap()).unwrap();
+        Ok(mat)
     }
 }
 
-pub fn to_rust_data2<'py>(
-    py: Python<'py>,
-    obj: &'py PyAny,
-) -> PyResult<Box<dyn MatrixData>>
-{
-    macro_rules! _arr { ($x:expr) => { Ok(Box::new($x.to_owned_array())) }; }
-
-    //TODO: support i64 types
-    macro_rules! _csr {
-        ($x:expr) => {{
-            let shape: Vec<usize> = obj.getattr("shape")?.extract()?;
-            let indices = extract_csr_indicies(obj.getattr("indices")?)?;
-            let indptr = extract_csr_indicies(obj.getattr("indptr")?)?;
-            Ok(Box::new(CsrMatrix::try_from_csr_data(
-                shape[0], shape[1], indptr, indices, $x.to_vec().unwrap()
-            ).unwrap()))
-        }};
-    }
-
-    if isinstance_of_arr(py, obj)? {
-        proc_py_numeric!(obj, obj.extract()?, _arr, PyReadonlyArrayDyn)
-    } else if isinstance_of_csr(py, obj)? {
-        proc_py_numeric!(obj, obj.getattr("data")?.extract()?, _csr, PyReadonlyArrayDyn)
-    } else {
-        panic!("Cannot convert Python type \"{}\" to Rust data", obj.get_type())
+impl<T: numpy::Element> PyToRust<ArrayD<T>> for &PyAny {
+    fn into_rust<'py>(self, _py: Python<'py>) -> PyResult<ArrayD<T>> {
+        Ok(self.extract::<PyReadonlyArrayDyn<T>>()?.to_owned_array())
     }
 }
 
-fn extract_csr_indicies(indicies: &PyAny) -> PyResult<Vec<usize>> {
-    let res = match indicies.getattr("dtype")?.getattr("name")?.extract::<&str>()? {
-        "int32" => indicies.extract::<PyReadonlyArrayDyn<i32>>()?.as_array().iter()
-            .map(|x| (*x).try_into().unwrap()).collect(),
-        "int64" => indicies.extract::<PyReadonlyArrayDyn<i64>>()?.as_array().iter()
-            .map(|x| (*x).try_into().unwrap()).collect(),
-        other => panic!("CSR indicies type '{}' is not supported", other),
-    };
-    Ok(res)
+impl PyToRust<DataFrame> for &PyAny {
+    fn into_rust<'py>(self, py: Python<'py>) -> PyResult<DataFrame> {
+        to_rust_df(py, self)
+    }
+}
+
+impl PyToRust<Box<dyn Data>> for &PyAny {
+    fn into_rust<'py>(self, py: Python<'py>) -> PyResult<Box<dyn Data>> {
+        if isinstance_of_arr(py, self)? {
+            proc_py_numeric!(self, self.into_rust(py)?, _box, ArrayD)
+        } else if isinstance_of_csr(py, self)? {
+            proc_py_numeric!(self, self.into_rust(py)?, _box, CsrMatrix)
+        } else if self.is_instance_of::<pyo3::types::PyString>()? {
+            Ok(Box::new(self.extract::<String>()?))
+        } else if self.is_instance_of::<pyo3::types::PyBool>()? {
+            Ok(Box::new(Scalar(self.extract::<bool>()?)))
+        } else if self.is_instance_of::<pyo3::types::PyInt>()? {
+            Ok(Box::new(Scalar(self.extract::<i64>()?)))
+        } else if self.is_instance_of::<pyo3::types::PyFloat>()? {
+            Ok(Box::new(Scalar(self.extract::<f64>()?)))
+        } else if self.is_instance_of::<pyo3::types::PyDict>()? {
+            let data: HashMap<String, &PyAny> = self.extract()?;
+            let mapping = data.into_iter().map(|(k, v)| Ok((k, v.into_rust(py)?)))
+                .collect::<PyResult<HashMap<_, _>>>()?;
+            Ok(Box::new(Mapping(mapping)))
+        } else if isinstance_of_polars(py, self)? {
+            let df: DataFrame = self.into_rust(py)?;
+            Ok(Box::new(df))
+        } else if isinstance_of_pandas(py, self)? {
+            let df: DataFrame = py.import("polars")?.call_method1("from_pandas", (self, ))?.into_rust(py)?;
+            Ok(Box::new(df))
+        } else {
+            panic!("Cannot convert Python type \"{}\" to 'dyn Data'", self.get_type())
+        }
+    }
+}
+
+impl PyToRust<Box<dyn MatrixData>> for &PyAny {
+    fn into_rust<'py>(self, py: Python<'py>) -> PyResult<Box<dyn MatrixData>> {
+        if isinstance_of_arr(py, self)? {
+            proc_py_numeric!(self, self.into_rust(py)?, _box, ArrayD)
+        } else if isinstance_of_csr(py, self)? {
+            proc_py_numeric!(self, self.into_rust(py)?, _box, CsrMatrix)
+        } else {
+            panic!("Cannot convert Python type \"{}\" to 'dyn MatrixData'", self.get_type())
+        }
+    }
 }

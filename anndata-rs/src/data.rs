@@ -6,21 +6,30 @@ pub use matrix::*;
 
 use crate::{proc_numeric_data, proc_numeric_data_ref, _box};
 
+use anyhow::anyhow;
 use ndarray::{ArrayD, Axis};
 use itertools::Itertools;
 use hdf5::{Result, Group};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
-use dyn_clone::DynClone;
 use downcast_rs::{Downcast, impl_downcast};
-use std::{ops::Deref, fmt::Debug};
+use std::{ops::Deref, fmt};
 
 /// Super trait to deal with regular data IO.
-pub trait Data: Send + Sync + Debug + DynClone + Downcast + WriteData + ReadData {}
+pub trait Data: Send + Sync + Downcast + WriteData + ReadData {}
 impl_downcast!(Data);
-dyn_clone::clone_trait_object!(Data);
 
-impl<T> Data for T where T: Clone + Send + Sync + Debug + WriteData + ReadData + 'static {}
+impl<T> Data for T where T: Send + Sync + WriteData + ReadData + 'static {}
+
+impl fmt::Debug for Box<dyn Data> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "dyn Data: {}", self.get_dtype())
+    }
+}
+
+impl Clone for Box<dyn Data> {
+    fn clone(&self) -> Self { self.to_dyn_data() }
+}
 
 impl ReadData for Box<dyn Data> {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
@@ -42,6 +51,8 @@ impl ReadData for Box<dyn Data> {
             ))?,
         }
     }
+
+    fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
 }
 
 impl WriteData for Box<dyn Data> {
@@ -54,20 +65,30 @@ impl WriteData for Box<dyn Data> {
     fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
 
     fn dtype() -> DataType where Self: Sized {
-        todo!()
+        panic!("'.dtype()' cannot be called on a trait object, please use '.get_dtype()'")
     }
 }
 
-pub trait MatrixData: PartialIO + Data + DynClone + Downcast {}
+pub trait MatrixData: PartialIO + Data + Downcast {}
 impl_downcast!(MatrixData);
-dyn_clone::clone_trait_object!(MatrixData);
 
 impl<T> MatrixData for T where T: PartialIO + Data {}
+
+impl fmt::Debug for Box<dyn MatrixData> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "dyn MatrixData: {}", self.get_dtype())
+    }
+}
+
+impl Clone for Box<dyn MatrixData> {
+    fn clone(&self) -> Self { self.to_dyn_matrix() }
+}
 
 impl ReadData for Box<dyn MatrixData> {
     fn read(container: &DataContainer) -> Result<Self> {
         read_dyn_data_subset(container, None, None)
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
 }
 
 impl WriteData for Box<dyn MatrixData> {
@@ -80,7 +101,7 @@ impl WriteData for Box<dyn MatrixData> {
     fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
 
     fn dtype() -> DataType where Self: Sized {
-        todo!()
+        panic!("'.dtype()' cannot be called on a trait object, please use '.get_dtype()'")
     }
 }
 
@@ -112,6 +133,8 @@ impl MatrixOp for Box<dyn MatrixData> {
             unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
         }
     }
+
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { self.deref().to_dyn_matrix() }
 }
 
 macro_rules! size_reader {
@@ -212,22 +235,14 @@ pub(crate) fn rstack_with_index(
 ) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
-            ty,
-            rstack_arr_with_index(
-                index,
-                mats.into_iter().map(|x| x.downcast().unwrap()).collect(),
-            ),
-            _box,
-            ArrayD
+            ty, rstack_arr_with_index(index, mats.into_iter().map(|x| x.downcast().map_err(|_|
+                anyhow!("cannot downcast Array with type {}", ty)).unwrap()).collect()
+            ), _box, ArrayD
         ),
         DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty,
-            rstack_csr_with_index(
-                index,
-                mats.into_iter().map(|x| x.downcast().unwrap()).collect(),
-            ),
-            _box,
-            CsrMatrix
+            ty, rstack_csr_with_index(index, mats.into_iter().map(|x| x.downcast().map_err(|_| 
+                anyhow!("cannot downcast Sparse Row Matrix with type {}", ty)).unwrap()).collect()
+            ), _box, CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),
     }
@@ -272,14 +287,12 @@ fn rstack_csr_with_index<T: Clone>(
 pub(crate) fn rstack(mats: Vec<Box<dyn MatrixData>>) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
-            ty,
-            rstack_arr(mats.into_iter().map(|x| x.downcast().unwrap())),
-            _box, ArrayD
+            ty, rstack_arr(mats.into_iter().map(|x| x.downcast().map_err(|_|
+                anyhow!("cannot downcast Array with type {}", ty)).unwrap())), _box, ArrayD
         ),
         DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty,
-            rstack_csr(mats.into_iter().map(|x| x.downcast().unwrap())),
-            _box, CsrMatrix
+            ty, rstack_csr(mats.into_iter().map(|x| x.downcast().map_err(|_|
+                anyhow!("cannot downcast Sparse Row Matrix with type {}", ty)).unwrap())), _box, CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),
     }

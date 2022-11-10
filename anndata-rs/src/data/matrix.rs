@@ -1,4 +1,4 @@
-use crate::{data::{DataContainer, ReadData, WriteData}, utils::hdf5::{read_str_attr, read_chunks_1d}};
+use crate::{data::{MatrixData, DataContainer, ReadData, WriteData}, utils::hdf5::{read_str_attr, read_chunks_1d}};
 
 use ndarray::{Axis, ArrayD};
 use hdf5::{Result, Group, H5Type};
@@ -18,6 +18,8 @@ pub trait MatrixOp {
     {
         self.get_rows(ridx).get_columns(cidx)
     }
+
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData>;
 }
 
 
@@ -31,6 +33,8 @@ impl MatrixOp for DataFrame {
     }
 
     fn get_columns(&self, idx: &[usize]) -> Self { self.get_rows(idx) }
+
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
 }
 
 
@@ -46,6 +50,8 @@ where
     fn get_rows(&self, idx: &[usize]) -> Self { self.select(Axis(0), idx) }
 
     fn get_columns(&self, idx: &[usize]) -> Self { self.select(Axis(1), idx) }
+
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
 }
 
 impl<T> MatrixOp for CsrMatrix<T>
@@ -113,6 +119,8 @@ where
             nrow, idx.len(), new_indptr, new_indices, new_values,
         ).unwrap()
     }
+
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
 }
 
 pub trait PartialIO: MatrixOp + ReadData + WriteData {

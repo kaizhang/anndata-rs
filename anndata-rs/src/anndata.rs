@@ -395,7 +395,8 @@ macro_rules! def_accessor {
 
 
 fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String>) -> Result<()> {
-    let df = ann.read_uns_item("AnnDataSet")?.downcast::<DataFrame>().unwrap();
+    let df = ann.read_uns_item("AnnDataSet")?.downcast::<DataFrame>()
+            .map_err(|_| anyhow!("cannot downcast to DataFrame"))?;
     let keys = df.column("keys").unwrap();
     let filenames = df.column("file_path").unwrap().utf8()
         .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
@@ -476,7 +477,8 @@ impl AnnDataSet {
         let filename = annotation.filename();
         let file_path = Path::new(&filename).read_link()
             .unwrap_or(Path::new(&filename).to_path_buf());
-        let df = annotation.read_uns_item("AnnDataSet")?.downcast::<DataFrame>().unwrap();
+        let df = annotation.read_uns_item("AnnDataSet")?.downcast::<DataFrame>()
+            .map_err(|_| anyhow!("cannot downcast to DataFrame"))?;
         let keys = df.column("keys").unwrap().utf8().unwrap()
             .into_iter().collect::<Option<Vec<_>>>().unwrap();
         let filenames = df.column("file_path").unwrap().utf8()

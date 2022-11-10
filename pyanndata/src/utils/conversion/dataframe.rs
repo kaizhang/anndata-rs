@@ -64,46 +64,37 @@ pub fn to_rust_series(series: &PyAny) -> PyResult<Series> {
     Series::try_from((name.as_str(), array)).map_err(|e| PyValueError::new_err(format!("{}", e)))
 }
 
-pub fn to_py_series(series: &Series) -> PyResult<PyObject> {
+pub fn to_py_series<'py>(py: Python<'py>, series: &Series) -> PyResult<PyObject> {
     // ensure we have a single chunk
     let series = series.rechunk();
     let array = series.to_arrow(0);
 
-    Python::with_gil(|py| -> PyResult<PyObject> {
-        // import pyarrow
-        let pyarrow = py.import("pyarrow")?;
-        let pyarrow_array = to_py_array(py, pyarrow, array)?;
+    // import pyarrow
+    let pyarrow = py.import("pyarrow")?;
+    let pyarrow_array = to_py_array(py, pyarrow, array)?;
 
-        // import polars
-        let polars = py.import("polars")?;
-        let out = polars.call_method1("from_arrow", (pyarrow_array,))?;
-        Ok(out.to_object(py))
-    })
+    // import polars
+    let polars = py.import("polars")?;
+    let out = polars.call_method1("from_arrow", (pyarrow_array,))?;
+    Ok(out.to_object(py))
 }
 
-pub fn to_py_df(df: DataFrame) -> PyResult<PyObject> {
-    Python::with_gil(|py| -> PyResult<PyObject> {
-        let pyarrow = py.import("pyarrow")?;
+pub fn to_py_df<'py>(py: Python<'py>, df: DataFrame) -> PyResult<PyObject> {
+    let pyarrow = py.import("pyarrow")?;
 
-        let py_arrays: Vec<_> = df.iter().map(|series| {
-            let series = series.rechunk();
-            let array = series.to_arrow(0);
-            to_py_array(py, pyarrow, array).unwrap()
-        }).collect();
-        let arrow = pyarrow.getattr("Table")?
-            .call_method1("from_arrays", (py_arrays, df.get_column_names()))?;
-        let polars = py.import("polars")?;
-        let df = polars.call_method1("from_arrow", (arrow,))?;
-        Ok(df.to_object(py))
-    })
+    let py_arrays: Vec<_> = df.iter().map(|series| {
+        let series = series.rechunk();
+        let array = series.to_arrow(0);
+        to_py_array(py, pyarrow, array).unwrap()
+    }).collect();
+    let arrow = pyarrow.getattr("Table")?
+        .call_method1("from_arrays", (py_arrays, df.get_column_names()))?;
+    let polars = py.import("polars")?;
+    let df = polars.call_method1("from_arrow", (arrow,))?;
+    Ok(df.to_object(py))
 }
 
-pub fn to_rust_df(pydf: &PyAny) -> PyResult<DataFrame> {
-    Python::with_gil(|py| -> PyResult<DataFrame> {
-        let series: Vec<_> = py.import("builtins")?
-            .call_method1("list", (pydf,))?.extract()?;
-        Ok(DataFrame::new(
-            series.into_iter().map(|x| to_rust_series(x).unwrap()).collect()
-        ).unwrap())
-    })
+pub fn to_rust_df<'py>(py: Python<'py>, pydf: &PyAny) -> PyResult<DataFrame> {
+    let series: Vec<_> = py.import("builtins")?.call_method1("list", (pydf,))?.extract()?;
+    Ok(DataFrame::new(series.into_iter().map(|x| to_rust_series(x).unwrap()).collect()).unwrap())
 }

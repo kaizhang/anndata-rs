@@ -1,4 +1,4 @@
-use crate::utils::conversion::to_py_df;
+use crate::utils::conversion::dataframe::{to_py_df, to_py_series};
 
 use pyo3::{
     prelude::*,
@@ -11,7 +11,7 @@ use hdf5::types::TypeDescriptor::*;
 use hdf5::types::IntSize;
 use hdf5::types::FloatSize;
 use ndarray::ArrayD;
-use polars::frame::DataFrame;
+use polars::{frame::DataFrame, series::Series};
 use anndata_rs::{proc_numeric_data, data::{Mapping, DataType, Scalar, Data, MatrixData}};
 
 macro_rules! to_py_scalar_macro {
@@ -53,64 +53,74 @@ macro_rules! to_py_scalar_macro {
     }
 }
 
-pub fn to_py_data1<'py>(
-    py: Python<'py>,
-    data: Box<dyn Data>,
-) -> PyResult<PyObject>
-{
-    macro_rules! _csr { ($m:expr) => { csr_to_scipy(py, $m) }; }
-    macro_rules! _arr { ($m:expr) => { Ok($m.into_pyarray(py).to_object(py)) }; }
-    match data.as_ref().get_dtype() {
-        DataType::CsrMatrix(dtype) => proc_numeric_data!(
-            dtype, *data.downcast().unwrap(), _csr, CsrMatrix
-        ),
-        DataType::Array(dtype) => proc_numeric_data!(
-            dtype, *data.downcast().unwrap(), _arr, ArrayD
-        ),
-        DataType::DataFrame => to_py_df(*data.downcast::<DataFrame>().unwrap()),
-        DataType::String => Ok(data.downcast::<String>().unwrap().to_object(py)),
-        DataType::Scalar(dtype) => to_py_scalar_macro!(py, data, dtype),
-        DataType::Mapping => Ok(
-            (*data.downcast::<Mapping>().unwrap()).0
-                .into_iter().map(|(k, v)| Ok((k, to_py_data1(py, v)?)))
-                .collect::<PyResult<HashMap<_, _>>>()?.to_object(py)
-        ),
-        ty => panic!("Cannot convert Rust element \"{}\" to Python object", ty)
+pub trait RustToPy {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject>;
+}
+
+impl<T: numpy::Element> RustToPy for CsrMatrix<T> {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        let n = self.nrows();
+        let m = self.ncols();
+        let (intptr, indices, data) = self.disassemble();
+        let scipy = PyModule::import(py, "scipy.sparse")?;
+        Ok(scipy.getattr("csr_matrix")?.call1((
+            (data.into_pyarray(py), indices.into_pyarray(py), intptr.into_pyarray(py)),
+            (n, m),
+        ))?.to_object(py))
     }
 }
 
-pub fn to_py_data2<'py>(
-    py: Python<'py>,
-    data: Box<dyn MatrixData>,
-) -> PyResult<PyObject>
-{
-    macro_rules! _csr { ($m:expr) => { csr_to_scipy(py, $m) }; }
-    macro_rules! _arr { ($m:expr) => { Ok($m.into_pyarray(py).to_object(py)) }; }
-    match data.as_ref().get_dtype() {
-        DataType::CsrMatrix(dtype) => proc_numeric_data!(
-            dtype, *data.downcast().unwrap(), _csr, CsrMatrix
-        ),
-        DataType::Array(dtype) => proc_numeric_data!(
-            dtype, *data.downcast().unwrap(), _arr, ArrayD
-        ),
-        DataType::DataFrame => to_py_df(*data.downcast::<DataFrame>().unwrap()),
-        ty => panic!("Cannot convert Rust element \"{}\" to Python object", ty)
+impl<T: numpy::Element> RustToPy for ArrayD<T> {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        Ok(self.into_pyarray(py).to_object(py))
     }
 }
 
-fn csr_to_scipy<'py, T>(
-    py: Python<'py>,
-    mat: CsrMatrix<T>
-) -> PyResult<PyObject>
-where T: numpy::Element
-{
-    let n = mat.nrows();
-    let m = mat.ncols();
-    let (intptr, indices, data) = mat.disassemble();
+impl RustToPy for DataFrame {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        to_py_df(py, self)
+    }
+}
 
-    let scipy = PyModule::import(py, "scipy.sparse")?;
-    Ok(scipy.getattr("csr_matrix")?.call1((
-        (data.into_pyarray(py), indices.into_pyarray(py), intptr.into_pyarray(py)),
-        (n, m),
-    ))?.to_object(py))
+impl RustToPy for Series {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        to_py_series(py, &self)
+    }
+}
+
+impl RustToPy for Box<dyn Data> {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        macro_rules! _into { ($m:expr) => { $m.rust_into_py(py) }; }
+        match self.get_dtype() {
+            DataType::CsrMatrix(dtype) => proc_numeric_data!(
+                dtype, *self.downcast().unwrap(), _into, CsrMatrix),
+            DataType::Array(dtype) => proc_numeric_data!(
+                dtype, *self.downcast().unwrap(), _into, ArrayD),
+            DataType::DataFrame => (*self.downcast::<DataFrame>().unwrap()).rust_into_py(py),
+            DataType::String => Ok(self.downcast::<String>().unwrap().to_object(py)),
+            DataType::Scalar(dtype) => to_py_scalar_macro!(py, self, dtype),
+            DataType::Mapping => Ok(
+                (*self.downcast::<Mapping>().unwrap()).0
+                    .into_iter().map(|(k, v)| Ok((k, v.rust_into_py(py)?)))
+                    .collect::<PyResult<HashMap<_, _>>>()?.to_object(py)
+            ),
+            ty => panic!("Cannot convert Rust element \"{}\" to Python object", ty)
+        }
+    }
+}
+
+impl RustToPy for Box<dyn MatrixData> {
+    fn rust_into_py<'py>(self, py: Python<'py>) -> PyResult<PyObject> {
+        macro_rules! _into { ($m:expr) => { $m.rust_into_py(py) }; }
+        match self.get_dtype() {
+            DataType::CsrMatrix(dtype) => proc_numeric_data!(
+                dtype, *self.downcast().unwrap(), _into, CsrMatrix
+            ),
+            DataType::Array(dtype) => proc_numeric_data!(
+                dtype, *self.downcast().unwrap(), _into, ArrayD
+            ),
+            DataType::DataFrame => (*self.downcast::<DataFrame>().unwrap()).rust_into_py(py),
+            ty => panic!("Cannot convert Rust element \"{}\" to Python object", ty)
+        }
+    }
 }

@@ -199,6 +199,8 @@ pub trait WriteData {
 
 pub trait ReadData {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
+
+    fn to_dyn_data(&self) -> Box<dyn Data>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -222,12 +224,13 @@ where
 
 impl<T> ReadData for Scalar<T>
 where
-    T: H5Type + Copy,
+    T: H5Type + Copy + Send + Sync,
 {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
         let dataset = container.get_dataset_ref()?;
         Ok(Scalar(dataset.read_scalar()?))
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -253,6 +256,7 @@ impl ReadData for String {
         let result: VarLenUnicode = dataset.read_scalar()?;
         Ok(result.parse().unwrap())
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -285,6 +289,7 @@ impl ReadData for CategoricalArray {
 
         Ok(CategoricalArray { categories, codes })
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -345,6 +350,7 @@ where
             data,
         ).unwrap())
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -380,6 +386,7 @@ where
         let dataset: &Dataset = container.get_dataset_ref()?;
         dataset.read()
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -411,6 +418,7 @@ where
         let arr: Array1<_> = dataset.read()?;
         Ok(arr.into_raw_vec())
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -448,6 +456,7 @@ impl ReadData for DataFrame {
             Ok(series)
         }).collect()
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -531,12 +540,13 @@ impl ReadData for Series {
             )),
         }
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Mapping
 ////////////////////////////////////////////////////////////////////////////////
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Mapping(pub HashMap<String, Box<dyn Data>>);
 
 impl WriteData for Mapping {
@@ -563,6 +573,7 @@ impl ReadData for Mapping {
             .map(|(k, c)| Ok((k, <Box<dyn Data>>::read(&c)?))).collect();
         Ok(Mapping(m?))
     }
+    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

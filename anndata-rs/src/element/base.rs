@@ -328,10 +328,10 @@ impl Elem {
         ensure!(!self.is_empty(), "cannot read from an empty element");
         let mut inner = self.inner();
         match inner.element.as_ref() {
-            Some(data) => Ok(dyn_clone::clone_box(data.as_ref())),
+            Some(data) => Ok(data.clone()),
             None => {
                 let data = <Box<dyn Data>>::read(&inner.container)?;
-                if inner.cache_enabled { inner.element = Some(dyn_clone::clone_box(data.as_ref())); }
+                if inner.cache_enabled { inner.element = Some(data.clone()); }
                 Ok(data)
             }
         }
@@ -352,7 +352,7 @@ impl Elem {
         ensure!(!self.is_empty(), "cannot update an empty element");
         let mut inner = self.inner();
         inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
+        if inner.element.is_some() { inner.element = Some(data.to_dyn_data()); }
         Ok(())
     }
 
@@ -421,7 +421,7 @@ impl MatrixElem {
         let mut inner = self.inner();
         match inner.element.as_ref() {
             Some(data) => match (ridx, cidx) {
-                (None, None) => Ok(dyn_clone::clone_box(data.as_ref())),
+                (None, None) => Ok(data.clone()),
                 (Some(i), Some(j)) => Ok(data.subset(i, j)),
                 (Some(i), None) => Ok(data.get_rows(i)),
                 (None, Some(j)) => Ok(data.get_columns(j)),
@@ -430,7 +430,7 @@ impl MatrixElem {
                 (None, None) => {
                     let data = <Box<dyn MatrixData>>::read(&inner.container)?;
                     if inner.cache_enabled {
-                        inner.element = Some(dyn_clone::clone_box(data.as_ref()));
+                        inner.element = Some(data.clone());
                     }
                     Ok(data)
                 },
@@ -488,7 +488,7 @@ impl MatrixElem {
         inner.nrows = data.nrows();
         inner.ncols = data.ncols();
         inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() { inner.element = Some(Box::new(dyn_clone::clone(data))); }
+        if inner.element.is_some() { inner.element = Some(data.to_dyn_matrix()); }
         Ok(())
     }
 

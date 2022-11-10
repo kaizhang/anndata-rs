@@ -1,12 +1,6 @@
 use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
-use crate::utils::{
-    to_indices, instance::is_none_slice,
-    conversion::{
-        to_py_df, to_rust_df, to_py_series, to_py_data1, to_py_data2,
-        to_rust_data1, to_rust_data2,
-    },
-};
-use anndata_rs::{data::DataType, element::*};
+use crate::utils::{to_indices, instance::is_none_slice, conversion::{RustToPy, PyToRust}};
+use anndata_rs::{data::DataType, element::*, Data, MatrixData};
 use pyo3::{prelude::*, exceptions::{PyTypeError, PyKeyError}, PyResult, Python};
 use rand::SeedableRng;
 use rand::Rng;
@@ -30,7 +24,7 @@ impl PyElem {
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if is_none_slice(py, subscript)? {
-            to_py_data1(py, self.0.read().unwrap())
+            self.0.read().unwrap().rust_into_py(py)
         } else {
             Err(PyTypeError::new_err(
                 "Please use '...' or ':' to retrieve value"
@@ -81,7 +75,8 @@ impl PyMatrixElem {
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
             //data.call_method1(py, "__getitem__", (subscript,))
         }
-        to_py_data2(py, self.0.read(ridx.as_ref().map(Vec::as_slice), cidx.as_ref().map(Vec::as_slice)).unwrap())
+        self.0.read(ridx.as_ref().map(|x| x.as_slice()), cidx.as_ref().map(|x| x.as_slice()))
+            .unwrap().rust_into_py(py)
     }
 
     /// Return a chunk of the matrix with random indices.
@@ -117,7 +112,7 @@ impl PyMatrixElem {
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        to_py_data2(py, self.0.read(Some(idx.as_slice()), None).unwrap())
+        self.0.read(Some(idx.as_slice()), None).unwrap().rust_into_py(py)
     }
 
     /// Return an iterator over the rows of the matrix.
@@ -149,10 +144,9 @@ pub struct PyDataFrameElem(pub(crate) DataFrameElem);
 impl PyDataFrameElem {
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         if is_none_slice(py, subscript)? {
-            to_py_df(self.0.read().unwrap())
+            self.0.read().unwrap().rust_into_py(py)
         } else {
-            to_py_df(self.0.read().unwrap())?
-                .call_method1(py, "__getitem__", (subscript,))
+            self.0.read().unwrap().rust_into_py(py)?.call_method1(py, "__getitem__", (subscript,))
         }
     }
 
@@ -163,7 +157,7 @@ impl PyDataFrameElem {
         key: &'py PyAny,
         data: &'py PyAny,
     ) -> PyResult<()> {
-        let df = to_py_df(self.0.read().unwrap())?;
+        let df = self.0.read().unwrap().rust_into_py(py)?;
         let new_df = if key.is_instance_of::<pyo3::types::PyString>()? {
             let series = py.import("polars")?.call_method1("Series", (key, data))?;
             df.call_method1(py, "with_column", (series,))?
@@ -171,7 +165,7 @@ impl PyDataFrameElem {
             df.call_method1(py, "__setitem__", (key, data))?;
             df
         };
-        self.0.update(&to_rust_df(new_df.as_ref(py)).unwrap()).unwrap();
+        self.0.update(&new_df.as_ref(py).into_rust(py).unwrap()).unwrap();
         Ok(())
     }
  
@@ -198,12 +192,13 @@ impl PyElemCollection {
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get_mut(key) {
             None => Err(PyKeyError::new_err(key.to_owned())),
-            Some(x) => Ok(to_py_data1(py, x.read().unwrap())?),
+            Some(x) => x.read().unwrap().rust_into_py(py),
         }
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.add_data(key, &to_rust_data1(py, data)?).unwrap();
+        let d: Box<dyn Data> = data.into_rust(py)?;
+        self.0.add_data(key, &d).unwrap();
         Ok(())
     }
 
@@ -253,7 +248,7 @@ impl PyAxisArrays {
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get(key) {
             None => Err(PyKeyError::new_err(key.to_owned())),
-            Some(x) => Ok(to_py_data2(py, x.read(None, None).unwrap())?),
+            Some(x) => x.read(None, None).unwrap().rust_into_py(py),
         }
     }
 
@@ -296,7 +291,8 @@ impl PyAxisArrays {
     }
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
-        self.0.add_data(key, &to_rust_data2(py, data)?).unwrap();
+        let d: Box<dyn MatrixData> = data.into_rust(py)?;
+        self.0.add_data(key, &d).unwrap();
         Ok(())
     }
 
@@ -399,7 +395,7 @@ impl PyStackedMatrixElem {
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        to_py_data2(py, self.0.read(Some(idx.as_slice()), None).unwrap())
+        self.0.read(Some(idx.as_slice()), None).unwrap().rust_into_py(py)
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
@@ -418,7 +414,9 @@ impl PyStackedMatrixElem {
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
             //data.call_method1(py, "__getitem__", (subscript,))
         }
-        to_py_data2(py, self.0.read(ridx.as_ref().map(Vec::as_slice), cidx.as_ref().map(Vec::as_slice)).unwrap()) }
+        self.0.read(ridx.as_ref().map(|x| x.as_slice()), cidx.as_ref().map(|x| x.as_slice()))
+            .unwrap().rust_into_py(py)
+    }
 
     fn __repr__(&self) -> String { format!("{}", self.0) }
 
@@ -433,9 +431,9 @@ pub struct PyStackedDataFrame(pub(crate) StackedDataFrame);
 impl PyStackedDataFrame {
     fn __getitem__<'py>(&self, py: Python<'py>, key: &'py PyAny) -> PyResult<Py<PyAny>> {
         if is_none_slice(py, key)? {
-            to_py_df(self.0.read().unwrap())
+            self.0.read().unwrap().rust_into_py(py)
         } else if key.is_instance_of::<pyo3::types::PyString>()? {
-            to_py_series(&self.0.column(key.extract()?).unwrap())
+            self.0.column(key.extract()?).unwrap().rust_into_py(py)
         } else {
             todo!()
         }
