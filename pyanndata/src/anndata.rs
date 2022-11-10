@@ -47,7 +47,7 @@ macro_rules! def_df_accessor {
                         };
                         df_.into_rust(py)
                     }).transpose()?;
-                    self.0.inner().[<set_ $field>](data.as_ref()).unwrap();
+                    self.0.inner().[<set_ $field>](data).unwrap();
                     Ok(())
                 }
             )*
@@ -78,7 +78,7 @@ macro_rules! def_arr_accessor {
                     let data: PyResult<_> = $field.map(|mut x| x.drain().map(|(k, v)|
                         Ok((k, v.into_rust(py)?))
                     ).collect()).transpose();
-                    self.0.inner().[<set_ $field>](data?.as_ref()).unwrap();
+                    self.0.inner().[<set_ $field>](data?).unwrap();
                     Ok(())
                 }
 
@@ -233,7 +233,7 @@ impl AnnData {
                 panic!("Setting X by an iterator is not implemented");
             } else {
                 let d_: Box<dyn MatrixData> = d.into_rust(py)?;
-                self.0.inner().set_x(Some(&d_)).unwrap();
+                self.0.inner().set_x(Some(d_)).unwrap();
             }
         } else {
             self.0.inner().set_x::<Box<dyn MatrixData>>(None).unwrap();
@@ -252,7 +252,7 @@ impl AnnData {
         let uns_ = uns.map(|mut x|
             x.drain().map(|(k, v)| (k, v.into_rust(py).unwrap())).collect()
         );
-        self.0.inner().set_uns(uns_.as_ref()).unwrap();
+        self.0.inner().set_uns(uns_).unwrap();
         Ok(())
     }
 
@@ -348,12 +348,40 @@ impl AnnData {
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
     #[pyo3(text_signature = "($self)")]
-    fn to_memory<'py>(&self, py: Python<'py>) -> PyResult<PyObject> {
-        let anndata = PyAnnData::new(py)?;
-        anndata.set_n_obs(self.n_obs())?;
-        anndata.set_n_vars(self.n_vars())?;
-        anndata.set_x(self.inner().read_x().unwrap().as_ref()).unwrap();
-        Ok(anndata.to_object(py))
+    fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyObject> {
+        let adata = PyAnnData::new(py)?;
+        { // Set X
+            adata.set_n_obs(self.n_obs())?;
+            adata.set_n_vars(self.n_vars())?;
+            adata.set_x(self.inner().read_x()?)?;
+        }
+        { // Set obs and var
+            adata.set_obs_names(self.inner().obs_names().into())?;
+            adata.set_var_names(self.inner().var_names().into())?;
+            adata.set_obs(Some(self.inner().read_obs()?))?;
+            adata.set_var(Some(self.inner().read_var()?))?;
+        }
+        { // Set uns
+            self.inner().uns_keys().iter().try_for_each(|k|
+                adata.add_uns_item(k, self.inner().read_uns_item(k)?.unwrap()) )?;
+        }
+        { // Set obsm
+            self.inner().obsm_keys().iter().try_for_each(|k|
+                adata.add_obsm_item(k, self.inner().read_obsm_item(k)?.unwrap()) )?;
+        }
+        { // Set obsp
+            self.inner().obsp_keys().iter().try_for_each(|k|
+                adata.add_obsp_item(k, self.inner().read_obsp_item(k)?.unwrap()) )?;
+        }
+        { // Set varm
+            self.inner().varm_keys().iter().try_for_each(|k|
+                adata.add_varm_item(k, self.inner().read_varm_item(k)?.unwrap()) )?;
+        }
+        { // Set varp
+            self.inner().varp_keys().iter().try_for_each(|k|
+                adata.add_varp_item(k, self.inner().read_varp_item(k)?.unwrap()) )?;
+        }
+        Ok(adata.to_object(py))
     }
 
     /// If the AnnData object has been closed.
@@ -509,7 +537,7 @@ impl AnnDataSet {
         let data: PyResult<_> = uns.map(|mut x| x.drain().map(|(k, v)|
             Ok((k, v.into_rust(py)?))
         ).collect()).transpose();
-        self.0.inner().set_uns(data?.as_ref()).unwrap();
+        self.0.inner().set_uns(data?).unwrap();
         Ok(())
     }
 
@@ -769,6 +797,31 @@ impl<'py> PyAnnData<'py> {
         PyModule::import(py, "anndata")?.call_method0("AnnData")?.extract()
     }
 
+    fn get_item<T>(&'py self, slot: &str, key: &str) -> Result<Option<T>>
+    where
+        &'py PyAny: PyToRust<T>,
+    {
+        let data = self.getattr(slot)?.call_method1("__getitem__", (key,))
+            .ok().map(|x| x.into_rust(self.py()));
+        Ok(data.transpose()?)
+    }
+
+    fn set_item<T: RustToPy>(&'py self, slot: &str, key: &str, data: T) -> Result<()> {
+        let py = self.py();
+        let d = data.rust_into_py(py)?;
+        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
+            d.call_method0(py, "to_pandas")?
+        } else {
+            d
+        };
+        self.getattr(slot)?.call_method1("__setitem__", (key, new_d))?;
+        Ok(())
+    }
+
+    fn get_keys(&self, slot: &str) -> PyResult<Vec<String>> {
+        self.getattr(slot)?.call_method0("keys")?.extract()
+    }
+
     pub(crate) fn set_n_obs(&self, n_obs: usize) -> PyResult<()> {
         let n = self.n_obs();
         if n == n_obs {
@@ -818,12 +871,12 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         }
     }
 
-    fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()> {
+    fn set_x<D: MatrixData>(&self, data_: Option<D>) -> Result<()> {
         let py = self.py();
         if let Some(data) = data_ {
             self.set_n_obs(data.nrows())?;
             self.set_n_vars(data.ncols())?;
-            self.setattr("X", data.to_dyn_matrix().rust_into_py(py)?)?;
+            self.setattr("X", data.into_dyn_matrix().rust_into_py(py)?)?;
         } else {
             self.setattr("X", py.None())?;
         }
@@ -873,12 +926,12 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(df.into_rust(py)?)
     }
 
-    fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+    fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
         match obs_ {
             None => { self.0.setattr("obs", None::<PyObject>)?; },
             Some(obs) => {
                 let py = self.py();
-                let df = obs.clone().rust_into_py(py)?.call_method0(py, "to_pandas")?;
+                let df = obs.rust_into_py(py)?.call_method0(py, "to_pandas")?;
                 let index = self.getattr("obs")?.getattr("index")?;
                 if !index.getattr("empty")?.is_true()? {
                     self.setattr("obs", df.call_method1(py, "set_index", (index,))?)?;
@@ -889,12 +942,12 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         }
         Ok(())
     }
-    fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+    fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
         match var_ {
             None => { self.0.setattr("var", None::<PyObject>)?; },
             Some(var) => {
                 let py = self.py();
-                let df = var.clone().rust_into_py(py)?.call_method0(py, "to_pandas")?;
+                let df = var.rust_into_py(py)?.call_method0(py, "to_pandas")?;
                 let index = self.getattr("var")?.getattr("index")?;
                 if !index.getattr("empty")?.is_true()? {
                     self.setattr("var", df.call_method1(py, "set_index", (index,))?)?;
@@ -906,26 +959,35 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
-        let data = self.0.getattr("uns")?.call_method1("__getitem__", (key,))?;
-        Ok(data.into_rust(self.0.py())?)
-    }
-    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
-        let py = self.py();
-        let d = data.to_dyn_data().rust_into_py(py)?;
-        if isinstance_of_polars(py, d.as_ref(py))? {
-            self.getattr("uns")?.call_method1("__setitem__", (key, d.call_method0(py, "to_pandas")?))?;
-        } else {
-            self.getattr("uns")?.call_method1("__setitem__", (key, d))?;
-        }
-        Ok(())
-    }
+    fn uns_keys(&self) -> Vec<String> { self.get_keys("uns").unwrap() }
+    fn obsm_keys(&self) -> Vec<String> { self.get_keys("obsm").unwrap() }
+    fn obsp_keys(&self) -> Vec<String> { self.get_keys("obsp").unwrap() }
+    fn varm_keys(&self) -> Vec<String> { self.get_keys("varm").unwrap() }
+    fn varp_keys(&self) -> Vec<String> { self.get_keys("varp").unwrap() }
 
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
+    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> { self.get_item("uns", key) }
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("obsm", key) }
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("obsp", key) }
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("varm", key) }
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("varp", key) }
+
+    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
+        self.set_item("uns", key, data.into_dyn_data())
+    }
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
         self.set_n_obs(data.nrows())?;
-        self.0.getattr("obsm")?.call_method1(
-            "__setitem__", (key, data.to_dyn_matrix().rust_into_py(self.0.py())?)
-        )?;
-        Ok(())
+        self.set_item("obsm", key, data.into_dyn_matrix())
+    }
+    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+        self.set_n_obs(data.nrows())?;
+        self.set_item("obsp", key, data.into_dyn_matrix())
+    }
+    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+        self.set_n_vars(data.nrows())?;
+        self.set_item("varm", key, data.into_dyn_matrix())
+    }
+    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+        self.set_n_vars(data.nrows())?;
+        self.set_item("varp", key, data.into_dyn_matrix())
     }
 }

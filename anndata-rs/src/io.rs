@@ -145,7 +145,7 @@ impl AnnData {
             }
         } else {
             self.set_x(Some(
-                &crate::utils::io::read_matrix_market_from_bufread(reader).unwrap()
+                crate::utils::io::read_matrix_market_from_bufread(reader).unwrap()
             ))
         }
     }
@@ -167,17 +167,17 @@ impl AnnData {
         let mut colnames = df.get_column_names_owned();
         if let Some(idx_col) = index_column {
             let series = df.drop_in_place(&colnames.remove(idx_col))?;
-            self.set_obs(Some(&DataFrame::new(vec![series])?))?;
+            self.set_obs(Some(DataFrame::new(vec![series])?))?;
         }
         if has_header {
             self.set_var(Some(
-                &DataFrame::new(vec![Series::new("Index", colnames)])?
+                DataFrame::new(vec![Series::new("Index", colnames)])?
             ))?;
         }
         let data: Box<dyn MatrixData> = Box::new(
             df.to_ndarray::<polars::datatypes::Float64Type>()?.into_dyn()
         );
-        self.set_x(Some(&data))?;
+        self.set_x(Some(data))?;
         Ok(())
     }
 }

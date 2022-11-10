@@ -245,14 +245,14 @@ impl DataFrameElem {
         })?
     }
 
-    pub fn update(&self, data: &DataFrame) -> Result<()> {
+    pub fn update(&self, data: DataFrame) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty DataFrameElem");
         let mut inner = self.inner();
         ensure!(inner.index.len() == data.height(), "cannot update dataframe as lengths differ");
         inner.container = data.update(&inner.container)?;  // Note updating the container removes the index
         inner.index.write(&inner.container)?; // add back the index
-        if inner.element.is_some() { inner.element = Some(data.clone()); }
         inner.column_names = data.get_column_names_owned().into_iter().collect();
+        if inner.element.is_some() { inner.element = Some(data); }
         Ok(())
     }
 
@@ -348,11 +348,11 @@ impl Elem {
         Ok(())
     }
 
-    pub fn update<D: Data>(&self, data: &D) -> Result<()> {
+    pub fn update<D: Data>(&self, data: D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty element");
         let mut inner = self.inner();
         inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() { inner.element = Some(data.to_dyn_data()); }
+        if inner.element.is_some() { inner.element = Some(data.into_dyn_data()); }
         Ok(())
     }
 
@@ -482,13 +482,13 @@ impl MatrixElem {
         Ok(())
     }
 
-    pub fn update<D: MatrixData>(&self, data: &D) -> Result<()> {
+    pub fn update<D: MatrixData>(&self, data: D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty MatrixElem");
         let mut inner = self.inner();
         inner.nrows = data.nrows();
         inner.ncols = data.ncols();
         inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() { inner.element = Some(data.to_dyn_matrix()); }
+        if inner.element.is_some() { inner.element = Some(data.into_dyn_matrix()); }
         Ok(())
     }
 

@@ -50,7 +50,7 @@ impl TryFrom<Group> for ElemCollection {
 }
 
 impl ElemCollection {
-    pub fn add_data<D: Data>(&self, key: &str, data: &D) -> Result<()> {
+    pub fn add_data<D: Data>(&self, key: &str, data: D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot add data to an empty ElemCollection");
         let mut inner = self.inner();
         match inner.get_mut(key) {
@@ -164,7 +164,7 @@ pub type AxisArrays = Slot<InnerAxisArrays>;
 impl AxisArrays {
     pub fn size(&self) -> Option<usize> { self.lock().as_ref().map(|x| *x.size.lock()) }
 
-    pub fn add_data<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
+    pub fn add_data<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot add data to a closed AxisArrays");
         let mut inner = self.inner();
         {

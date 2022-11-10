@@ -53,6 +53,7 @@ impl ReadData for Box<dyn Data> {
     }
 
     fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
+    fn into_dyn_data(self) -> Box<dyn Data> { self }
 }
 
 impl WriteData for Box<dyn Data> {
@@ -89,6 +90,7 @@ impl ReadData for Box<dyn MatrixData> {
         read_dyn_data_subset(container, None, None)
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
+    fn into_dyn_data(self) -> Box<dyn Data> { unimplemented!() }
 }
 
 impl WriteData for Box<dyn MatrixData> {
@@ -135,6 +137,7 @@ impl MatrixOp for Box<dyn MatrixData> {
     }
 
     fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { self.deref().to_dyn_matrix() }
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData> { self }
 }
 
 macro_rules! size_reader {

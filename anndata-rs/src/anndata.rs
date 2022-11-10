@@ -63,7 +63,7 @@ macro_rules! anndata_setter {
             $(
             pub fn [<set_ $field>](
                 &self,
-                data_: Option<&HashMap<String, Box<dyn MatrixData>>>,
+                data_: Option<HashMap<String, Box<dyn MatrixData>>>,
             ) -> Result<()>
             {
                 let mut guard = self.$field.inner();
@@ -74,8 +74,8 @@ macro_rules! anndata_setter {
                     Some(data) => {
                         let container = self.file.create_group(field)?;
                         let item = Slot::new(InnerAxisArrays::new(container, $ty, self.$n.clone()));
-                        for (key, val) in data.iter() {
-                            item.add_data(key, val)?;
+                        for (key, val) in data.into_iter() {
+                            item.add_data(&key, val)?;
                         }
                         *guard.0 = Some(item.extract().unwrap());
                     },
@@ -140,15 +140,15 @@ impl AnnData {
         (varp, Axis::Both, n_vars)
     );
 
-    pub fn set_uns(&self, uns_: Option<&HashMap<String, Box<dyn Data>>>) -> Result<()> {
+    pub fn set_uns(&self, uns_: Option<HashMap<String, Box<dyn Data>>>) -> Result<()> {
         if !self.uns.is_empty() { self.file.unlink("uns")?; }
         match uns_ {
             None => { self.uns.drop(); },
             Some(uns) => {
                 let container = self.file.create_group("uns")?;
                 let elem = ElemCollection::try_from(container)?;
-                for (key, data) in uns.iter() {
-                    elem.add_data(key, data)?;
+                for (key, data) in uns.into_iter() {
+                    elem.add_data(&key, data)?;
                 }
                 self.uns.insert(elem.extract().unwrap());
             },
@@ -395,8 +395,9 @@ macro_rules! def_accessor {
 
 
 fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String>) -> Result<()> {
-    let df = ann.read_uns_item("AnnDataSet")?.downcast::<DataFrame>()
-            .map_err(|_| anyhow!("cannot downcast to DataFrame"))?;
+    let df = ann.read_uns_item("AnnDataSet")?
+        .context("key 'AnnDataSet' is not present")?.downcast::<DataFrame>()
+        .map_err(|_| anyhow!("cannot downcast to DataFrame"))?;
     let keys = df.column("keys").unwrap();
     let filenames = df.column("file_path").unwrap().utf8()
         .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
@@ -408,7 +409,7 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
         keys.clone(),
         Series::new("file_path", new_files),
     ]).unwrap();
-    ann.get_uns().add_data("AnnDataSet", &data)?;
+    ann.get_uns().add_data("AnnDataSet", data)?;
     Ok(())
 }
 
@@ -424,7 +425,7 @@ impl AnnDataSet {
         {
             let (keys, filenames): (Vec<_>, Vec<_>) = anndatas.iter().map(|(k, v)| (k.clone(), v.filename())).unzip();
             let data = DataFrame::new(vec![Series::new("keys", keys), Series::new("file_path", filenames)])?;
-            annotation.get_uns().add_data("AnnDataSet", &data)?;
+            annotation.get_uns().add_data("AnnDataSet", data)?;
         }
 
         // Set OBS.
@@ -440,8 +441,7 @@ impl AnnDataSet {
                 anndatas.iter().map(|(k, v)| vec![k.clone(); v.n_obs()])
                 .flatten().collect::<Series>(),
             );
-            let df = DataFrame::new(vec![keys])?;
-            annotation.set_obs(Some(&df))?;
+            annotation.set_obs(Some(DataFrame::new(vec![keys])?))?;
         }
 
         // Set VAR.
@@ -449,7 +449,7 @@ impl AnnDataSet {
             let adata = anndatas.values().next().unwrap();
             if !adata.var_names().is_empty() {
                 annotation.set_var_names(adata.var_names().into_iter().collect())?;
-                annotation.set_var(Some(&adata.get_var().read()?))?;
+                annotation.set_var(Some(adata.get_var().read()?))?;
             }
         }
         let stacked = StackedAnnData::new(anndatas, true)?;
@@ -463,12 +463,12 @@ impl AnnDataSet {
 
     def_accessor!(
         AxisArrays,
-        Option<&HashMap<String, Box<dyn MatrixData>>>,
+        Option<HashMap<String, Box<dyn MatrixData>>>,
         { obsm, obsp, varm, varp }
     );
 
     pub fn get_uns(&self) -> &ElemCollection { &self.annotation.uns }
-    pub fn set_uns(&self, data: Option<&HashMap<String, Box<dyn Data>>>) -> Result<()> {
+    pub fn set_uns(&self, data: Option<HashMap<String, Box<dyn Data>>>) -> Result<()> {
         self.annotation.set_uns(data)
     }
 
@@ -477,7 +477,8 @@ impl AnnDataSet {
         let filename = annotation.filename();
         let file_path = Path::new(&filename).read_link()
             .unwrap_or(Path::new(&filename).to_path_buf());
-        let df = annotation.read_uns_item("AnnDataSet")?.downcast::<DataFrame>()
+        let df = annotation.read_uns_item("AnnDataSet")?
+            .context("key 'AnnDataSet' is not present")?.downcast::<DataFrame>()
             .map_err(|_| anyhow!("cannot downcast to DataFrame"))?;
         let keys = df.column("keys").unwrap().utf8().unwrap()
             .into_iter().collect::<Option<Vec<_>>>().unwrap();
@@ -565,24 +566,22 @@ impl AnnDataSet {
 }
 
 pub trait AnnDataOp {
+    /// Reading/writing the 'X' element.
     fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>>;
-    fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()>;
+    fn set_x<D: MatrixData>(&self, data_: Option<D>) -> Result<()>;
 
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
-
     /// Return the number of variables (columns).
     fn n_vars(&self) -> usize;
 
     /// Return the names of observations.
     fn obs_names(&self) -> Vec<String>;
-
     /// Return the names of variables.
     fn var_names(&self) -> Vec<String>;
 
     /// Chagne the names of observations.
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()>;
-
     /// Chagne the names of variables.
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()>;
 
@@ -594,16 +593,28 @@ pub trait AnnDataOp {
 
     /// Change the observation annotations. If `obs == None`, the `obs` will be
     /// removed.
-    fn set_obs(&self, obs: Option<&DataFrame>) -> Result<()>;
-
+    fn set_obs(&self, obs: Option<DataFrame>) -> Result<()>;
     /// Change the variable annotations. If `var == None`, the `var` will be
     /// removed.
-    fn set_var(&self, var: Option<&DataFrame>) -> Result<()>;
+    fn set_var(&self, var: Option<DataFrame>) -> Result<()>;
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>>;
-    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()>;
+    fn uns_keys(&self) -> Vec<String>;
+    fn obsm_keys(&self) -> Vec<String>;
+    fn obsp_keys(&self) -> Vec<String>;
+    fn varm_keys(&self) -> Vec<String>;
+    fn varp_keys(&self) -> Vec<String>;
 
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()>;
+    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>>;
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
+
+    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
 }
 
 impl AnnDataOp for AnnData {
@@ -611,7 +622,7 @@ impl AnnDataOp for AnnData {
         let x = self.get_x();
         if x.is_empty() { Ok(None) } else { x.read(None, None).map(Option::Some) }
     }
-    fn set_x<D: MatrixData>(&self, data_: Option<&D>) -> Result<()> {
+    fn set_x<D: MatrixData>(&self, data_: Option<D>) -> Result<()> {
         match data_ {
             Some(data) => {
                 self.set_n_obs(data.nrows());
@@ -672,7 +683,7 @@ impl AnnDataOp for AnnData {
 
     fn read_obs(&self) -> Result<DataFrame> { self.get_obs().read() }
     fn read_var(&self) -> Result<DataFrame> { self.get_var().read() }
-    fn set_obs(&self, obs_: Option<&DataFrame>) -> Result<()> {
+    fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
         match obs_ {
             None => if !self.obs.is_empty() {
                 self.file.unlink("obs")?;
@@ -682,7 +693,7 @@ impl AnnDataOp for AnnData {
                 let nrows = obs.nrows();
                 self.set_n_obs(nrows);
                 if self.obs.is_empty() {
-                    self.obs.insert(InnerDataFrameElem::new(&self.file, "obs", DataFrameIndex::from(nrows), obs)?);
+                    self.obs.insert(InnerDataFrameElem::new(&self.file, "obs", DataFrameIndex::from(nrows), &obs)?);
                 } else {
                     self.obs.update(obs)?;
                 }
@@ -691,7 +702,7 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn set_var(&self, var_: Option<&DataFrame>) -> Result<()> {
+    fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
         match var_ {
             None => if !self.var.is_empty() {
                 self.file.unlink("var")?;
@@ -702,7 +713,7 @@ impl AnnDataOp for AnnData {
                 self.set_n_vars(nrows);
                 if self.var.is_empty() {
                     let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
-                    let df = InnerDataFrameElem::new(&self.file, "var", index, var)?;
+                    let df = InnerDataFrameElem::new(&self.file, "var", index, &var)?;
                     self.var.insert(df);
                 } else {
                     self.var.update(var)?;
@@ -712,16 +723,43 @@ impl AnnDataOp for AnnData {
         Ok(())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
-        self.get_uns().inner().get_mut(key).unwrap().read()
+    fn uns_keys(&self) -> Vec<String> {
+        self.get_uns().lock().as_ref().map(|x| x.keys().map(|x| x.to_string()).collect()).unwrap_or(Vec::new())
     }
-    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_uns().add_data(key, data)
+    fn obsm_keys(&self) -> Vec<String> {
+        self.get_obsm().lock().as_ref().map(|x| x.keys().map(|x| x.to_string()).collect()).unwrap_or(Vec::new())
+    }
+    fn obsp_keys(&self) -> Vec<String> {
+        self.get_obsp().lock().as_ref().map(|x| x.keys().map(|x| x.to_string()).collect()).unwrap_or(Vec::new())
+    }
+    fn varm_keys(&self) -> Vec<String> {
+        self.get_varm().lock().as_ref().map(|x| x.keys().map(|x| x.to_string()).collect()).unwrap_or(Vec::new())
+    }
+    fn varp_keys(&self) -> Vec<String> {
+        self.get_varp().lock().as_ref().map(|x| x.keys().map(|x| x.to_string()).collect()).unwrap_or(Vec::new())
     }
 
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
-        self.get_obsm().add_data(key, data)
+    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> {
+        self.get_uns().lock().as_mut().and_then(|x| x.get_mut(key)).map(|x| x.read()).transpose()
     }
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_obsm().lock().as_mut().and_then(|x| x.get_mut(key)).map(|x| x.read(None, None)).transpose()
+    }
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_obsp().lock().as_mut().and_then(|x| x.get_mut(key)).map(|x| x.read(None, None)).transpose()
+    }
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_varm().lock().as_mut().and_then(|x| x.get_mut(key)).map(|x| x.read(None, None)).transpose()
+    }
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_varp().lock().as_mut().and_then(|x| x.get_mut(key)).map(|x| x.read(None, None)).transpose()
+    }
+
+    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> { self.get_uns().add_data(key, data) }
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.get_obsm().add_data(key, data) }
+    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.get_obsp().add_data(key, data) }
+    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.get_varm().add_data(key, data) }
+    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.get_varp().add_data(key, data) }
 }
 
 impl AnnDataOp for AnnDataSet {
@@ -729,30 +767,38 @@ impl AnnDataOp for AnnDataSet {
         let adatas = &self.anndatas;
         if adatas.is_empty() { Ok(None) } else { adatas.inner().x.read(None, None).map(Option::Some) }
     }
-    fn set_x<D: MatrixData>(&self, _: Option<&D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
+    fn set_x<D: MatrixData>(&self, _: Option<D>) -> Result<()> { bail!("cannot set X in AnnDataSet") }
+
     fn n_obs(&self) -> usize { *self.anndatas.inner().n_obs.lock() }
     fn n_vars(&self) -> usize { *self.anndatas.inner().n_vars.lock() }
 
+    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.obs_ix(names) }
+    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.var_ix(names) }
     fn obs_names(&self) -> Vec<String> { self.annotation.obs_names() }
     fn var_names(&self) -> Vec<String> { self.annotation.var_names() }
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> { self.annotation.set_obs_names(index) }
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> { self.annotation.set_var_names(index) }
-    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.obs_ix(names) }
-    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> { self.annotation.var_ix(names) }
 
     fn read_obs(&self) -> Result<DataFrame> { self.annotation.read_obs() }
     fn read_var(&self) -> Result<DataFrame> { self.annotation.read_var() }
-    fn set_obs(&self, obs: Option<&DataFrame>) -> Result<()> { self.annotation.set_obs(obs) }
-    fn set_var(&self, var: Option<&DataFrame>) -> Result<()> { self.annotation.set_var(var) }
+    fn set_obs(&self, obs: Option<DataFrame>) -> Result<()> { self.annotation.set_obs(obs) }
+    fn set_var(&self, var: Option<DataFrame>) -> Result<()> { self.annotation.set_var(var) }
 
-    fn read_uns_item(&self, key: &str) -> Result<Box<dyn Data>> {
-        self.annotation.read_uns_item(key)
-    }
-    fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
-        self.annotation.add_uns_item(key, data)
-    }
+    fn uns_keys(&self) -> Vec<String> { self.annotation.uns_keys() }
+    fn obsm_keys(&self) -> Vec<String> { self.annotation.obsm_keys() }
+    fn obsp_keys(&self) -> Vec<String> { self.annotation.obsp_keys() }
+    fn varm_keys(&self) -> Vec<String> { self.annotation.varm_keys() }
+    fn varp_keys(&self) -> Vec<String> { self.annotation.varp_keys() }
 
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: &D) -> Result<()> {
-        self.annotation.add_obsm_item(key, data)
-    }
+    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> { self.annotation.read_uns_item(key) }
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.annotation.read_obsm_item(key) }
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.annotation.read_obsp_item(key) }
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.annotation.read_varm_item(key) }
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.annotation.read_varp_item(key) }
+
+    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> { self.annotation.add_uns_item(key, data) }
+    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.annotation.add_obsm_item(key, data) }
+    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.annotation.add_obsp_item(key, data) }
+    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.annotation.add_varm_item(key, data) }
+    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> { self.annotation.add_varp_item(key, data) }
 }

@@ -199,8 +199,8 @@ pub trait WriteData {
 
 pub trait ReadData {
     fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
-
     fn to_dyn_data(&self) -> Box<dyn Data>;
+    fn into_dyn_data(self) -> Box<dyn Data>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -230,7 +230,9 @@ where
         let dataset = container.get_dataset_ref()?;
         Ok(Scalar(dataset.read_scalar()?))
     }
+
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -256,7 +258,9 @@ impl ReadData for String {
         let result: VarLenUnicode = dataset.read_scalar()?;
         Ok(result.parse().unwrap())
     }
+
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -290,6 +294,7 @@ impl ReadData for CategoricalArray {
         Ok(CategoricalArray { categories, codes })
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -351,6 +356,7 @@ where
         ).unwrap())
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -387,6 +393,7 @@ where
         dataset.read()
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -419,6 +426,7 @@ where
         Ok(arr.into_raw_vec())
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -457,6 +465,7 @@ impl ReadData for DataFrame {
         }).collect()
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -541,6 +550,7 @@ impl ReadData for Series {
         }
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -574,6 +584,7 @@ impl ReadData for Mapping {
         Ok(Mapping(m?))
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
+    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

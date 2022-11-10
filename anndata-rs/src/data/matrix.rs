@@ -20,6 +20,7 @@ pub trait MatrixOp {
     }
 
     fn to_dyn_matrix(&self) -> Box<dyn MatrixData>;
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData>;
 }
 
 
@@ -35,6 +36,7 @@ impl MatrixOp for DataFrame {
     fn get_columns(&self, idx: &[usize]) -> Self { self.get_rows(idx) }
 
     fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData> { Box::new(self) }
 }
 
 
@@ -52,6 +54,7 @@ where
     fn get_columns(&self, idx: &[usize]) -> Self { self.select(Axis(1), idx) }
 
     fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData> { Box::new(self) }
 }
 
 impl<T> MatrixOp for CsrMatrix<T>
@@ -121,6 +124,7 @@ where
     }
 
     fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { Box::new(self.clone()) }
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData> { Box::new(self) }
 }
 
 pub trait PartialIO: MatrixOp + ReadData + WriteData {

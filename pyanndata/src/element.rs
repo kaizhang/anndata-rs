@@ -165,7 +165,7 @@ impl PyDataFrameElem {
             df.call_method1(py, "__setitem__", (key, data))?;
             df
         };
-        self.0.update(&new_df.as_ref(py).into_rust(py).unwrap()).unwrap();
+        self.0.update(new_df.as_ref(py).into_rust(py).unwrap()).unwrap();
         Ok(())
     }
  
@@ -198,7 +198,7 @@ impl PyElemCollection {
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
         let d: Box<dyn Data> = data.into_rust(py)?;
-        self.0.add_data(key, &d).unwrap();
+        self.0.add_data(key, d).unwrap();
         Ok(())
     }
 
@@ -292,7 +292,7 @@ impl PyAxisArrays {
 
     fn __setitem__<'py>(&self, py: Python<'py>, key: &str, data: &'py PyAny) -> PyResult<()> {
         let d: Box<dyn MatrixData> = data.into_rust(py)?;
-        self.0.add_data(key, &d).unwrap();
+        self.0.add_data(key, d).unwrap();
         Ok(())
     }
 

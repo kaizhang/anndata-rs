@@ -29,7 +29,7 @@ parking_lot = "0.12"
 
 [dependencies.pyo3]
 version = "0.17.3"
-features = ["extension-module", "multiple-pymethods"]
+features = ["extension-module", "multiple-pymethods", "anyhow"]
 
 [lib]
 crate-type = ["lib"]
