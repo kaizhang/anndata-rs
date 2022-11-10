@@ -4,7 +4,7 @@ pub mod instance;
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
 use crate::utils::instance::*;
-use pyo3::{types::PyIterator, PyResult, PyAny, Python};
+use pyo3::{PyResult, PyAny, Python};
 
 /// Determine if a file is gzipped.
 pub(crate) fn is_gzipped(file: &str) -> bool {
@@ -45,8 +45,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
             panic!("boolean mask dimension mismatched")
         }
     } else {
-        let boolean_mask: PyResult<Vec<bool>> = PyIterator::from_object(py, input)?
-            .map(|x| x.unwrap().extract()).collect();
+        let boolean_mask: PyResult<Vec<bool>> = input.iter()?.map(|x| x.unwrap().extract()).collect();
         match boolean_mask {
             Ok(mask) => if mask.len() == length {
                 Some(boolean_mask_to_indices(mask.into_iter()))
@@ -55,7 +54,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
             } else {
                 panic!("boolean mask dimension mismatched")
             },
-            _ => Some(PyIterator::from_object(py, input)?.map(|x| x.unwrap().extract()).collect::<PyResult<_>>()?)
+            _ => Some(input.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<_>>()?)
         }
     };
     Ok(indices)

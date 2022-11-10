@@ -75,11 +75,11 @@ def test_chunk(tmp_path):
     )
     s = X.sum(axis = 0)
     s_ = np.zeros_like(s)
-    for m in adata.X.chunked(47):
+    for m, _, _ in adata.X.chunked(47):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
     s_ = np.zeros_like(s)
-    for m in adata.X.chunked(500000):
+    for m, _, _ in adata.X.chunked(500000):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
 
@@ -98,11 +98,11 @@ def test_chunk(tmp_path):
 
     s = merged.sum(axis = 0)
     s_ = np.zeros_like(s)
-    for m in adata.X.chunked(47):
+    for m, _, _ in adata.X.chunked(47):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
     s_ = np.zeros_like(s)
-    for m in adata.X.chunked(500000):
+    for m, _, _ in adata.X.chunked(500000):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
 

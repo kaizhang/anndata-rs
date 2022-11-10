@@ -913,11 +913,14 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
     fn add_uns_item<D: Data>(&self, key: &str, data: &D) -> Result<()> {
         // TODO: remove the Box.
+        let py = self.py();
         let data_: Box<dyn Data> = Box::new(dyn_clone::clone(data));
-        self.0.getattr("uns")?.call_method1(
-            "__setitem__",
-            (key, to_py_data1(self.0.py(), data_)?),
-        )?;
+        let d = to_py_data1(py, data_)?;
+        if isinstance_of_polars(py, d.as_ref(py))? {
+            self.getattr("uns")?.call_method1("__setitem__", (key, d.call_method0(py, "to_pandas")?))?;
+        } else {
+            self.getattr("uns")?.call_method1("__setitem__", (key, d))?;
+        }
         Ok(())
     }
 
