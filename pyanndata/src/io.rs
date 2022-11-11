@@ -3,12 +3,19 @@ use crate::{AnnData, AnnDataSet};
 use anndata_rs::anndata;
 use anyhow::{Result, bail};
 use pyo3::{prelude::*, Python};
-use std::{collections::HashMap, io::BufReader};
+use std::{collections::HashMap, io::BufReader, path::PathBuf};
+use rayon::iter::{ParallelIterator, IntoParallelIterator};
 
 #[derive(FromPyObject)]
 pub enum IOMode<'a> {
     Mode(&'a str),
     Backed(bool),
+}
+
+#[derive(FromPyObject)]
+pub enum AnnDataFile {
+    Path(PathBuf),
+    Data(AnnData),
 }
 
 /// Read `.h5ad`-formatted hdf5 file.
@@ -25,22 +32,21 @@ pub enum IOMode<'a> {
 ///     If `false` or `None`, the AnnData object is read into memory.
 #[pyfunction(backed = "IOMode::Mode(\"r+\")")]
 #[pyo3(text_signature = "(filename, backed, /)")]
-pub fn read<'py>(py: Python<'py>, filename: &'py PyAny, backed: Option<IOMode<'py>>) -> Result<PyObject> {
-    let name = filename.str()?.to_str()?;
-    match backed {
+pub fn read<'py>(filename: PathBuf, backed: Option<IOMode<'py>>) -> Result<PyObject> {
+    Python::with_gil(|py| match backed {
         Some(IOMode::Mode("r")) => {
-            let file = hdf5::File::open(name)?;
+            let file = hdf5::File::open(filename)?;
             Ok(AnnData::wrap(anndata::AnnData::read(file)?).into_py(py))
         },
         Some(IOMode::Mode("r+")) | Some(IOMode::Backed(true)) => {
-            let file = hdf5::File::open_rw(name)?;
+            let file = hdf5::File::open_rw(filename)?;
             Ok(AnnData::wrap(anndata::AnnData::read(file)?).into_py(py))
         }
         None | Some(IOMode::Backed(false)) => {
-            Ok(PyModule::import(py, "anndata")?.getattr("read_h5ad")?.call1((name,))?.to_object(py))
+            Ok(PyModule::import(py, "anndata")?.getattr("read_h5ad")?.call1((filename,))?.to_object(py))
         }
         _ => panic!("Unkown mode"),
-    }
+    })
 }
 
 /// Read Matrix Market file.
@@ -80,7 +86,6 @@ pub fn read_csv(
     Ok(AnnData::wrap(anndata))
 }
 
-
 /// Read and stack vertically multiple `.h5ad`-formatted hdf5 files.
 ///
 /// Parameters
@@ -97,24 +102,22 @@ pub fn read_csv(
 /// AnnDataSet
 #[pyfunction(add_key= "\"sample\"")]
 #[pyo3(text_signature = "(adatas, file, add_key, /)")]
-pub fn create_dataset<'py>(py: Python<'py>,
-    adatas: Vec<(String, &'py PyAny)>,
-    file: &'py PyAny,
+pub fn create_dataset(
+    adatas: Vec<(String, AnnDataFile)>,
+    file: PathBuf,
     add_key: &str,
 ) -> Result<AnnDataSet> {
-    let anndatas = adatas.into_iter().map(|(key, obj)| {
-        let data = if obj.str().is_ok() {
-            read(py, obj, Some(IOMode::Mode("r")))?.extract::<AnnData>(py)?
-        } else {
-            if obj.is_instance_of::<AnnData>()? {
-                obj.extract::<AnnData>()?
-            } else {
-                bail!("input type must be str or backed AnnData")
-            }
+    let anndatas = adatas.into_par_iter().map(|(key, data_file)| {
+        let adata = match data_file {
+            AnnDataFile::Data(data) => data.0.extract().unwrap(),
+            AnnDataFile::Path(path) => {
+                let file = hdf5::File::open(path)?;
+                anndata::AnnData::read(file)?
+            },
         };
-        Ok((key, data.0.extract().unwrap()))
+        Ok((key, adata))
     }).collect::<Result<_>>()?;
-    Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(anndatas, file.str()?.to_str()?, add_key)?))
+    Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(anndatas, file, add_key)?))
 }
 
 /// Read AnnDataSet object.
@@ -137,19 +140,18 @@ pub fn create_dataset<'py>(py: Python<'py>,
 /// Returns
 /// -------
 /// AnnDataSet
-#[pyfunction(update_data_locations="None", mode="\"r+\"", no_check="false")]
-#[pyo3(text_signature = "(filename, update_data_locations, mode, no_check)")]
+#[pyfunction(update_data_locations="None", mode="\"r+\"")]
+#[pyo3(text_signature = "(filename, update_data_locations, mode, /)")]
 pub fn read_dataset(
     filename: &PyAny,
     update_data_locations: Option<HashMap<String, String>>,
     mode: &str,
-    no_check: bool,
 ) -> Result<AnnDataSet> {
     let file = match mode {
         "r" => hdf5::File::open(filename.str()?.to_str()?)?,
         "r+" => hdf5::File::open_rw(filename.str()?.to_str()?)?,
         _ => panic!("Unkown mode"),
     };
-    let data = anndata::AnnDataSet::read(file, update_data_locations, !no_check)?;
+    let data = anndata::AnnDataSet::read(file, update_data_locations)?;
     Ok(AnnDataSet::wrap(data))
 }

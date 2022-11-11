@@ -11,6 +11,7 @@ use polars::prelude::{NamedFrom, DataFrame, Series};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
+use rayon::iter::{ParallelIterator, IntoParallelIterator, IndexedParallelIterator};
 
 pub struct AnnData {
     pub(crate) file: File,
@@ -244,9 +245,15 @@ impl std::fmt::Display for StackedAnnData {
 }
 
 impl StackedAnnData {
-    fn new(adatas: IndexMap<String, AnnData>, check: bool) -> Result<Self> {
-        if check {
-            if !adatas.values().map(|x| x.var_names()).all_equal() { return Err(anyhow!("var names mismatch")); }
+    fn new(adatas: IndexMap<String, AnnData>) -> Result<Self> {
+        if let Some((_, first)) = adatas.first() {
+            let lock = first.var.lock();
+            let var_names: Option<&Vec<String>> = lock.as_ref().map(|x| &x.index.names);
+            if !adatas.par_values().skip(1).all(|x|
+                x.var.lock().as_ref().map(|x| &x.index.names).eq(&var_names)
+            ) {
+                bail!("var names mismatch");
+            }
         }
 
         let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
@@ -329,7 +336,7 @@ impl StackedAnnData {
         if let Some(j) = var_idx {
             *self.n_vars.lock() = j.len();
         }
-        self.anndatas.values().enumerate().try_for_each(|(i, data)| match obs_idx_.get(&i) {
+        self.anndatas.par_values().enumerate().try_for_each(|(i, data)| match obs_idx_.get(&i) {
             None => data.subset(Some(&[]), var_idx),
             Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
         })?;
@@ -452,7 +459,7 @@ impl AnnDataSet {
                 annotation.set_var(Some(adata.get_var().read()?))?;
             }
         }
-        let stacked = StackedAnnData::new(anndatas, true)?;
+        let stacked = StackedAnnData::new(anndatas)?;
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
@@ -475,7 +482,7 @@ impl AnnDataSet {
         self.annotation.set_uns(data)
     }
 
-    pub fn read(file: File, adata_files_: Option<HashMap<String, String>>, check: bool) -> Result<Self> {
+    pub fn read(file: File, adata_files_: Option<HashMap<String, String>>) -> Result<Self> {
         let annotation = AnnData::read(file)?;
         let filename = annotation.filename();
         let file_path = Path::new(&filename).read_link()
@@ -488,7 +495,7 @@ impl AnnDataSet {
         let filenames = df.column("file_path").unwrap().utf8()
             .unwrap().into_iter().collect::<Option<Vec<_>>>().unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
-        let anndatas = keys.into_iter().zip(filenames).map(|(k, v)| {
+        let anndatas = keys.into_par_iter().zip(filenames).map(|(k, v)| {
             let path = Path::new(adata_files.get(k).map_or(v, |x| &*x));
             let fl = if path.is_absolute() {
                 File::open(path)
@@ -499,7 +506,7 @@ impl AnnDataSet {
         }).collect::<Result<_>>()?;
 
         if !adata_files.is_empty() { update_anndata_locations(&annotation, adata_files)?; }
-        Ok(Self { annotation, anndatas: Slot::new(StackedAnnData::new(anndatas, check)?) })
+        Ok(Self { annotation, anndatas: Slot::new(StackedAnnData::new(anndatas)?) })
     }
 
     /// Subsetting an AnnDataSet will not rearrange the data between
@@ -556,7 +563,7 @@ impl AnnDataSet {
     pub fn copy<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<Self> {
         let file = dir.as_ref().join("_dataset.h5ads");
         self.write(obs_idx, var_idx, dir)?;
-        AnnDataSet::read(File::open_rw(file)?, None, false)
+        AnnDataSet::read(File::open_rw(file)?, None)
     }
 
     /// Get reference to the inner AnnData annotation without the `.X` field.
