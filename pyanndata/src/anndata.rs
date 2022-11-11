@@ -350,36 +350,37 @@ impl AnnData {
     #[pyo3(text_signature = "($self)")]
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyObject> {
         let adata = PyAnnData::new(py)?;
+        let inner = self.inner();
         { // Set X
-            adata.set_n_obs(self.n_obs())?;
-            adata.set_n_vars(self.n_vars())?;
-            adata.set_x(self.inner().read_x()?)?;
+            adata.set_n_obs(inner.n_obs())?;
+            adata.set_n_vars(inner.n_vars())?;
+            adata.set_x(inner.read_x()?)?;
         }
         { // Set obs and var
-            adata.set_obs_names(self.inner().obs_names().into())?;
-            adata.set_var_names(self.inner().var_names().into())?;
-            adata.set_obs(Some(self.inner().read_obs()?))?;
-            adata.set_var(Some(self.inner().read_var()?))?;
+            adata.set_obs_names(inner.obs_names().into())?;
+            adata.set_var_names(inner.var_names().into())?;
+            adata.set_obs(Some(inner.read_obs()?))?;
+            adata.set_var(Some(inner.read_var()?))?;
         }
         { // Set uns
-            self.inner().uns_keys().iter().try_for_each(|k|
-                adata.add_uns_item(k, self.inner().read_uns_item(k)?.unwrap()) )?;
+            inner.uns_keys().into_iter().try_for_each(|k|
+                adata.add_uns_item(&k, inner.read_uns_item(&k)?.unwrap()) )?;
         }
         { // Set obsm
-            self.inner().obsm_keys().iter().try_for_each(|k|
-                adata.add_obsm_item(k, self.inner().read_obsm_item(k)?.unwrap()) )?;
+            inner.obsm_keys().into_iter().try_for_each(|k|
+                adata.add_obsm_item(&k, inner.read_obsm_item(&k)?.unwrap()) )?;
         }
         { // Set obsp
-            self.inner().obsp_keys().iter().try_for_each(|k|
-                adata.add_obsp_item(k, self.inner().read_obsp_item(k)?.unwrap()) )?;
+            inner.obsp_keys().into_iter().try_for_each(|k|
+                adata.add_obsp_item(&k, inner.read_obsp_item(&k)?.unwrap()) )?;
         }
         { // Set varm
-            self.inner().varm_keys().iter().try_for_each(|k|
-                adata.add_varm_item(k, self.inner().read_varm_item(k)?.unwrap()) )?;
+            inner.varm_keys().into_iter().try_for_each(|k|
+                adata.add_varm_item(&k, inner.read_varm_item(&k)?.unwrap()) )?;
         }
         { // Set varp
-            self.inner().varp_keys().iter().try_for_each(|k|
-                adata.add_varp_item(k, self.inner().read_varp_item(k)?.unwrap()) )?;
+            inner.varp_keys().into_iter().try_for_each(|k|
+                adata.add_varp_item(&k, inner.read_varp_item(&k)?.unwrap()) )?;
         }
         Ok(adata.to_object(py))
     }

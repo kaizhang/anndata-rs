@@ -17,7 +17,7 @@ impl PyElem {
 
     fn is_scalar(&self) -> bool {
         match self.0.dtype() {
-            Some(DataType::Scalar(_)) => true,
+            DataType::Scalar(_) => true,
             _ => false,
         }
     }

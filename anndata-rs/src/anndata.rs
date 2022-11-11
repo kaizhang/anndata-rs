@@ -556,6 +556,18 @@ impl AnnDataSet {
         AnnDataSet::read(File::open_rw(file)?, None, false)
     }
 
+    pub fn to_adata<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, out: P) -> Result<AnnData> {
+        self.annotation.copy(obs_idx, var_idx, out)
+    }
+
+    /// Convert AnnDataSet to AnnData object
+    pub fn into_adata(self) -> Result<AnnData> {
+        if let Some(anndatas) = self.anndatas.extract() {
+            for ann in anndatas.anndatas.into_values() { ann.close()?; }
+        }
+        Ok(self.annotation)
+    }
+
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
         if let Some(anndatas) = self.anndatas.extract() {

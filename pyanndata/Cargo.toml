@@ -16,7 +16,7 @@ anndata-rs = { path = "../anndata-rs", features = ["static"] }
 anyhow = "1.0"
 numpy = "0.17.2"
 ndarray = "0.15"
-nalgebra-sparse = "0.7"
+nalgebra-sparse = "0.8"
 hdf5 = "0.8"
 polars = { version = "0.23", features = ["ndarray"] }
 polars-core = "0.23"

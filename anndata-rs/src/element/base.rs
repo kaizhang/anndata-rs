@@ -310,23 +310,30 @@ impl std::fmt::Display for InnerElem {
     }
 }
 
-pub type Elem = Slot<InnerElem>;
+#[derive(Clone)]
+pub struct Elem(Arc<Mutex<InnerElem>>);
+
+impl std::fmt::Display for Elem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.lock().fmt(f)
+    }
+}
 
 impl TryFrom<DataContainer> for Elem {
     type Error = anyhow::Error;
 
     fn try_from(container: DataContainer) -> Result<Self> {
         let dtype = container.get_encoding_type()?;
-        Ok(Slot::new(InnerElem { dtype, cache_enabled: false, element: None, container }))
+        let elem = InnerElem { dtype, cache_enabled: false, element: None, container };
+        Ok(Elem(Arc::new(Mutex::new(elem))))
     }
 }
 
 impl Elem {
-    pub fn dtype(&self) -> Option<DataType> { self.lock().as_ref().map(|x| x.dtype.clone()) }
+    pub fn dtype(&self) -> DataType { self.0.lock().dtype.clone() }
 
     pub fn read(&self) -> Result<Box<dyn Data>> {
-        ensure!(!self.is_empty(), "cannot read from an empty element");
-        let mut inner = self.inner();
+        let mut inner = self.0.lock();
         match inner.element.as_ref() {
             Some(data) => Ok(data.clone()),
             None => {
@@ -338,28 +345,25 @@ impl Elem {
     }
 
     pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        if !self.is_empty() {
-            let inner = self.inner();
-            match inner.element.as_ref() {
-                Some(data) => data.write(location, name)?,
-                None => <Box<dyn Data>>::read(&inner.container)?.write(location, name)?,
-            };
-        }
+        let inner = self.0.lock();
+        match inner.element.as_ref() {
+            Some(data) => data.write(location, name)?,
+            None => <Box<dyn Data>>::read(&inner.container)?.write(location, name)?,
+        };
         Ok(())
     }
 
     pub fn update<D: Data>(&self, data: D) -> Result<()> {
-        ensure!(!self.is_empty(), "cannot update an empty element");
-        let mut inner = self.inner();
+        let mut inner = self.0.lock();
         inner.container = data.update(&inner.container)?;
         if inner.element.is_some() { inner.element = Some(data.into_dyn_data()); }
         Ok(())
     }
 
-    pub fn enable_cache(&self) { self.inner().cache_enabled = true; }
+    pub fn enable_cache(&self) { self.0.lock().cache_enabled = true; }
 
     pub fn disable_cache(&self) {
-        let mut inner = self.inner();
+        let mut inner = self.0.lock();
         if inner.element.is_some() { inner.element = None; }
         inner.cache_enabled = false;
     }
