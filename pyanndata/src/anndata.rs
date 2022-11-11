@@ -8,7 +8,7 @@ use anndata_rs::{
 };
 use polars::frame::DataFrame;
 use anyhow::Result;
-use pyo3::{prelude::*, PyResult, Python, types::{PyIterator, IntoPyDict}, exceptions::{PyException, PyTypeError}};
+use pyo3::{prelude::*, PyResult, Python, types::{IntoPyDict}, exceptions::{PyException, PyTypeError}};
 use std::{collections::HashMap, ops::Deref};
 use paste::paste;
 
@@ -123,7 +123,7 @@ impl AnnData {
     }
 
     fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
-        match PyIterator::from_object(py, indices)?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
+        match indices.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
             Ok(names) => if axis == 0 {
                 Ok(Some(self.obs_ix(names)))
             } else {
@@ -195,8 +195,8 @@ impl AnnData {
     fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
     #[setter(var_names)]
-    fn set_var_names<'py>(&self, py: Python<'py>, names: &'py PyAny) -> PyResult<()> {
-        let var_names: PyResult<DataFrameIndex> = PyIterator::from_object(py, names)?
+    fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
+        let var_names: PyResult<DataFrameIndex> = names.iter()?
             .map(|x| x.unwrap().extract::<String>()).collect();
         self.0.inner().set_var_names(var_names?).unwrap();
         Ok(())
@@ -210,8 +210,8 @@ impl AnnData {
     fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
 
     #[setter(obs_names)]
-    fn set_obs_names<'py>(&self, py: Python<'py>, names: &'py PyAny) -> PyResult<()> {
-        let obs_names: PyResult<DataFrameIndex> = PyIterator::from_object(py, names)?
+    fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
+        let obs_names: PyResult<DataFrameIndex> = names.iter()?
             .map(|x| x.unwrap().extract::<String>()).collect();
         self.0.inner().set_obs_names(obs_names?).unwrap();
         Ok(())
@@ -464,7 +464,7 @@ impl AnnDataSet {
     }
 
     fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
-        match PyIterator::from_object(py, indices)?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
+        match indices.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
             Ok(names) => if axis == 0 {
                 Ok(Some(self.obs_ix(names)))
             } else {
@@ -502,6 +502,14 @@ impl AnnDataSet {
     #[getter]
     fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
+    #[setter(var_names)]
+    fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
+        let var_names: PyResult<DataFrameIndex> = names.iter()?
+            .map(|x| x.unwrap().extract::<String>()).collect();
+        self.0.inner().set_var_names(var_names?).unwrap();
+        Ok(())
+    }
+
     #[pyo3(text_signature = "($self, names)")]
     fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().var_ix(&names).unwrap()
@@ -510,6 +518,14 @@ impl AnnDataSet {
     /// Names of observations.
     #[getter]
     fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
+
+    #[setter(obs_names)]
+    fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
+        let obs_names: PyResult<DataFrameIndex> = names.iter()?
+            .map(|x| x.unwrap().extract::<String>()).collect();
+        self.0.inner().set_obs_names(obs_names?).unwrap();
+        Ok(())
+    }
 
     #[pyo3(text_signature = "($self, names)")]
     fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
