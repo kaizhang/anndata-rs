@@ -387,7 +387,7 @@ impl AnnDataIterator for AnnDataSet {
         todo!()
     }
     fn read_obsm_item_iter<'a>(&'a self, key: &str, chunk_size: usize) -> Result<Self::MatrixIter<'a>> {
-        let res = self.anndatas.inner().get_obsm().data.get(key)
+        let res = self.get_inner_adatas().inner().get_obsm().data.get(key)
             .context(format!("key '{}' not present in StackedAxisArrays", key))?.chunked(chunk_size);
         Ok(res)
     }

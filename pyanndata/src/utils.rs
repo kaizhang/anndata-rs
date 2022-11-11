@@ -11,6 +11,14 @@ pub(crate) fn is_gzipped(file: &str) -> bool {
     MultiGzDecoder::new(File::open(file).unwrap()).header().is_some()
 }
 
+pub(crate) fn open_file(file: &str) -> Box<dyn std::io::Read> {
+    if is_gzipped(file) {
+        Box::new(MultiGzDecoder::new(File::open(file).unwrap()))
+    } else {
+        Box::new(File::open(file).unwrap())
+    }
+}
+
 /*
 pub fn to_range<'py>(py: Python<'py>, input: &'py PyAny, length: usize) -> PyResult<Option<Range<usize>>> {
     let res = if input.is_instance_of::<pyo3::types::PySlice>()? {

@@ -340,7 +340,7 @@ impl StackedAnnData {
 
 pub struct AnnDataSet {
     annotation: AnnData,
-    pub anndatas: Slot<StackedAnnData>,
+    anndatas: Slot<StackedAnnData>,
 }
 
 impl std::fmt::Display for AnnDataSet {
@@ -456,6 +456,9 @@ impl AnnDataSet {
         Ok(Self { annotation, anndatas: Slot::new(stacked), })
     }
 
+    /// Get the reference to the concatenated AnnData objects.
+    pub fn get_inner_adatas(&self) -> &Slot<StackedAnnData> { &self.anndatas }
+
     pub fn get_obs(&self) -> &DataFrameElem { &self.annotation.obs }
     pub fn get_var(&self) -> &DataFrameElem { &self.annotation.var }
 
@@ -555,6 +558,9 @@ impl AnnDataSet {
         self.write(obs_idx, var_idx, dir)?;
         AnnDataSet::read(File::open_rw(file)?, None, false)
     }
+
+    /// Get reference to the inner AnnData annotation without the `.X` field.
+    pub fn as_adata(&self) -> &AnnData { &self.annotation }
 
     pub fn to_adata<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, out: P) -> Result<AnnData> {
         self.annotation.copy(obs_idx, var_idx, out)
