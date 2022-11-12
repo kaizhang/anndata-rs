@@ -1,14 +1,14 @@
 [package]
 name = "anndata-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.65"
 authors = ["Kai Zhang <kai@kzhang.org>"]
 description = "Rust APIs"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/"
-homepage = "https://github.com/"
+repository = "https://github.com/kaizhang/anndata-rs"
+homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
 flate2 = "1.0"
@@ -20,7 +20,7 @@ libz-sys = { version = "1", features = ["zlib-ng"], default-features = false, op
 ndarray = "0.15"
 nalgebra-sparse = "0.8"
 downcast-rs = "1.2"
-polars = { version = "0.23", features = ["decompress", "ndarray", "dtype-full"] }
+polars = { version = "0.25", features = ["decompress", "ndarray", "dtype-full"] }
 paste = "1.0"
 parking_lot = "0.12"
 anyhow = "1.0"
