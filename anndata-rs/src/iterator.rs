@@ -58,59 +58,28 @@ where
         create_str_attr(&group, "encoding-version", self.version())?;
         create_str_attr(&group, "h5sparse_format", "csr")?;
         let chunk_size: usize = 50000;
-        let data: ResizableVectorData<D> =
-            ResizableVectorData::new(&group, "data", chunk_size)?;
-        let mut indptr: Vec<usize> = Vec::new();
+        let data: ResizableVectorData<D> = ResizableVectorData::new(&group, "data", chunk_size)?;
+        // Use i64 as the indices type to be compatible with scipy.
+        let indices: ResizableVectorData<i64> = ResizableVectorData::new(&group, "indices", chunk_size)?;
+        let mut indptr: Vec<i64> = Vec::new();
 
-        if self.num_cols <= (i32::MAX as usize) {
-            let indices: ResizableVectorData<i32> =
-                ResizableVectorData::new(&group, "indices", chunk_size)?;
-            let nnz: Result<usize> = self.iterator.try_fold(0, |accum, chunk| {
-                data.extend(chunk.iter().flatten().map(|x| x.1))?;
-                indices.extend(
-                    chunk.iter().flatten().map(|x| -> i32 { x.0.try_into().unwrap() })
-                )?;
-                Ok(chunk.iter().fold(accum, |accum_, vec| {
-                    indptr.push(accum_);
-                    accum_ + vec.len()
-                }))
-            });
-            indptr.push(nnz?);
-        } else {
-            let indices: ResizableVectorData<i64> =
-                ResizableVectorData::new(&group, "indices", chunk_size)?;
-            let nnz: Result<usize> = self.iterator.try_fold(0, |accum, chunk| {
-                data.extend(chunk.iter().flatten().map(|x| x.1))?;
-                indices.extend(
-                    chunk.iter().flatten().map(|x| -> i64 { x.0.try_into().unwrap() })
-                )?;
-                Ok(chunk.iter().fold(accum, |accum_, vec| {
-                    indptr.push(accum_);
-                    accum_ + vec.len()
-                }))
-            });
-            indptr.push(nnz?);
-        }
+        let nnz: Result<i64> = self.iterator.try_fold(0, |accum, chunk| {
+            data.extend(chunk.iter().flatten().map(|x| x.1))?;
+            indices.extend(
+                chunk.iter().flatten().map(|x| -> i64 { x.0.try_into().unwrap() })
+            )?;
+            Ok(chunk.iter().fold(accum, |accum_, vec| {
+                indptr.push(accum_);
+                accum_ + (vec.len() as i64)
+            }))
+        });
+        indptr.push(nnz?);
 
         let num_rows = indptr.len() - 1;
-        group.new_attr_builder()
-            .with_data(&arr1(&[num_rows, self.num_cols]))
-            .create("shape")?;
+        group.new_attr_builder().with_data(&arr1(&[num_rows, self.num_cols])).create("shape")?;
+        group.new_dataset_builder().deflate(COMPRESSION)
+            .with_data(&Array::from_vec(indptr)).create("indptr")?;
 
-        let try_convert_indptr: Option<Vec<i32>> = indptr.iter()
-            .map(|x| (*x).try_into().ok()).collect();
-        match try_convert_indptr {
-            Some(vec) => {
-                group.new_dataset_builder().deflate(COMPRESSION)
-                    .with_data(&Array::from_vec(vec)).create("indptr")?;
-            },
-            _ => {
-                let vec: Vec<i64> = indptr.into_iter()
-                    .map(|x| x.try_into().unwrap()).collect();
-                group.new_dataset_builder().deflate(COMPRESSION)
-                    .with_data(&Array::from_vec(vec)).create("indptr")?;
-            },
-        }
         Ok((DataContainer::H5Group(group), num_rows))
     }
 

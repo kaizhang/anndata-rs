@@ -310,23 +310,31 @@ where
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
-        group.new_attr_builder()
-            .with_data(&[self.nrows(), self.ncols()]).create("shape")?;
+        group.new_attr_builder().with_data(&[self.nrows(), self.ncols()]).create("shape")?;
         create_dataset(&group, "data", self.values())?;
 
-        let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
-            .map(|x| (*x).try_into().ok()).collect();
-        match try_convert_indptr {
-            Some(vec) => create_dataset(&group, "indptr", vec.as_slice())?,
-            _ => create_dataset(&group, "indptr", self.row_offsets())?,
-        };
-
-        let try_convert_indices: Option<Vec<i32>> = self.col_indices().iter()
-            .map(|x| (*x).try_into().ok()).collect();
-        match try_convert_indices {
-            Some(vec) => create_dataset(&group, "indices", vec.as_slice())?,
-            _ => create_dataset(&group, "indices", self.col_indices())?,
-        };
+        // Use i32 or i64 as indices type in order to be compatible with scipy
+        if TryInto::<i32>::try_into(self.ncols() - 1).is_ok() {
+            let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
+                .map(|x| (*x).try_into().ok()).collect();
+            if let Some(indptr_i32) = try_convert_indptr {
+                create_dataset(&group, "indptr", indptr_i32.as_slice())?;
+                create_dataset(&group, "indices", self.col_indices().iter()
+                    .map(|x| (*x) as i32).collect::<Vec<_>>().as_slice())?;
+            } else {
+                create_dataset(&group, "indptr", self.row_offsets().iter()
+                    .map(|x| TryInto::<i64>::try_into(*x).unwrap()).collect::<Vec<_>>().as_slice())?;
+                create_dataset(&group, "indices", self.col_indices().iter()
+                    .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
+            }
+        } else if TryInto::<i64>::try_into(self.ncols() - 1).is_ok() {
+                create_dataset(&group, "indptr", self.row_offsets().iter()
+                    .map(|x| TryInto::<i64>::try_into(*x).unwrap()).collect::<Vec<_>>().as_slice())?;
+                create_dataset(&group, "indices", self.col_indices().iter()
+                    .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
+        } else {
+            panic!("column indices are too large")
+        }
 
         Ok(DataContainer::H5Group(group))
     }
@@ -346,14 +354,7 @@ where
         let data = dataset.dataset("data")?.read_1d()?.to_vec();
         let indices: Vec<usize> = dataset.dataset("indices")?.read_1d()?.to_vec();
         let indptr: Vec<usize> = dataset.dataset("indptr")?.read_1d()?.to_vec();
-
-        Ok(CsrMatrix::try_from_csr_data(
-            shape[0],
-            shape[1],
-            indptr,
-            indices,
-            data,
-        ).unwrap())
+        Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
     }
     fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
     fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
