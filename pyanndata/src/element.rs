@@ -68,8 +68,8 @@ impl PyMatrixElem {
         } else if subscript.is_instance_of::<pyo3::types::PyTuple>()? {
             let (r, c) = self.shape();
             let (i, j) = subscript.extract()?;
-            ridx = to_indices(py, i, r)?;
-            cidx = to_indices(py, j, c)?;
+            ridx = to_indices(py, i, r)?.0;
+            cidx = to_indices(py, j, c)?.0;
         } else {
             panic!("index type '{}' is not supported", subscript.get_type());
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
@@ -407,8 +407,8 @@ impl PyStackedMatrixElem {
         } else if subscript.is_instance_of::<pyo3::types::PyTuple>()? {
             let (r, c) = self.shape();
             let (i, j) = subscript.extract()?;
-            ridx = to_indices(py, i, r)?;
-            cidx = to_indices(py, j, c)?;
+            ridx = to_indices(py, i, r)?.0;
+            cidx = to_indices(py, j, c)?.0;
         } else {
             panic!("index type '{}' is not supported", subscript.get_type());
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;

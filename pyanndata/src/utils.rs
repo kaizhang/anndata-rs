@@ -31,24 +31,26 @@ pub fn to_range<'py>(py: Python<'py>, input: &'py PyAny, length: usize) -> PyRes
 }
 */
 
-pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize) -> PyResult<Option<Vec<usize>>> {
+pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize
+    ) -> PyResult<(Option<Vec<usize>>, bool)>
+{
     let indices = if is_none_slice(py, input)? {
-        None
+        (None, false)
     } else if input.is_instance_of::<pyo3::types::PySlice>()? {
         let slice = input.downcast::<pyo3::types::PySlice>()?.indices(
             length.try_into().unwrap()
         )?;
-        Some((slice.start.try_into().unwrap() ..=
-            slice.stop.try_into().unwrap()).step_by(slice.step.try_into().unwrap()
-        ).collect())
+        let indices = (slice.start.try_into().unwrap() ..= slice.stop.try_into().unwrap())
+            .step_by(slice.step.try_into().unwrap()).collect();
+        (Some(indices), false)
     } else if input.is_instance_of::<pyo3::types::PyInt>()? {
-        Some(vec![input.extract::<usize>()?])
+        (Some(vec![input.extract::<usize>()?]), false)
     } else if isinstance_of_arr(py, input)? && input.getattr("dtype")?.getattr("name")?.extract::<&str>()? == "bool" {
         let arr = input.extract::<numpy::PyReadonlyArrayDyn<bool>>()?.to_owned_array();
         let ndim = arr.ndim();
         let len = arr.len();
         if ndim == 1 && len == length {
-            Some(boolean_mask_to_indices(arr.into_iter()))
+            (Some(boolean_mask_to_indices(arr.into_iter())), true)
         } else {
             panic!("boolean mask dimension mismatched")
         }
@@ -56,13 +58,13 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize)
         let boolean_mask: PyResult<Vec<bool>> = input.iter()?.map(|x| x.unwrap().extract()).collect();
         match boolean_mask {
             Ok(mask) => if mask.len() == length {
-                Some(boolean_mask_to_indices(mask.into_iter()))
+                (Some(boolean_mask_to_indices(mask.into_iter())), true)
             } else if mask.len() == 0 {
-                Some(Vec::new())
+                (Some(Vec::new()), false)
             } else {
                 panic!("boolean mask dimension mismatched")
             },
-            _ => Some(input.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<_>>()?)
+            _ => (Some(input.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<_>>()?), false)
         }
     };
     Ok(indices)

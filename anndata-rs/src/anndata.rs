@@ -315,10 +315,9 @@ impl StackedAnnData {
             let filename = (k.clone(), file.file_name().unwrap().to_str().unwrap().to_string());
 
             if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
-                get_inner_indices.get(&i).map(|indices| {
+                get_inner_indices.get(&i).map(|(indices, ori_idx)| {
                     data.write(Some(indices.as_slice()), var_indices, file.clone()).unwrap();
-                    let ori_idx = indices.into_iter().map(|x| index.inv_ix((i, *x))).collect::<Vec<_>>();
-                    (filename, Some(ori_idx))
+                    (filename, Some(ori_idx.clone()))
                 })
             } else {
                 data.write(None, var_indices, file.clone()).unwrap();
@@ -342,9 +341,9 @@ impl StackedAnnData {
         let ori_idx: Vec<_> = self.anndatas.par_values().enumerate().map(|(i, data)| {
 
             if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
-                if let Some(indices) = get_inner_indices.get(&i) {
+                if let Some((indices, ori_idx)) = get_inner_indices.get(&i) {
                     data.subset(Some(indices.as_slice()), var_indices).unwrap();
-                    Some(indices.into_iter().map(|x| index.inv_ix((i, *x))).collect::<Vec<_>>())
+                    Some(ori_idx.clone())
                 } else {
                     data.subset(Some(&[]), var_indices).unwrap();
                     Some(Vec::new())
@@ -538,9 +537,14 @@ impl AnnDataSet {
                 Ok(None)
             },
             Some(ann) => {
-                let ori_idx = ann.subset(obs_idx, var_idx)?;
-                self.annotation.subset(ori_idx.as_ref().map(|x| x.as_slice()), var_idx)?;
-                Ok(ori_idx)
+                let obs_idx_order = ann.subset(obs_idx, var_idx)?;
+                if let Some(order) = obs_idx_order.as_ref() {
+                    let new_idx = obs_idx.map(|x| order.iter().map(|i| x[*i]).collect::<Vec<_>>());
+                    self.annotation.subset(new_idx.as_ref().map(|x| x.as_slice()), var_idx)?;
+                } else {
+                    self.annotation.subset(obs_idx, var_idx)?;
+                };
+                Ok(obs_idx_order)
             }
         }
     }
@@ -553,11 +557,16 @@ impl AnnDataSet {
         match self.anndatas.inner().0.deref() {
             None => {
                 self.annotation.write(obs_idx, var_idx, file)?;
-                Ok(obs_idx.map(|x| x.iter().map(|i| *i).collect()))
+                Ok(None)
             }
             Some(ann) => {
-                let (files, ori_idx) = ann.write(obs_idx, var_idx, anndata_dir.clone())?;
-                let adata = self.annotation.copy(ori_idx.as_ref().map(|x| x.as_slice()), var_idx, file)?;
+                let (files, obs_idx_order) = ann.write(obs_idx, var_idx, anndata_dir.clone())?;
+                let adata = if let Some(order) = obs_idx_order.as_ref() {
+                    let new_idx = obs_idx.map(|x| order.iter().map(|i| x[*i]).collect::<Vec<_>>());
+                    self.annotation.copy(new_idx.as_ref().map(|x| x.as_slice()), var_idx, file)?
+                } else {
+                    self.annotation.copy(obs_idx, var_idx, file)?
+                };
                 let parent_dir = if anndata_dir.is_absolute() {
                     anndata_dir
                 } else {
@@ -570,7 +579,7 @@ impl AnnDataSet {
                 let file_loc = DataFrame::new(vec![Series::new("keys", keys), Series::new("file_path", filenames)])?;
                 adata.add_uns_item("AnnDataSet", file_loc)?;
                 adata.close()?;
-                Ok(ori_idx)
+                Ok(obs_idx_order)
             }
         }
     }

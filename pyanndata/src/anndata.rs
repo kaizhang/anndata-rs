@@ -119,7 +119,7 @@ impl AnnData {
             },
             _ => {
                 let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
-                to_indices(py, indices, length)
+                Ok(to_indices(py, indices, length)?.0)
             },
         }
     }
@@ -418,12 +418,12 @@ impl AnnDataSet {
         AnnDataSet(Slot::new(anndata))
     }
 
-    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
+    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<(Option<Vec<usize>>, bool)> {
         match indices.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
             Ok(names) => if axis == 0 {
-                Ok(Some(self.obs_ix(names)))
+                Ok((Some(self.obs_ix(names)), false))
             } else {
-                Ok(Some(self.var_ix(names)))
+                Ok((Some(self.var_ix(names)), false))
             },
             _ => {
                 let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
@@ -519,6 +519,14 @@ impl AnnDataSet {
 
     /// Subsetting the AnnDataSet object.
     /// 
+    /// Note
+    /// ----
+    /// AnnDataSet will not move data across underlying AnnData objects. So the
+    /// orders of rows in the resultant AnnDataSet object may not be consistent
+    /// with the input `obs_indices`. This function will return a vector that can
+    /// be used to reorder the `obs_indices` to match the final order of rows in
+    /// the AnnDataSet.
+    /// 
     /// Parameters
     /// ----------
     /// obs_indices
@@ -533,6 +541,10 @@ impl AnnDataSet {
     /// Returns
     /// -------
     /// None | list[int] | Tuple[AnnDataSet, list[int]]
+    ///     If `out` is not `None`, a new AnnDataSet object will be returned.
+    ///     Otherwise, the operation will be performed inplace.
+    ///     If the order of input `obs_indices` has been changed, it will 
+    ///     return the indices that would sort the `obs_indices` array.
     #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     pub fn subset<'py>(
         &self,
@@ -541,16 +553,21 @@ impl AnnDataSet {
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
     ) -> Result<PyObject> {
-        let i = obs_indices.and_then(|x| self.normalize_index(py, x, 0).unwrap());
-        let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
-        Ok(match out {
-            None => self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))?
-                .to_object(py),
-            Some(dir) => {
-                let (adata, idx) = self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir)?;
-                (AnnDataSet::wrap(adata).into_py(py), idx).to_object(py)
+        let (i, obs_is_boolean) = obs_indices.map_or((None, false), |x| self.normalize_index(py, x, 0).unwrap());
+        let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap().0);
+        match out {
+            None => {
+                let idx_order = self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))?;
+                let res = if obs_is_boolean { None } else { idx_order };
+                Ok(res.to_object(py))
             },
-        })
+            Some(dir) => {
+                let (adata, idx_order) = self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir)?;
+                let ann = AnnDataSet::wrap(adata).into_py(py);
+                let res = if obs_is_boolean { (ann, None) } else { (ann, idx_order) };
+                Ok(res.to_object(py))
+            },
+        }
     }
 
     /// Return an iterator over the rows of the data matrix X.

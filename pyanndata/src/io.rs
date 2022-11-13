@@ -1,7 +1,7 @@
 use crate::{AnnData, AnnDataSet};
 
 use anndata_rs::anndata;
-use anyhow::{Result, bail};
+use anyhow::Result;
 use pyo3::{prelude::*, Python};
 use std::{collections::HashMap, io::BufReader, path::PathBuf};
 use rayon::iter::{ParallelIterator, IntoParallelIterator};

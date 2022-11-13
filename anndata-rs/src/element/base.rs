@@ -521,11 +521,12 @@ impl VecVecIndex {
         }
     }
 
-    pub fn ix_group_by_outer<'a, I>(&self, indices: I) -> std::collections::HashMap<usize, Vec<usize>>
+    pub fn ix_group_by_outer<'a, I>(&self, indices: I) -> std::collections::HashMap<usize, (Vec<usize>, Vec<usize>)>
     where I: Iterator<Item = &'a usize>
     {
-        indices.map(|x| self.ix(x)).sorted_by_key(|x| x.0).into_iter().group_by(|x| x.0).into_iter()
-            .map(|(key, grp)| (key, grp.map(|x| x.1).collect())).collect()
+        indices.map(|x| self.ix(x)).enumerate().sorted_by_key(|(_, (x,_))| *x).into_iter()
+            .group_by(|(_, (x,_))| *x).into_iter()
+            .map(|(outer, inner)| (outer, inner.map(|(i, (_, x))| (x, i)).unzip())).collect()
     }
 
     /// The total number of elements
