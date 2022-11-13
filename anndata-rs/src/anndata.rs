@@ -1,17 +1,17 @@
 use crate::{
     data::*, element::*,
-    element::{base::{InnerDataFrameElem, InnerMatrixElem, AccumLength}, collection::{InnerAxisArrays, AxisArrays}},
+    element::{base::{InnerDataFrameElem, InnerMatrixElem, VecVecIndex}, collection::{InnerAxisArrays, AxisArrays}},
 };
 
 use std::{sync::Arc, path::Path, collections::HashMap, ops::Deref};
 use parking_lot::Mutex;
 use hdf5::File; 
-use anyhow::{bail, anyhow, ensure, Result, Context};
+use anyhow::{bail, anyhow, Result, Context};
 use polars::prelude::{NamedFrom, DataFrame, Series};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use paste::paste;
-use rayon::iter::{ParallelIterator, IntoParallelIterator, IndexedParallelIterator};
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator, IntoParallelIterator, IndexedParallelIterator};
 
 pub struct AnnData {
     pub(crate) file: File,
@@ -227,7 +227,7 @@ impl AnnData {
 
 pub struct StackedAnnData {
     anndatas: IndexMap<String, AnnData>,
-    accum: Arc<Mutex<AccumLength>>,
+    index: Arc<Mutex<VecVecIndex>>,
     n_obs: Arc<Mutex<usize>>,
     n_vars: Arc<Mutex<usize>>,
     x: StackedMatrixElem,
@@ -245,7 +245,8 @@ impl std::fmt::Display for StackedAnnData {
 }
 
 impl StackedAnnData {
-    fn new(adatas: IndexMap<String, AnnData>) -> Result<Self> {
+    fn new(adatas: IndexMap<String, AnnData>) -> Result<Option<Self>> {
+        if adatas.is_empty() { return Ok(None) }
         if let Some((_, first)) = adatas.first() {
             let lock = first.var.lock();
             let var_names: Option<&Vec<String>> = lock.as_ref().map(|x| &x.index.names);
@@ -256,16 +257,16 @@ impl StackedAnnData {
             }
         }
 
-        let accum_: AccumLength = adatas.values().map(|x| x.n_obs()).collect();
-        let n_obs = Arc::new(Mutex::new(accum_.size()));
-        let accum = Arc::new(Mutex::new(accum_));
+        let index_: VecVecIndex = adatas.values().map(|x| x.n_obs()).collect();
+        let n_obs = Arc::new(Mutex::new(index_.len()));
+        let index = Arc::new(Mutex::new(index_));
         let n_vars = adatas.values().next().unwrap().n_vars.clone();
 
         let x = StackedMatrixElem::new(
             adatas.values().map(|x| x.get_x().clone()).collect(),
             n_obs.clone(),
             n_vars.clone(),
-            accum.clone(),
+            index.clone(),
         )?;
 
         let obs = if adatas.values().any(|x| x.obs.is_empty()) {
@@ -282,11 +283,11 @@ impl StackedAnnData {
                 obsm_guard.iter().map(|x| x.deref()).collect(),
                 &n_obs,
                 &n_vars,
-                &accum,
+                &index,
             )
         }?;
 
-        Ok(Self { anndatas: adatas, x, obs, obsm, accum, n_obs, n_vars })
+        Ok(Some(Self { anndatas: adatas, x, obs, obsm, index, n_obs, n_vars }))
     }
 
     pub fn get_x(&self) -> &StackedMatrixElem { &self.x }
@@ -302,46 +303,58 @@ impl StackedAnnData {
 
     /// Write a part of stacked AnnData objects to disk, return the key and
     /// file name (without parent paths)
-    fn write<P>(&self, obs_idx_: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<HashMap<String, String>>
+    fn write<P>(&self, obs_indices: Option<&[usize]>, var_indices: Option<&[usize]>, dir: P
+        ) -> Result<(IndexMap<String, String>, Option<Vec<usize>>)>
     where
         P: AsRef<Path> + std::marker::Sync,
     {
-        let obs_idx = match obs_idx_ {
-            Some(i) => self.accum.lock().normalize_indices(i),
-            None => HashMap::new(),
-        };
-        self.anndatas.iter().enumerate().map(|(i, (k, data))| {
+        let index = self.index.lock();
+        let obs_outer2inner = obs_indices.map(|x| index.ix_group_by_outer(x.iter()));
+        let (files, ori_idx): (IndexMap<_, _>, Vec<_>) = self.anndatas.par_iter().enumerate().flat_map(|(i, (k, data))| {
             let file = dir.as_ref().join(k.to_string() + ".h5ad");
-            match obs_idx.get(&i) {
-                None => data.write(Some(&[]), var_idx, file.clone()),
-                Some(idx) => data.write(Some(idx.as_slice()), var_idx, file.clone()),
-            }?;
-            Ok((k.clone(), file.file_name().unwrap().to_str().unwrap().to_string()))
-        }).collect()
+            let filename = (k.clone(), file.file_name().unwrap().to_str().unwrap().to_string());
+
+            if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
+                get_inner_indices.get(&i).map(|indices| {
+                    data.write(Some(indices.as_slice()), var_indices, file.clone()).unwrap();
+                    let ori_idx = indices.into_iter().map(|x| index.inv_ix((i, *x))).collect::<Vec<_>>();
+                    (filename, Some(ori_idx))
+                })
+            } else {
+                data.write(None, var_indices, file.clone()).unwrap();
+                Some((filename, None))
+            }
+        }).unzip();
+        Ok((files, ori_idx.into_iter().collect::<Option<Vec<_>>>().map(|x| x.into_iter().flatten().collect())))
     }
 
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
-    /// TODO: return rearraged indices
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
-        let mut accum_len = self.accum.lock();
+    pub fn subset(&self, obs_indices: Option<&[usize]>, var_indices: Option<&[usize]>) -> Result<Option<Vec<usize>>> {
+        let index = self.index.lock();
 
-        let obs_idx_ = match obs_idx {
-            Some(i) => {
-                *self.n_obs.lock() = i.len();
-                accum_len.normalize_indices(i)
-            },
-            None => HashMap::new(),
-        };
-        if let Some(j) = var_idx {
-            *self.n_vars.lock() = j.len();
-        }
-        self.anndatas.par_values().enumerate().try_for_each(|(i, data)| match obs_idx_.get(&i) {
-            None => data.subset(Some(&[]), var_idx),
-            Some(idx) => data.subset(Some(idx.as_slice()), var_idx),
-        })?;
-        *accum_len = self.anndatas.values().map(|x| x.n_obs()).collect();
-        Ok(())
+        let obs_outer2inner = obs_indices.map(|x| {
+            *self.n_obs.lock() = x.len();
+            index.ix_group_by_outer(x.iter())
+        });
+        if let Some(j) = var_indices { *self.n_vars.lock() = j.len(); }
+
+        let ori_idx: Vec<_> = self.anndatas.par_values().enumerate().map(|(i, data)| {
+
+            if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
+                if let Some(indices) = get_inner_indices.get(&i) {
+                    data.subset(Some(indices.as_slice()), var_indices).unwrap();
+                    Some(indices.into_iter().map(|x| index.inv_ix((i, *x))).collect::<Vec<_>>())
+                } else {
+                    data.subset(Some(&[]), var_indices).unwrap();
+                    Some(Vec::new())
+                }
+            } else {
+                data.subset(None, var_indices).unwrap();
+                None
+            }
+        }).collect();
+        Ok(ori_idx.into_iter().collect::<Option<Vec<_>>>().map(|x| x.into_iter().flatten().collect()))
     }
 }
 
@@ -459,8 +472,11 @@ impl AnnDataSet {
                 annotation.set_var(Some(adata.get_var().read()?))?;
             }
         }
-        let stacked = StackedAnnData::new(anndatas)?;
-        Ok(Self { annotation, anndatas: Slot::new(stacked), })
+        let anndatas = match StackedAnnData::new(anndatas)? {
+            Some(ann) => Slot::new(ann),
+            _ => Slot::empty(),
+        };
+        Ok(Self { annotation, anndatas })
     }
 
     /// Get the reference to the concatenated AnnData objects.
@@ -506,64 +522,66 @@ impl AnnDataSet {
         }).collect::<Result<_>>()?;
 
         if !adata_files.is_empty() { update_anndata_locations(&annotation, adata_files)?; }
-        Ok(Self { annotation, anndatas: Slot::new(StackedAnnData::new(anndatas)?) })
+        let anndatas = match StackedAnnData::new(anndatas)? {
+            Some(ann) => Slot::new(ann),
+            _ => Slot::empty(),
+        };
+        Ok(Self { annotation, anndatas })
     }
 
     /// Subsetting an AnnDataSet will not rearrange the data between
     /// AnnData objects.
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
-        ensure!(!self.anndatas.is_empty(), "anndatas is empty");
+    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<Option<Vec<usize>>> {
         match self.anndatas.inner().0.deref() {
-            None => self.annotation.subset(obs_idx, var_idx)?,
+            None => {
+                self.annotation.subset(obs_idx, var_idx)?;
+                Ok(None)
+            },
             Some(ann) => {
-                let obs_idx_ = obs_idx.map(|x|
-                    ann.accum.lock().sort_index_to_buckets(x)
-                );
-                let i = obs_idx_.as_ref().map(|x| x.as_slice());
-                self.annotation.subset(i, var_idx)?;
-                ann.subset(i, var_idx)?;
+                let ori_idx = ann.subset(obs_idx, var_idx)?;
+                self.annotation.subset(ori_idx.as_ref().map(|x| x.as_slice()), var_idx)?;
+                Ok(ori_idx)
             }
         }
-        Ok(())
     }
 
-    pub fn write<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<()>
+    pub fn write<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<Option<Vec<usize>>>
     {
         let file = dir.as_ref().join("_dataset.h5ads");
         let anndata_dir = dir.as_ref().join("anndatas");
         std::fs::create_dir_all(anndata_dir.clone())?;
         match self.anndatas.inner().0.deref() {
-            None => self.annotation.write(obs_idx, var_idx, file)?,
+            None => {
+                self.annotation.write(obs_idx, var_idx, file)?;
+                Ok(obs_idx.map(|x| x.iter().map(|i| *i).collect()))
+            }
             Some(ann) => {
-                let obs_idx_ = obs_idx.map(|x|
-                    ann.accum.lock().sort_index_to_buckets(x)
-                );
-                let i = obs_idx_.as_ref().map(|x| x.as_slice());
-                let adata = self.annotation.copy(i, var_idx, file)?;
-
-                let mut filenames = ann.write(i, var_idx, anndata_dir.clone())?;
+                let (files, ori_idx) = ann.write(obs_idx, var_idx, anndata_dir.clone())?;
+                let adata = self.annotation.copy(ori_idx.as_ref().map(|x| x.as_slice()), var_idx, file)?;
                 let parent_dir = if anndata_dir.is_absolute() {
                     anndata_dir
                 } else {
                     Path::new("anndatas").to_path_buf()
                 };
-                filenames.values_mut().for_each(|fl|
-                    *fl = parent_dir.join(fl.as_str()).to_str().unwrap().to_string()
-                );
-                update_anndata_locations(&adata, filenames)?;
 
+                let (keys, filenames): (Vec<_>, Vec<_>) = files.into_iter().map(|(k, v)|
+                    (k, parent_dir.join(v.as_str()).to_str().unwrap().to_string())
+                ).unzip();
+                let file_loc = DataFrame::new(vec![Series::new("keys", keys), Series::new("file_path", filenames)])?;
+                adata.add_uns_item("AnnDataSet", file_loc)?;
                 adata.close()?;
+                Ok(ori_idx)
             }
         }
-        Ok(())
     }
 
     /// Copy and save the AnnDataSet to a new directory.
     /// This will copy all children AnnData files.
-    pub fn copy<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<Self> {
+    pub fn copy<P: AsRef<Path>>(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>, dir: P) -> Result<(Self, Option<Vec<usize>>)> {
         let file = dir.as_ref().join("_dataset.h5ads");
-        self.write(obs_idx, var_idx, dir)?;
-        AnnDataSet::read(File::open_rw(file)?, None)
+        let ori_idx = self.write(obs_idx, var_idx, dir)?;
+        let data = AnnDataSet::read(File::open_rw(file)?, None)?;
+        Ok((data, ori_idx))
     }
 
     /// Get reference to the inner AnnData annotation without the `.X` field.

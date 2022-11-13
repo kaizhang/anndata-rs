@@ -313,8 +313,9 @@ where
         group.new_attr_builder().with_data(&[self.nrows(), self.ncols()]).create("shape")?;
         create_dataset(&group, "data", self.values())?;
 
+        let num_cols = self.ncols();
         // Use i32 or i64 as indices type in order to be compatible with scipy
-        if TryInto::<i32>::try_into(self.ncols() - 1).is_ok() {
+        if TryInto::<i32>::try_into(num_cols.saturating_sub(1)).is_ok() {
             let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
                 .map(|x| (*x).try_into().ok()).collect();
             if let Some(indptr_i32) = try_convert_indptr {
@@ -327,13 +328,13 @@ where
                 create_dataset(&group, "indices", self.col_indices().iter()
                     .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
             }
-        } else if TryInto::<i64>::try_into(self.ncols() - 1).is_ok() {
+        } else if TryInto::<i64>::try_into(num_cols.saturating_sub(1)).is_ok() {
                 create_dataset(&group, "indptr", self.row_offsets().iter()
                     .map(|x| TryInto::<i64>::try_into(*x).unwrap()).collect::<Vec<_>>().as_slice())?;
                 create_dataset(&group, "indices", self.col_indices().iter()
                     .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
         } else {
-            panic!("column indices are too large")
+            panic!("The number of columns ({}) is too large to be stored as i64", num_cols);
         }
 
         Ok(DataContainer::H5Group(group))

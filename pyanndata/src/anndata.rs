@@ -493,8 +493,8 @@ impl AnnDataSet {
 
     /// :class:`.PyStackedMatrixElem` of shape `n_obs` x `n_vars`.
     #[getter(X)]
-    pub fn get_x(&self) -> PyStackedMatrixElem {
-        PyStackedMatrixElem(self.0.inner().get_inner_adatas().inner().get_x().clone())
+    pub fn get_x(&self) -> Option<PyStackedMatrixElem> {
+        self.0.inner().get_inner_adatas().lock().as_ref().map(|x| PyStackedMatrixElem(x.get_x().clone()))
     }
 
     /// :class:`.PyElemCollection`.
@@ -532,7 +532,7 @@ impl AnnDataSet {
     /// 
     /// Returns
     /// -------
-    /// Optional[AnnDataSet]
+    /// None | list[int] | Tuple[AnnDataSet, list[int]]
     #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     pub fn subset<'py>(
         &self,
@@ -540,17 +540,16 @@ impl AnnDataSet {
         obs_indices: Option<&'py PyAny>,
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
-    ) -> PyResult<Option<AnnDataSet>> {
+    ) -> Result<PyObject> {
         let i = obs_indices.and_then(|x| self.normalize_index(py, x, 0).unwrap());
         let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
         Ok(match out {
-            None => {
-                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice)).unwrap();
-                None
+            None => self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))?
+                .to_object(py),
+            Some(dir) => {
+                let (adata, idx) = self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir)?;
+                (AnnDataSet::wrap(adata).into_py(py), idx).to_object(py)
             },
-            Some(dir) => Some(AnnDataSet::wrap(
-                self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir).unwrap()
-            )),
         })
     }
 
@@ -564,7 +563,7 @@ impl AnnDataSet {
     #[pyo3(text_signature = "($self, chunk_size, /)")]
     #[pyo3(name = "chunked_X")]
     pub fn chunked_x(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
-        self.get_x().chunked(chunk_size)
+        self.get_x().expect("X is empty").chunked(chunk_size)
     }
  
     /// :class:`.StackedAnnData`.
@@ -585,7 +584,10 @@ impl AnnDataSet {
     /// -------
     /// AnnDataSet
     #[pyo3(text_signature = "($self, dirname)")]
-    pub fn copy(&self, dirname: &str) -> Self { AnnDataSet::wrap(self.0.inner().copy(None, None, dirname).unwrap()) }
+    pub fn copy(&self, dirname: &str) -> Result<Self> {
+        let (adata, _) = self.0.inner().copy(None, None, dirname)?;
+        Ok(AnnDataSet::wrap(adata))
+    }
 
     /// Close the AnnDataSet object.
     #[pyo3(text_signature = "($self)")]

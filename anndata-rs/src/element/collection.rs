@@ -238,7 +238,7 @@ impl StackedAxisArrays {
         arrays: Vec<&InnerAxisArrays>,
         nrows: &Arc<Mutex<usize>>,
         ncols: &Arc<Mutex<usize>>,
-        accum: &Arc<Mutex<AccumLength>>,
+        accum: &Arc<Mutex<VecVecIndex>>,
     ) -> Result<Self> {
         if arrays.is_empty() {
             return Err(anyhow!("input is empty"));

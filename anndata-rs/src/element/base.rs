@@ -499,37 +499,56 @@ impl MatrixElem {
     pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix { ChunkedMatrix::new(self.clone(), chunk_size) }
 }
 
-/// This struct stores the accumulated lengths of objects in a vector
-pub struct AccumLength(Vec<usize>);
+/// This struct is used to perform index lookup for Vectors of Vectors.
+pub struct VecVecIndex(Vec<usize>);
 
-impl AccumLength {
-    /// convert index to adata index and inner element index
-    pub fn normalize_index(&self, i: usize) -> (usize, usize) {
-        match self.0.binary_search(&i) {
-            Ok(i_) => (i_, 0),
-            Err(i_) => (i_ - 1, i - self.0[i_ - 1]),
+impl VecVecIndex {
+    /// Find the outer and inner index for a given index corresponding to the
+    /// flattened view. 
+    pub fn ix(&self, i: &usize) -> (usize, usize) {
+        let j = self.outer_ix(i);
+        (j, i - self.0[j])
+    }
+
+    /// The inverse of ix.
+    pub fn inv_ix(&self, idx: (usize, usize)) -> usize { self.0[idx.0] + idx.1 }
+
+    /// Find the outer index for a given index corresponding to the flattened view. 
+    pub fn outer_ix(&self, i: &usize) -> usize { 
+        match self.0.binary_search(i) {
+            Ok(i_) => i_,
+            Err(i_) => i_ - 1,
         }
     }
 
-    /// Reorder indices such that consecutive indices come from the same underlying
-    /// element.
-    pub fn sort_index_to_buckets(&self, indices: &[usize]) -> Vec<usize> {
-        indices.into_iter().map(|x| *x)
-            .sorted_by_cached_key(|x| self.normalize_index(*x).0).collect()
+    pub fn ix_group_by_outer<'a, I>(&self, indices: I) -> std::collections::HashMap<usize, Vec<usize>>
+    where I: Iterator<Item = &'a usize>
+    {
+        indices.map(|x| self.ix(x)).sorted_by_key(|x| x.0).into_iter().group_by(|x| x.0).into_iter()
+            .map(|(key, grp)| (key, grp.map(|x| x.1).collect())).collect()
     }
 
-    pub fn normalize_indices(&self, indices: &[usize]) -> std::collections::HashMap<usize, Vec<usize>> {
-        indices.iter().map(|x| self.normalize_index(*x))
-            .sorted_by_key(|x| x.0).into_iter()
-            .group_by(|x| x.0).into_iter().map(|(key, grp)|
-                (key, grp.map(|x| x.1).collect())
-            ).collect()
-    }
-
-    pub fn size(&self) -> usize { *self.0.last().unwrap_or(&0) }
+    /// The total number of elements
+    pub fn len(&self) -> usize { *self.0.last().unwrap_or(&0) }
 }
 
-impl FromIterator<usize> for AccumLength {
+impl FromIterator<usize> for VecVecIndex {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = usize>,
+    {
+        let index : Vec<usize> = std::iter::once(0).chain(
+            iter.into_iter().scan(0, |state, x| {
+                *state = *state + x;
+                Some(*state)
+            })
+        ).collect();
+        VecVecIndex(index)
+    }
+}
+
+/*
+impl<T> From<&[T]> for VecVecIndex {
     fn from_iter<T>(iter: T) -> Self
     where
         T: IntoIterator<Item = usize>,
@@ -540,9 +559,10 @@ impl FromIterator<usize> for AccumLength {
                 Some(*state)
             })
         ).collect();
-        AccumLength(accum)
+        VecVecIndex(accum)
     }
 }
+*/
 
 // TODO: remove Arc.
 #[derive(Clone)]
@@ -550,7 +570,7 @@ pub struct StackedMatrixElem {
     nrows: Arc<Mutex<usize>>,
     ncols: Arc<Mutex<usize>>,
     pub elems: Arc<Vec<MatrixElem>>,
-    pub(crate) accum: Arc<Mutex<AccumLength>>,
+    index: Arc<Mutex<VecVecIndex>>,
 }
 
 impl std::fmt::Display for StackedMatrixElem {
@@ -574,12 +594,12 @@ impl StackedMatrixElem
         elems: Vec<MatrixElem>,
         nrows: Arc<Mutex<usize>>,
         ncols: Arc<Mutex<usize>>,
-        accum: Arc<Mutex<AccumLength>>,
+        index: Arc<Mutex<VecVecIndex>>,
     ) -> Result<Self> {
         if !elems.iter().map(|x| x.dtype()).all_equal() {
             bail!("dtype not equal")
         } else {
-            Ok(Self { nrows, ncols, elems: Arc::new(elems), accum })
+            Ok(Self { nrows, ncols, elems: Arc::new(elems), index })
         }
     }
 
@@ -589,8 +609,8 @@ impl StackedMatrixElem
     pub fn read(&self, ridx_: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<Box<dyn MatrixData>> {
         match ridx_ {
             Some(ridx) => {
-                let accum = self.accum.lock();
-                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx.iter().map(|x| accum.normalize_index(*x))
+                let index = self.index.lock();
+                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx.iter().map(|x| index.ix(x))
                     .enumerate().sorted_by_key(|x| x.1.0).into_iter()
                     .group_by(|x| x.1.0).into_iter().map(|(key, grp)| {
                         let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
