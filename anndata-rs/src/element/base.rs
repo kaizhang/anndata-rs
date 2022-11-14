@@ -247,10 +247,14 @@ impl DataFrameElem {
 
     pub fn update(&self, data: DataFrame) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty DataFrameElem");
+        let num_recs = data.height();
         let mut inner = self.inner();
-        ensure!(inner.index.len() == data.height(), "cannot update dataframe as lengths differ");
+        ensure!(
+            num_recs == 0 || inner.index.len() == num_recs,
+            "cannot update dataframe as lengths differ"
+        );
         inner.container = data.update(&inner.container)?;  // Note updating the container removes the index
-        inner.index.write(&inner.container)?; // add back the index
+        inner.index.write(&inner.container)?; // So we need to add back the index here
         inner.column_names = data.get_column_names_owned().into_iter().collect();
         if inner.element.is_some() { inner.element = Some(data); }
         Ok(())

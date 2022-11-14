@@ -86,10 +86,16 @@ def test_creation(tmp_path):
     adata.uns['df'] = pd.DataFrame([[1, 2, 3], [4, 5, 6]], columns=["a", "b", "c"])
 
     adata.obs = pl.DataFrame({"a": ['1', '2'], "b": [3, 4]})
-    adata.obs_names = adata.obs['a']
+    obs_names = list(adata.obs['a'])
+    adata.obs_names = obs_names
+    adata.obs = pl.DataFrame()
+    assert adata.obs_names == obs_names
 
     adata.var = pl.DataFrame({"a": [1, 2], "b": ['3', '4']})
-    adata.var_names = adata.var['b']
+    var_names = list(adata.var['b'])
+    adata.var_names = var_names
+    adata.var = pl.DataFrame()
+    assert adata.var_names == var_names
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))

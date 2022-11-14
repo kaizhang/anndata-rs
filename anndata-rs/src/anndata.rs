@@ -743,7 +743,7 @@ impl AnnDataOp for AnnData {
             },
             Some(obs) => {
                 let nrows = obs.nrows();
-                self.set_n_obs(nrows);
+                if nrows != 0 { self.set_n_obs(nrows); }
                 if self.obs.is_empty() {
                     self.obs.insert(InnerDataFrameElem::new(&self.file, "obs", DataFrameIndex::from(nrows), &obs)?);
                 } else {
@@ -762,7 +762,7 @@ impl AnnDataOp for AnnData {
             },
             Some(var) => {
                 let nrows = var.nrows();
-                self.set_n_vars(nrows);
+                if nrows != 0 { self.set_n_vars(nrows); }
                 if self.var.is_empty() {
                     let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
                     let df = InnerDataFrameElem::new(&self.file, "var", index, &var)?;
