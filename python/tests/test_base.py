@@ -125,7 +125,9 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
     adata2 = AnnData( filename=h5ad(tmp_path))
     adata3 = AnnData(filename=h5ad(tmp_path))
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
 
     # dense array
@@ -134,7 +136,9 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     merged = np.concatenate([x1, x2, x3], axis=0)
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
     np.testing.assert_array_equal(merged, dataset.X[:])
 
@@ -143,7 +147,9 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
     adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path))
     adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path))
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
     np.testing.assert_array_equal(merged, dataset.X[:].todense())
 

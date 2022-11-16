@@ -5,14 +5,15 @@ use flate2::read::MultiGzDecoder;
 use std::fs::File;
 use crate::utils::instance::*;
 use pyo3::{PyResult, PyAny, Python};
+use std::path::Path;
 
 /// Determine if a file is gzipped.
-pub(crate) fn is_gzipped(file: &str) -> bool {
+pub(crate) fn is_gzipped<P: AsRef<Path>>(file: P) -> bool {
     MultiGzDecoder::new(File::open(file).unwrap()).header().is_some()
 }
 
-pub(crate) fn open_file(file: &str) -> Box<dyn std::io::Read> {
-    if is_gzipped(file) {
+pub(crate) fn open_file<P: AsRef<Path>>(file: P) -> Box<dyn std::io::Read> {
+    if is_gzipped(&file) {
         Box::new(MultiGzDecoder::new(File::open(file).unwrap()))
     } else {
         Box::new(File::open(file).unwrap())

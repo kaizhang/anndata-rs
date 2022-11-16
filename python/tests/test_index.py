@@ -68,7 +68,9 @@ def test_index_anndataset(x1, x2, x3, row_idx, col_idx, tmp_path):
     adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
     np.testing.assert_array_equal(merged, dataset.X[:])
     np.testing.assert_array_equal(merged[row_idx, :], dataset.X[row_idx, :])
@@ -80,7 +82,9 @@ def test_index_anndataset(x1, x2, x3, row_idx, col_idx, tmp_path):
     adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path))
     adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path))
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
     np.testing.assert_array_equal(merged, dataset.X[:].todense())
     np.testing.assert_array_equal(merged[:, col_idx], dataset.X[:, col_idx].todense())

@@ -9,8 +9,9 @@ use anndata_rs::{
 use polars::frame::DataFrame;
 use anyhow::Result;
 use pyo3::{prelude::*, PyResult, Python, types::{IntoPyDict}, exceptions::{PyException, PyTypeError}};
-use std::{collections::HashMap, ops::Deref};
+use std::{collections::HashMap, ops::Deref, path::PathBuf};
 use paste::paste;
+use rayon::iter::{ParallelIterator, IntoParallelIterator};
 
 macro_rules! def_df_accessor {
     ($name:ty, { $($field:ident),* }) => {
@@ -88,16 +89,43 @@ macro_rules! def_arr_accessor {
     }
 }
 
-/// An annotated data matrix. 
-/// `AnnData` stores a data matrix `X` together with annotations of
-/// observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
-/// and unstructured annotations `uns`.
-/// `AnnData` is stored as a HDF5 file. Opening/creating an AnnData object 
-/// does not read data from the HDF5 file. Data is copied to memory only when
-/// individual element is requested (or when cache is turned on).
+/** An annotated data matrix. 
+    
+    `AnnData` stores a data matrix `X` together with annotations of
+    observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
+    and unstructured annotations `uns`.
+    `AnnData` is stored as a HDF5 file. Opening/creating an AnnData object 
+    does not read data from the HDF5 file. Data is copied to memory only when
+    individual element is requested (or when cache is turned on).
+
+    Parameters
+    ----------
+    X
+        A #observations × #variables data matrix. A view of the data is used if the
+        data type matches, otherwise, a copy is made.
+    obs
+        Key-indexed one-dimensional observations annotation of length #observations.
+    var
+        Key-indexed one-dimensional variables annotation of length #variables.
+    uns
+        Key-indexed unstructured annotation.
+    obsm
+        Key-indexed multi-dimensional observations annotation of length #observations.
+        If passing a :class:`~numpy.ndarray`, it needs to have a structured datatype.
+    varm
+        Key-indexed multi-dimensional variables annotation of length #variables.
+        If passing a :class:`~numpy.ndarray`, it needs to have a structured datatype.
+    filename
+        Name of backing file.
+
+    See Also
+    --------
+    read
+    read_csv
+*/
 #[pyclass]
 #[pyo3(text_signature =
-    "(*, filename, X, n_obs, n_vars, obs, var, obsm, obsp, varm, varp, uns)"
+    "(*, filename, X, n_obs, n_vars, obs, var, obsm, varm, uns)"
 )]
 #[repr(transparent)]
 #[derive(Clone)]
@@ -129,20 +157,18 @@ impl AnnData {
 impl AnnData {
     #[new]
     #[args("*", filename, X = "None", n_obs = "None", n_vars = "None", obs = "None", var = "None",
-        obsm = "None", obsp = "None", varm = "None", varp = "None", uns = "None",
+        obsm = "None", varm = "None", uns = "None",
     )]
     pub fn new<'py>(
         py: Python<'py>,
-        filename: &str,
+        filename: PathBuf,
         X: Option<&'py PyAny>,
         n_obs: Option<usize>,
         n_vars: Option<usize>,
         obs: Option<&'py PyAny>,
         var: Option<&'py PyAny>,
         obsm: Option<HashMap<String, &'py PyAny>>,
-        obsp: Option<HashMap<String, &'py PyAny>>,
         varm: Option<HashMap<String, &'py PyAny>>,
-        varp: Option<HashMap<String, &'py PyAny>>,
         uns: Option<HashMap<String, &'py PyAny>>,
     ) -> PyResult<Self> {
         let mut anndata = AnnData::wrap(anndata::AnnData::new(
@@ -153,9 +179,7 @@ impl AnnData {
         if obs.is_some() { anndata.set_obs(py, obs)?; }
         if var.is_some() { anndata.set_var(py, var)?; }
         if obsm.is_some() { anndata.set_obsm(py, obsm)?; }
-        if obsp.is_some() { anndata.set_obsp(py, obsp)?; }
         if varm.is_some() { anndata.set_varm(py, varm)?; }
-        if varp.is_some() { anndata.set_varp(py, varp)?; }
         if uns.is_some() { anndata.set_uns(py, uns)?; }
         Ok(anndata)
     }
@@ -252,7 +276,7 @@ impl AnnData {
     ///     obs indices
     /// var_indices
     ///     var indices
-    /// out
+    /// out: Path
     ///     File name of the output `.h5ad` file. If provided, the result will be
     ///     saved to a new file and the original AnnData object remains unchanged.
     /// 
@@ -265,7 +289,7 @@ impl AnnData {
         py: Python<'py>,
         obs_indices: Option<&'py PyAny>,
         var_indices: Option<&'py PyAny>,
-        out: Option<&str>,
+        out: Option<PathBuf>,
     ) -> PyResult<Option<AnnData>> {
         let i = obs_indices.and_then(|x| self.normalize_index(py, x, 0).unwrap());
         let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
@@ -295,7 +319,7 @@ impl AnnData {
     /// -------
     /// AnnData
     #[pyo3(text_signature = "($self, filename)")]
-    pub fn copy(&self, filename: &str) -> Self {
+    pub fn copy(&self, filename: PathBuf) -> Self {
         AnnData::wrap(self.0.inner().copy(None, None, filename).unwrap())
     }
 
@@ -306,7 +330,7 @@ impl AnnData {
     /// filename
     ///     File name of the output `.h5ad` file. 
     #[pyo3(text_signature = "($self, filename)")]
-    pub fn write(&self, filename: &str) {
+    pub fn write(&self, filename: PathBuf) {
         self.0.inner().write(None, None, filename).unwrap();
     }
 
@@ -391,22 +415,35 @@ impl StackedAnnData {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
-/// Similar to `AnnData`, `AnnDataSet` contains annotations of
-/// observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
-/// and unstructured annotations `uns`. Additionally it provides lazy access to 
-/// concatenated component AnnData objects, including `X`, `obs`, `obsm`, `obsp`.
-/// 
-/// Notes
-/// ------
-/// AnnDataSet doesn't copy underlying AnnData objects. It stores the references
-/// to individual anndata files. If you move the anndata files to a new location, 
-/// remember to update the anndata file locations when opening an AnnDataSet object.
-/// 
-/// See Also
-/// --------
-/// create_dataset
-/// read_dataset
+/** Similar to `AnnData`, `AnnDataSet` contains annotations of
+    observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
+    and unstructured annotations `uns`. Additionally it provides lazy access to 
+    concatenated component AnnData objects, including `X`, `obs`, `obsm`, `obsp`.
+
+    Parameters
+    ----------
+    adatas: list[(str, Path)] | list[(str, AnnData)]
+        List of key and file name (or backed AnnData object) pairs.
+    filename: Path
+        File name of the output file containing the AnnDataSet object.
+    add_key: str
+        The column name in obs to store the keys
+
+    Notes
+    ------
+    AnnDataSet does not copy underlying AnnData objects. It stores the references
+    to individual anndata files. If you move the anndata files to a new location, 
+    remember to update the anndata file locations when opening an AnnDataSet object.
+
+    See Also
+    --------
+    create_dataset
+    read_dataset
+*/
 #[pyclass]
+#[pyo3(text_signature =
+    "(*, adatas, filename, add_key /)"
+)]
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct AnnDataSet(Slot<anndata::AnnDataSet>);
@@ -441,12 +478,28 @@ impl AnnDataSet {
     }
 }
 
+#[derive(FromPyObject)]
+pub enum AnnDataFile {
+    Path(PathBuf),
+    Data(AnnData),
+}
+
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    pub fn new(adatas: Vec<(String, AnnData)>, filename: &str, add_key: &str) -> Self {
-        let data = adatas.into_iter().map(|(k, v)| (k, v.0.extract().unwrap())).collect();
-        AnnDataSet::wrap(anndata::AnnDataSet::new(data, filename, add_key).unwrap())
+    #[args("*", adatas, filename, add_key="\"sample\"")]
+    pub fn new(adatas: Vec<(String, AnnDataFile)>, filename: PathBuf, add_key: &str) -> Result<Self> {
+        let anndatas = adatas.into_par_iter().map(|(key, data_file)| {
+            let adata = match data_file {
+                AnnDataFile::Data(data) => data.0.extract().unwrap(),
+                AnnDataFile::Path(path) => {
+                    let file = hdf5::File::open(path)?;
+                    anndata::AnnData::read(file)?
+                },
+            };
+            Ok((key, adata))
+        }).collect::<Result<_>>()?;
+        Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(anndatas, filename, add_key)?))
     }
 
     /// Shape of data matrix (`n_obs`, `n_vars`).
@@ -594,14 +647,14 @@ impl AnnDataSet {
     /// 
     /// Parameters
     /// ----------
-    /// dirname
+    /// dirname: Path
     ///     Name of the directory used to store the result.
     /// 
     /// Returns
     /// -------
     /// AnnDataSet
     #[pyo3(text_signature = "($self, dirname)")]
-    pub fn copy(&self, dirname: &str) -> Result<Self> {
+    pub fn copy(&self, dirname: PathBuf) -> Result<Self> {
         let (adata, _) = self.0.inner().copy(None, None, dirname)?;
         Ok(AnnDataSet::wrap(adata))
     }
@@ -626,7 +679,7 @@ impl AnnDataSet {
     /// 
     /// Parameters
     /// ----------
-    /// file: Optional[str]
+    /// file: Optional[Path]
     ///     If provided, the resultant AnnData object will be backed. Default: None.
     /// copy_X: bool
     ///     Whether to copy the `.X` field. Default: True.
@@ -636,7 +689,7 @@ impl AnnDataSet {
     /// AnnData
     #[args(file = "None", copy_X = "true")]
     #[pyo3(text_signature = "($self, file, copy_X, /)")]
-    pub fn to_adata<'py>(&self, py: Python<'py>, file: Option<&'py PyAny>, copy_X: bool) -> Result<PyObject> {
+    pub fn to_adata<'py>(&self, py: Python<'py>, file: Option<PathBuf>, copy_X: bool) -> Result<PyObject> {
         if let Some(_) = file {
             unimplemented!("saving backed anndata");
         } else {

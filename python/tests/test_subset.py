@@ -32,13 +32,12 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     adata = AnnData(
         X=x,
         obs = dict(ident=ident, txt=obs),
-        #obs = dict(txt=obs),
         obsm = dict(x=obsm, y=csr_matrix(obsm)),
-        obsp = dict(x=obsp, y=csr_matrix(obsp)),
         varm = dict(x=varm, y=csr_matrix(varm)),
-        varp = dict(x=varp, y=csr_matrix(varp)),
         filename = h5ad(tmp_path),
     )
+    adata.obsp = dict(x=obsp, y=csr_matrix(obsp))
+    adata.varp = dict(x=varp, y=csr_matrix(varp))
 
     adata_subset = adata.subset(indices, indices2, out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[np.ix_(indices, indices2)])
@@ -91,9 +90,9 @@ def test_chunk(tmp_path):
     adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     adata = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)],
-        h5ad(tmp_path),
-        "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
 
     s = merged.sum(axis = 0)
@@ -122,7 +121,9 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
     merged = np.concatenate([x1, x2, x3], axis=0)
     dataset = AnnDataSet(
-        [("1", adata1), ("2", adata2), ("3", adata3)], h5ad(tmp_path), "batch"
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
     )
     dataset.obs_names = dataset.obs['batch'].to_numpy() + "-" + np.array(dataset.obs_names)
     obs_names = np.array(dataset.obs_names)
