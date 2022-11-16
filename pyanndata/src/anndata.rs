@@ -19,7 +19,11 @@ macro_rules! def_df_accessor {
             #[pymethods]
             impl $name {
             $(
-                /// :class:`.PyDataFrameElem`.
+                /// One-dimensional annotation.
+                /// 
+                /// Returns
+                /// -------
+                /// PyDataFrameElem
                 #[getter($field)]
                 fn [<get_ $field>](&self) -> Option<PyDataFrameElem> {
                     let item = self.0.inner().[<get_ $field>]().clone();
@@ -118,9 +122,17 @@ macro_rules! def_arr_accessor {
     filename
         Name of backing file.
 
+    Note
+    ----
+    This is a backed AnnData. You can use :func:`~AnnData.to_memory` to convert
+    it to an in-memory AnnData object. See
+    `here <https://anndata.readthedocs.io/en/latest/index.html>`_
+    for the documentation of in-memory AnnData objects.
+
     See Also
     --------
     read
+    read_mtx
     read_csv
 */
 #[pyclass]
@@ -185,10 +197,18 @@ impl AnnData {
     }
 
     /// Shape of data matrix (`n_obs`, `n_vars`).
+    /// 
+    /// Returns
+    /// -------
+    /// tuple[int, int]
     #[getter]
     pub fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     /// Number of observations.
+    /// 
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub fn n_obs(&self) -> usize { self.0.inner().n_obs() }
 
@@ -196,6 +216,10 @@ impl AnnData {
     pub fn set_n_obs(&self, n: usize) { self.0.inner().set_n_obs(n) }
 
     /// Number of variables/features.
+    /// 
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub fn n_vars(&self) -> usize { self.0.inner().n_vars() }
 
@@ -203,6 +227,10 @@ impl AnnData {
     pub fn set_n_vars(&self, n: usize) { self.0.inner().set_n_vars(n) }
 
     /// Names of variables.
+    /// 
+    /// Returns
+    /// -------
+    /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
@@ -218,6 +246,10 @@ impl AnnData {
     pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().var_ix(&names).unwrap() }
 
     /// Names of observations.
+    /// 
+    /// Returns
+    /// -------
+    /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
 
@@ -232,7 +264,11 @@ impl AnnData {
     #[pyo3(text_signature = "($self, names)")]
     pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().obs_ix(&names).unwrap() }
 
-    /// :class:`.PyMatrixElem` of shape `n_obs` x `n_vars`.
+    /// Data matrix of shape n_obs × n_vars.
+    /// 
+    /// Returns
+    /// -------
+    /// PyMatrixElem
     #[getter(X)]
     pub fn get_x(&self) -> PyMatrixElem {
         PyMatrixElem(self.0.inner().get_x().clone())
@@ -253,7 +289,11 @@ impl AnnData {
         Ok(())
     }
 
-    /// :class:`.PyElemCollection`.
+    /// Unstructured annotation (ordered dictionary).
+    /// 
+    /// Returns
+    /// -------
+    /// PyElemCollection
     #[getter(uns)]
     pub fn get_uns(&self) -> PyElemCollection {
         PyElemCollection(self.0.inner().get_uns().clone())
@@ -304,7 +344,11 @@ impl AnnData {
         })
     }
             
-    /// Filename of the underlying .h5ad file.
+    /// Filename of the backing .h5ad file.
+    /// 
+    /// Returns
+    /// -------
+    /// str
     #[getter]
     pub fn filename(&self) -> String { self.0.inner().filename() }
 
@@ -342,6 +386,11 @@ impl AnnData {
         }
     }
 
+    /// Whether the AnnData object is backed. This is always true.
+    /// 
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub fn isbacked(&self) -> bool { true }
 
@@ -350,7 +399,11 @@ impl AnnData {
     /// Parameters
     /// ----------
     /// chunk_size : int
-    ///     Row size of a single chunk.
+    ///     Row size of a single chunk. Default: 500.
+    /// 
+    /// Returns
+    /// -------
+    /// PyChunkedMatrix
     #[args(chunk_size = "500")]
     #[pyo3(text_signature = "($self, chunk_size, /)")]
     #[pyo3(name = "chunked_X")]
@@ -359,12 +412,17 @@ impl AnnData {
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
+    /// 
+    /// Returns
+    /// -------
+    /// AnnData
     #[pyo3(text_signature = "($self)")]
     pub fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyObject> {
         Ok(PyAnnData::from_anndata(py, self.inner().deref())?.to_object(py))
     }
 
     /// If the AnnData object has been closed.
+    /// 
     /// Returns
     /// -------
     /// bool
@@ -429,15 +487,14 @@ impl StackedAnnData {
     add_key: str
         The column name in obs to store the keys
 
-    Notes
-    ------
+    Note
+    ----
     AnnDataSet does not copy underlying AnnData objects. It stores the references
     to individual anndata files. If you move the anndata files to a new location, 
     remember to update the anndata file locations when opening an AnnDataSet object.
 
     See Also
     --------
-    create_dataset
     read_dataset
 */
 #[pyclass]
@@ -503,18 +560,34 @@ impl AnnDataSet {
     }
 
     /// Shape of data matrix (`n_obs`, `n_vars`).
+    /// 
+    /// Returns
+    /// -------
+    /// tuple[int, int]
     #[getter]
     pub fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
 
     /// Number of observations.
+    /// 
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub fn n_obs(&self) -> usize { self.0.inner().n_obs() }
 
     /// Number of variables/features.
+    /// 
+    /// Returns
+    /// -------
+    /// int
     #[getter]
     pub fn n_vars(&self) -> usize { self.0.inner().n_vars() }
 
     /// Names of variables.
+    /// 
+    /// Returns
+    /// -------
+    /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
 
@@ -530,6 +603,10 @@ impl AnnDataSet {
     pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().var_ix(&names).unwrap() }
 
     /// Names of observations.
+    /// 
+    /// Returns
+    /// -------
+    /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
 
@@ -544,13 +621,21 @@ impl AnnDataSet {
     #[pyo3(text_signature = "($self, names)")]
     pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().obs_ix(&names).unwrap() }
 
-    /// :class:`.PyStackedMatrixElem` of shape `n_obs` x `n_vars`.
+    /// Vertically concatenated data matrices of shape `n_obs` x `n_vars`.
+    /// 
+    /// Returns
+    /// -------
+    /// PyStackedMatrixElem
     #[getter(X)]
     pub fn get_x(&self) -> Option<PyStackedMatrixElem> {
         self.0.inner().get_inner_adatas().lock().as_ref().map(|x| PyStackedMatrixElem(x.get_x().clone()))
     }
 
-    /// :class:`.PyElemCollection`.
+    /// Unstructured annotation (ordered dictionary).
+    /// 
+    /// Returns
+    /// -------
+    /// PyElemCollection
     #[getter(uns)]
     pub fn get_uns(&self) -> PyElemCollection {
         PyElemCollection(self.0.inner().get_uns().clone())
@@ -628,7 +713,7 @@ impl AnnDataSet {
     /// Parameters
     /// ----------
     /// chunk_size : int
-    ///     Row size of a single chunk.
+    ///     Row size of a single chunk. Default: 500.
     #[args(chunk_size = "500")]
     #[pyo3(text_signature = "($self, chunk_size, /)")]
     #[pyo3(name = "chunked_X")]
@@ -636,7 +721,11 @@ impl AnnDataSet {
         self.get_x().expect("X is empty").chunked(chunk_size)
     }
  
-    /// :class:`.StackedAnnData`.
+    /// View into the component AnnData objects.
+    /// 
+    /// Returns
+    /// -------
+    /// StackedAnnData
     #[getter(adatas)]
     pub fn adatas(&self) -> StackedAnnData { StackedAnnData(self.0.inner().get_inner_adatas().clone()) }
 
@@ -665,13 +754,19 @@ impl AnnDataSet {
         if let Some(dataset) = self.0.extract() { dataset.close().unwrap(); }
     }
 
-    /// If the AnnData object has been closed.
+    /// If the AnnDataSet object has been closed.
+    /// 
     /// Returns
     /// -------
     /// bool
     #[pyo3(text_signature = "($self)")]
     pub fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
 
+    /// Whether the AnnDataSet object is backed. This is always true.
+    /// 
+    /// Returns
+    /// -------
+    /// bool
     #[getter]
     pub fn isbacked(&self) -> bool { true }
 
