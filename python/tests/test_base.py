@@ -96,6 +96,7 @@ def test_creation(tmp_path):
     adata.var_names = var_names
     adata.var = pl.DataFrame()
     assert adata.var_names == var_names
+    assert adata.to_memory().var_names.to_list() == var_names
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
@@ -122,7 +123,7 @@ def test_type(tmp_path):
 def test_create_anndataset(x1, x2, x3, tmp_path):
     # empty dataset
     adata1 = AnnData(filename=h5ad(tmp_path))
-    adata2 = AnnData( filename=h5ad(tmp_path))
+    adata2 = AnnData(filename=h5ad(tmp_path))
     adata3 = AnnData(filename=h5ad(tmp_path))
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],

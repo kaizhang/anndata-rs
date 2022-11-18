@@ -995,13 +995,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             None => { self.0.setattr("obs", None::<PyObject>)?; },
             Some(obs) => {
                 let py = self.py();
-                let df = obs.rust_into_py(py)?.call_method0(py, "to_pandas")?;
                 let index = self.getattr("obs")?.getattr("index")?;
-                if !index.getattr("empty")?.is_true()? {
-                    self.setattr("obs", df.call_method1(py, "set_index", (index,))?)?;
+                let df = if obs.is_empty() {
+                    py.import("pandas")?.call_method1("DataFrame", (py.None(), index))?.into_py(py)
                 } else {
-                    self.setattr("obs", df)?;
-                }
+                    obs.rust_into_py(py)?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (index,))?
+                };
+                self.setattr("obs", df)?;
             },
         }
         Ok(())
@@ -1011,13 +1011,13 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             None => { self.0.setattr("var", None::<PyObject>)?; },
             Some(var) => {
                 let py = self.py();
-                let df = var.rust_into_py(py)?.call_method0(py, "to_pandas")?;
                 let index = self.getattr("var")?.getattr("index")?;
-                if !index.getattr("empty")?.is_true()? {
-                    self.setattr("var", df.call_method1(py, "set_index", (index,))?)?;
+                let df = if var.is_empty() {
+                    py.import("pandas")?.call_method1("DataFrame", (py.None(), index))?.into_py(py)
                 } else {
-                    self.setattr("var", df)?;
-                }
+                    var.rust_into_py(py)?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (index,))?
+                };
+                self.setattr("var", df)?;
             },
         }
         Ok(())

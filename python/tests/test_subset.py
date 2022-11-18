@@ -26,7 +26,7 @@ def h5ad(dir=Path("./")):
     varm = arrays(integer_dtypes(endianness='='), (79, 39)),
     varp = arrays(integer_dtypes(endianness='='), (79, 79)),
 )
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     ident = list(map(lambda x: str(x), range(len(obs))))
     adata = AnnData(
@@ -113,7 +113,7 @@ def test_chunk(tmp_path):
     idx2 = st.lists(st.integers(min_value=15, max_value=15+46), min_size=0, max_size=50),
     idx3 = st.lists(st.integers(min_value=15+47, max_value=15+47+76), min_size=0, max_size=50),
 )
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     # Setup
     adata1 = AnnData(X=x1, filename=h5ad(tmp_path))

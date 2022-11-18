@@ -41,7 +41,7 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize
         let slice = input.downcast::<pyo3::types::PySlice>()?.indices(
             length.try_into().unwrap()
         )?;
-        let indices = (slice.start.try_into().unwrap() ..= slice.stop.try_into().unwrap())
+        let indices = (slice.start.try_into().unwrap() .. slice.stop.try_into().unwrap())
             .step_by(slice.step.try_into().unwrap()).collect();
         (Some(indices), false)
     } else if input.is_instance_of::<pyo3::types::PyInt>()? {

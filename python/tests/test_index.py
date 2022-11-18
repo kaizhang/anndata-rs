@@ -30,10 +30,8 @@ def test_index(x, ridx, cidx, mask, tmp_path):
         filename = h5ad(tmp_path),
     )
 
-    np.testing.assert_array_equal(
-        adata.X[ridx, cidx],
-        x[np.ix_(ridx, cidx)],
-    )
+    np.testing.assert_array_equal(adata.X[:10, 4:50], x[:10, 4:50])
+    np.testing.assert_array_equal(adata.X[ridx, cidx], x[np.ix_(ridx, cidx)])
     np.testing.assert_array_equal(adata.X[ridx, :], x[ridx, :])
     np.testing.assert_array_equal(adata.X[pl.Series(ridx), :], x[ridx, :])
     np.testing.assert_array_equal(adata.X[:, cidx], x[:, cidx])
