@@ -315,7 +315,14 @@ impl PyStackedAxisArrays {
         self.0.contains_key(key)
     }
 
-    fn __getitem__(&self, key: &str) -> PyResult<PyStackedMatrixElem> {
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
+        match self.0.data.get(key) {
+            None => Err(PyKeyError::new_err(key.to_owned())),
+            Some(x) => x.read(None, None).unwrap().rust_into_py(py),
+        }
+    }
+
+    fn el(&self, key: &str) -> PyResult<PyStackedMatrixElem> {
         match self.0.data.get(key) {
             None => Err(PyKeyError::new_err(key.to_owned())),
             Some(x) => Ok(PyStackedMatrixElem(x.clone())),
