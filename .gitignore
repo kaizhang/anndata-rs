@@ -1,2 +1,17 @@
 */target
 Cargo.lock
+
+.hypothesis
+.pytest_cache
+
+build
+_build
+_autosummary
+
+*.h5ad
+*.h5
+
+.vscode
+
+*.egg-info
+__pycache__
