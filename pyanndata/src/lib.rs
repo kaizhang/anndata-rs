@@ -1,10 +1,12 @@
+mod anndata;
 pub mod element;
+pub mod io;
 pub mod iterator;
 pub mod utils;
-pub mod io;
-mod anndata;
 
-pub use crate::anndata::{PyAnnData, AnnData, AnnDataSet, StackedAnnData};
-pub use crate::element::{PyElem, PyMatrixElem, PyDataFrameElem, PyStackedMatrixElem,
-    PyStackedDataFrame, PyElemCollection, PyAxisArrays, PyStackedAxisArrays};
-pub use crate::io::{read, read_mtx, read_csv, read_dataset};
+pub use crate::anndata::{AnnData, AnnDataSet, PyAnnData, StackedAnnData};
+pub use crate::element::{
+    PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection, PyMatrixElem, PyStackedAxisArrays,
+    PyStackedDataFrame, PyStackedMatrixElem,
+};
+pub use crate::io::{read, read_csv, read_dataset, read_mtx};

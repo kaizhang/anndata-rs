@@ -1,7 +1,7 @@
 use crate::data::MatrixData;
 
-use std::{error::Error, fmt, io};
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
+use std::{error::Error, fmt, io};
 
 #[derive(Debug)]
 pub(crate) enum IoError {
@@ -103,23 +103,28 @@ where
         let row = entry
             .next()
             .ok_or(BadMatrixMarketFile)
-            .and_then(|s| s.parse::<usize>().or(Err(BadMatrixMarketFile))).unwrap();
+            .and_then(|s| s.parse::<usize>().or(Err(BadMatrixMarketFile)))
+            .unwrap();
         let col = entry
             .next()
             .ok_or(BadMatrixMarketFile)
-            .and_then(|s| s.parse::<usize>().or(Err(BadMatrixMarketFile))).unwrap();
+            .and_then(|s| s.parse::<usize>().or(Err(BadMatrixMarketFile)))
+            .unwrap();
         // MatrixMarket indices are 1-based
         let row = row.checked_sub(1).ok_or(BadMatrixMarketFile).unwrap();
         let col = col.checked_sub(1).ok_or(BadMatrixMarketFile).unwrap();
-        let val: T = entry.next().ok_or(BadMatrixMarketFile).and_then(|s| {
-            s.parse::<T>().or(Err(BadMatrixMarketFile))
-        }).unwrap();
+        let val: T = entry
+            .next()
+            .ok_or(BadMatrixMarketFile)
+            .and_then(|s| s.parse::<T>().or(Err(BadMatrixMarketFile)))
+            .unwrap();
 
         if entry.next().is_some() {
             panic!("BadMatrixMarketFile");
         }
         (row, col, val)
-    }).take(entries);
+    })
+    .take(entries);
     (rows, cols, iter)
 }
 
@@ -222,9 +227,10 @@ where
         // MatrixMarket indices are 1-based
         let row = row.checked_sub(1).ok_or(BadMatrixMarketFile)?;
         let col = col.checked_sub(1).ok_or(BadMatrixMarketFile)?;
-        let val: T = entry.next().ok_or(BadMatrixMarketFile).and_then(|s| {
-            s.parse::<T>().or(Err(BadMatrixMarketFile))
-        })?;
+        let val: T = entry
+            .next()
+            .ok_or(BadMatrixMarketFile)
+            .and_then(|s| s.parse::<T>().or(Err(BadMatrixMarketFile)))?;
         row_inds.push(row);
         col_inds.push(col);
         data.push(val);
@@ -249,9 +255,7 @@ where
         .map_err(|_| BadMatrixMarketFile)
 }
 
-pub(crate) fn read_header<R>(
-    reader: &mut R,
-) -> Result<(SymmetryMode, DataType), IoError>
+pub(crate) fn read_header<R>(reader: &mut R) -> Result<(SymmetryMode, DataType), IoError>
 where
     R: io::BufRead,
 {

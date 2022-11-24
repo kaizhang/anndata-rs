@@ -1,15 +1,17 @@
 pub mod conversion;
 pub mod instance;
 
-use flate2::read::MultiGzDecoder;
-use std::fs::File;
 use crate::utils::instance::*;
-use pyo3::{PyResult, PyAny, Python};
+use flate2::read::MultiGzDecoder;
+use pyo3::{PyAny, PyResult, Python};
+use std::fs::File;
 use std::path::Path;
 
 /// Determine if a file is gzipped.
 pub(crate) fn is_gzipped<P: AsRef<Path>>(file: P) -> bool {
-    MultiGzDecoder::new(File::open(file).unwrap()).header().is_some()
+    MultiGzDecoder::new(File::open(file).unwrap())
+        .header()
+        .is_some()
 }
 
 pub(crate) fn open_file<P: AsRef<Path>>(file: P) -> Box<dyn std::io::Read> {
@@ -32,22 +34,29 @@ pub fn to_range<'py>(py: Python<'py>, input: &'py PyAny, length: usize) -> PyRes
 }
 */
 
-pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize
-    ) -> PyResult<(Option<Vec<usize>>, bool)>
-{
+pub(crate) fn to_indices<'py>(
+    py: Python<'py>,
+    input: &'py PyAny,
+    length: usize,
+) -> PyResult<(Option<Vec<usize>>, bool)> {
     let indices = if is_none_slice(py, input)? {
         (None, false)
     } else if input.is_instance_of::<pyo3::types::PySlice>()? {
-        let slice = input.downcast::<pyo3::types::PySlice>()?.indices(
-            length.try_into().unwrap()
-        )?;
-        let indices = (slice.start.try_into().unwrap() .. slice.stop.try_into().unwrap())
-            .step_by(slice.step.try_into().unwrap()).collect();
+        let slice = input
+            .downcast::<pyo3::types::PySlice>()?
+            .indices(length.try_into().unwrap())?;
+        let indices = (slice.start.try_into().unwrap()..slice.stop.try_into().unwrap())
+            .step_by(slice.step.try_into().unwrap())
+            .collect();
         (Some(indices), false)
     } else if input.is_instance_of::<pyo3::types::PyInt>()? {
         (Some(vec![input.extract::<usize>()?]), false)
-    } else if isinstance_of_arr(py, input)? && input.getattr("dtype")?.getattr("name")?.extract::<&str>()? == "bool" {
-        let arr = input.extract::<numpy::PyReadonlyArrayDyn<bool>>()?.to_owned_array();
+    } else if isinstance_of_arr(py, input)?
+        && input.getattr("dtype")?.getattr("name")?.extract::<&str>()? == "bool"
+    {
+        let arr = input
+            .extract::<numpy::PyReadonlyArrayDyn<bool>>()?
+            .to_owned_array();
         let ndim = arr.ndim();
         let len = arr.len();
         if ndim == 1 && len == length {
@@ -56,21 +65,37 @@ pub(crate) fn to_indices<'py>(py: Python<'py>, input: &'py PyAny, length: usize
             panic!("boolean mask dimension mismatched")
         }
     } else {
-        let boolean_mask: PyResult<Vec<bool>> = input.iter()?.map(|x| x.unwrap().extract()).collect();
+        let boolean_mask: PyResult<Vec<bool>> =
+            input.iter()?.map(|x| x.unwrap().extract()).collect();
         match boolean_mask {
-            Ok(mask) => if mask.len() == length {
-                (Some(boolean_mask_to_indices(mask.into_iter())), true)
-            } else if mask.len() == 0 {
-                (Some(Vec::new()), false)
-            } else {
-                panic!("boolean mask dimension mismatched")
-            },
-            _ => (Some(input.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<_>>()?), false)
+            Ok(mask) => {
+                if mask.len() == length {
+                    (Some(boolean_mask_to_indices(mask.into_iter())), true)
+                } else if mask.len() == 0 {
+                    (Some(Vec::new()), false)
+                } else {
+                    panic!("boolean mask dimension mismatched")
+                }
+            }
+            _ => (
+                Some(
+                    input
+                        .iter()?
+                        .map(|x| x.unwrap().extract())
+                        .collect::<PyResult<_>>()?,
+                ),
+                false,
+            ),
         }
     };
     Ok(indices)
 }
 
-fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize> where I: Iterator<Item = bool> {
-    iter.enumerate().filter_map(|(i, x)| if x { Some(i) } else { None }).collect()
+fn boolean_mask_to_indices<I>(iter: I) -> Vec<usize>
+where
+    I: Iterator<Item = bool>,
+{
+    iter.enumerate()
+        .filter_map(|(i, x)| if x { Some(i) } else { None })
+        .collect()
 }

@@ -1,14 +1,14 @@
+pub mod anndata;
 pub mod data;
 pub mod element;
-pub mod anndata;
 pub mod io;
 pub mod iterator;
 pub mod utils;
 
-pub use anndata::{AnnData, AnnDataSet, AnnDataOp};
+pub use anndata::{AnnData, AnnDataOp, AnnDataSet};
 pub use data::{Data, MatrixData};
 pub use element::{
-    Elem, MatrixElem, DataFrameElem, StackedMatrixElem, StackedDataFrame,
-    AxisArrays, ElemCollection, StackedAxisArrays,
+    AxisArrays, DataFrameElem, Elem, ElemCollection, MatrixElem, StackedAxisArrays,
+    StackedDataFrame, StackedMatrixElem,
 };
 pub use iterator::{AnnDataIterator, ChunkedMatrix, StackedChunkedMatrix};

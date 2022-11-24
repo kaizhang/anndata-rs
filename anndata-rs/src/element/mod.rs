@@ -1,5 +1,8 @@
 pub(crate) mod base;
 pub(crate) mod collection;
 
-pub use base::{DataFrameElem, DataFrameIndex, Slot, Inner, Elem, MatrixElem, StackedMatrixElem, StackedDataFrame};
-pub use collection::{ElemCollection, AxisArrays, Axis, StackedAxisArrays};
+pub use base::{
+    DataFrameElem, DataFrameIndex, Elem, Inner, MatrixElem, Slot, StackedDataFrame,
+    StackedMatrixElem,
+};
+pub use collection::{Axis, AxisArrays, ElemCollection, StackedAxisArrays};

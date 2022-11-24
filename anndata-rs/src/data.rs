@@ -4,16 +4,16 @@ mod matrix;
 pub use base::*;
 pub use matrix::*;
 
-use crate::{proc_numeric_data, proc_numeric_data_ref, _box};
+use crate::{_box, proc_numeric_data, proc_numeric_data_ref};
 
 use anyhow::anyhow;
-use ndarray::{ArrayD, Axis};
+use downcast_rs::{impl_downcast, Downcast};
+use hdf5::{Group, Result};
 use itertools::Itertools;
-use hdf5::{Result, Group};
 use nalgebra_sparse::csr::CsrMatrix;
+use ndarray::{ArrayD, Axis};
 use polars::frame::DataFrame;
-use downcast_rs::{Downcast, impl_downcast};
-use std::{ops::Deref, fmt};
+use std::{fmt, ops::Deref};
 
 /// Super trait to deal with regular data IO.
 pub trait Data: Send + Sync + Downcast + WriteData + ReadData {}
@@ -28,32 +28,40 @@ impl fmt::Debug for Box<dyn Data> {
 }
 
 impl Clone for Box<dyn Data> {
-    fn clone(&self) -> Self { self.to_dyn_data() }
+    fn clone(&self) -> Self {
+        self.to_dyn_data()
+    }
 }
 
 impl ReadData for Box<dyn Data> {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         match container.get_encoding_type()? {
             DataType::String => Ok(Box::new(String::read(container)?)),
             DataType::DataFrame => Ok(Box::new(DataFrame::read(container)?)),
             DataType::Mapping => Ok(Box::new(Mapping::read(container)?)),
-            DataType::Scalar(ty) => proc_numeric_data!(
-                ty, ReadData::read(container)?, _box, Scalar
-            ),
-            DataType::Array(ty) => proc_numeric_data!(
-                ty, ReadData::read(container)?, _box, ArrayD
-            ),
-            DataType::CsrMatrix(ty) => proc_numeric_data!(
-                ty, ReadData::read(container)?, _box, CsrMatrix
-            ),
-            unknown => Err(hdf5::Error::Internal(
-                format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-            ))?,
+            DataType::Scalar(ty) => {
+                proc_numeric_data!(ty, ReadData::read(container)?, _box, Scalar)
+            }
+            DataType::Array(ty) => proc_numeric_data!(ty, ReadData::read(container)?, _box, ArrayD),
+            DataType::CsrMatrix(ty) => {
+                proc_numeric_data!(ty, ReadData::read(container)?, _box, CsrMatrix)
+            }
+            unknown => Err(hdf5::Error::Internal(format!(
+                "Not implemented: Dynamic reading of type '{:?}'",
+                unknown
+            )))?,
         }
     }
 
-    fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
-    fn into_dyn_data(self) -> Box<dyn Data> { self }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        self.deref().to_dyn_data()
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        self
+    }
 }
 
 impl WriteData for Box<dyn Data> {
@@ -61,11 +69,18 @@ impl WriteData for Box<dyn Data> {
         self.deref().write(location, name)
     }
 
-    fn version(&self) -> &str { self.deref().version() }
+    fn version(&self) -> &str {
+        self.deref().version()
+    }
 
-    fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
+    fn get_dtype(&self) -> DataType {
+        self.deref().get_dtype()
+    }
 
-    fn dtype() -> DataType where Self: Sized {
+    fn dtype() -> DataType
+    where
+        Self: Sized,
+    {
         panic!("'.dtype()' cannot be called on a trait object, please use '.get_dtype()'")
     }
 }
@@ -82,15 +97,21 @@ impl fmt::Debug for Box<dyn MatrixData> {
 }
 
 impl Clone for Box<dyn MatrixData> {
-    fn clone(&self) -> Self { self.to_dyn_matrix() }
+    fn clone(&self) -> Self {
+        self.to_dyn_matrix()
+    }
 }
 
 impl ReadData for Box<dyn MatrixData> {
     fn read(container: &DataContainer) -> Result<Self> {
         read_dyn_data_subset(container, None, None)
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { self.deref().to_dyn_data() }
-    fn into_dyn_data(self) -> Box<dyn Data> { unimplemented!() }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        self.deref().to_dyn_data()
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        unimplemented!()
+    }
 }
 
 impl WriteData for Box<dyn MatrixData> {
@@ -98,46 +119,87 @@ impl WriteData for Box<dyn MatrixData> {
         self.deref().write(location, name)
     }
 
-    fn version(&self) -> &str { self.deref().version() }
+    fn version(&self) -> &str {
+        self.deref().version()
+    }
 
-    fn get_dtype(&self) -> DataType { self.deref().get_dtype() }
+    fn get_dtype(&self) -> DataType {
+        self.deref().get_dtype()
+    }
 
-    fn dtype() -> DataType where Self: Sized {
+    fn dtype() -> DataType
+    where
+        Self: Sized,
+    {
         panic!("'.dtype()' cannot be called on a trait object, please use '.get_dtype()'")
     }
 }
 
 impl MatrixOp for Box<dyn MatrixData> {
-    fn shape(&self) -> (usize, usize) { self.deref().shape() }
-    fn nrows(&self) -> usize { self.deref().nrows() }
-    fn ncols(&self) -> usize { self.deref().ncols() }
+    fn shape(&self) -> (usize, usize) {
+        self.deref().shape()
+    }
+    fn nrows(&self) -> usize {
+        self.deref().nrows()
+    }
+    fn ncols(&self) -> usize {
+        self.deref().ncols()
+    }
     fn get_rows(&self, idx: &[usize]) -> Self {
-        macro_rules! _get { ($x:expr) => { Box::new($x.get_rows(idx)) }; }
+        macro_rules! _get {
+            ($x:expr) => {
+                Box::new($x.get_rows(idx))
+            };
+        }
         match self.get_dtype() {
-            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
-            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            DataType::Array(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD)
+            }
+            DataType::CsrMatrix(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix)
+            }
             unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
         }
     }
     fn get_columns(&self, idx: &[usize]) -> Self {
-        macro_rules! _get { ($x:expr) => { Box::new($x.get_columns(idx)) }; }
+        macro_rules! _get {
+            ($x:expr) => {
+                Box::new($x.get_columns(idx))
+            };
+        }
         match self.get_dtype() {
-            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
-            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            DataType::Array(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD)
+            }
+            DataType::CsrMatrix(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix)
+            }
             unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
         }
     }
     fn subset(&self, ridx: &[usize], cidx: &[usize]) -> Self {
-        macro_rules! _get { ($x:expr) => { Box::new($x.subset(ridx, cidx)) }; }
+        macro_rules! _get {
+            ($x:expr) => {
+                Box::new($x.subset(ridx, cidx))
+            };
+        }
         match self.get_dtype() {
-            DataType::Array(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD),
-            DataType::CsrMatrix(ty) => proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix),
+            DataType::Array(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, ArrayD)
+            }
+            DataType::CsrMatrix(ty) => {
+                proc_numeric_data_ref!(ty, self.downcast_ref().unwrap(), _get, CsrMatrix)
+            }
             unknown => panic!("Not implemented: Dynamic reading of type '{:?}'", unknown),
         }
     }
 
-    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> { self.deref().to_dyn_matrix() }
-    fn into_dyn_matrix(self) -> Box<dyn MatrixData> { self }
+    fn to_dyn_matrix(&self) -> Box<dyn MatrixData> {
+        self.deref().to_dyn_matrix()
+    }
+    fn into_dyn_matrix(self) -> Box<dyn MatrixData> {
+        self
+    }
 }
 
 macro_rules! size_reader {
@@ -152,22 +214,35 @@ macro_rules! size_reader {
 }
 
 impl PartialIO for Box<dyn MatrixData> {
-    fn get_nrows(container: &DataContainer) -> usize { size_reader!(container, PartialIO, get_nrows) }
-    fn get_ncols(container: &DataContainer) -> usize { size_reader!(container, PartialIO, get_ncols) }
+    fn get_nrows(container: &DataContainer) -> usize {
+        size_reader!(container, PartialIO, get_nrows)
+    }
+    fn get_ncols(container: &DataContainer) -> usize {
+        size_reader!(container, PartialIO, get_ncols)
+    }
 
-    fn read_rows(container: &DataContainer, idx: &[usize]) -> Self { read_dyn_data_subset(container, Some(idx), None).unwrap() }
+    fn read_rows(container: &DataContainer, idx: &[usize]) -> Self {
+        read_dyn_data_subset(container, Some(idx), None).unwrap()
+    }
 
     fn read_row_slice(container: &DataContainer, slice: std::ops::Range<usize>) -> Result<Self> {
         match container.get_encoding_type()? {
             DataType::Array(ty) => proc_numeric_data!(
-                ty, PartialIO::read_row_slice(container, slice)?, _box, ArrayD
+                ty,
+                PartialIO::read_row_slice(container, slice)?,
+                _box,
+                ArrayD
             ),
             DataType::CsrMatrix(ty) => proc_numeric_data!(
-                ty, PartialIO::read_row_slice(container, slice)?, _box, CsrMatrix
+                ty,
+                PartialIO::read_row_slice(container, slice)?,
+                _box,
+                CsrMatrix
             ),
-            unknown => Err(hdf5::Error::Internal(
-                format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-            ))?,
+            unknown => Err(hdf5::Error::Internal(format!(
+                "Not implemented: Dynamic reading of type '{:?}'",
+                unknown
+            )))?,
         }
     }
 
@@ -183,11 +258,17 @@ impl PartialIO for Box<dyn MatrixData> {
         self.deref().write_rows(idx, location, name)
     }
 
-    fn write_columns( &self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+    fn write_columns(&self, idx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
         self.deref().write_columns(idx, location, name)
     }
 
-    fn write_partial(&self, ridx: &[usize], cidx: &[usize], location: &Group, name: &str) -> Result<DataContainer> {
+    fn write_partial(
+        &self,
+        ridx: &[usize],
+        cidx: &[usize],
+        location: &Group,
+        name: &str,
+    ) -> Result<DataContainer> {
         self.deref().write_partial(ridx, cidx, location, name)
     }
 }
@@ -219,55 +300,75 @@ fn read_dyn_data_subset(
         DataType::DataFrame => {
             let df: DataFrame = read_data_subset(container, ridx, cidx);
             Ok(Box::new(df))
-        },
-        DataType::Array(ty) => proc_numeric_data!(
-            ty, read_data_subset(container, ridx, cidx), _box, ArrayD
-        ),
-        DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty, read_data_subset(container, ridx, cidx), _box, CsrMatrix
-        ),
-        unknown => Err(hdf5::Error::Internal(
-            format!("Not implemented: Dynamic reading of type '{:?}'", unknown)
-        ))?,
+        }
+        DataType::Array(ty) => {
+            proc_numeric_data!(ty, read_data_subset(container, ridx, cidx), _box, ArrayD)
+        }
+        DataType::CsrMatrix(ty) => {
+            proc_numeric_data!(ty, read_data_subset(container, ridx, cidx), _box, CsrMatrix)
+        }
+        unknown => Err(hdf5::Error::Internal(format!(
+            "Not implemented: Dynamic reading of type '{:?}'",
+            unknown
+        )))?,
     }
 }
 
 pub(crate) fn rstack_with_index(
     index: &[usize],
-    mats: Vec<Box<dyn MatrixData>>
+    mats: Vec<Box<dyn MatrixData>>,
 ) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
-            ty, rstack_arr_with_index(index, mats.into_iter().map(|x| x.downcast().map_err(|_|
-                anyhow!("cannot downcast Array with type {}", ty)).unwrap()).collect()
-            ), _box, ArrayD
+            ty,
+            rstack_arr_with_index(
+                index,
+                mats.into_iter()
+                    .map(|x| x
+                        .downcast()
+                        .map_err(|_| anyhow!("cannot downcast Array with type {}", ty))
+                        .unwrap())
+                    .collect()
+            ),
+            _box,
+            ArrayD
         ),
         DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty, rstack_csr_with_index(index, mats.into_iter().map(|x| x.downcast().map_err(|_| 
-                anyhow!("cannot downcast Sparse Row Matrix with type {}", ty)).unwrap()).collect()
-            ), _box, CsrMatrix
+            ty,
+            rstack_csr_with_index(
+                index,
+                mats.into_iter()
+                    .map(|x| x
+                        .downcast()
+                        .map_err(|_| anyhow!("cannot downcast Sparse Row Matrix with type {}", ty))
+                        .unwrap())
+                    .collect()
+            ),
+            _box,
+            CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),
     }
 }
 
-fn rstack_arr_with_index<T: Clone>(
-    index: &[usize],
-    mats: Vec<Box<ArrayD<T>>>,
-) -> ArrayD<T> {
-    let merged = mats.into_iter().reduce(|mut accum, other| {
-        accum.as_mut().append(Axis(0), other.view()).unwrap();
-        accum
-    }).unwrap();
-    let new_idx: Vec<_> = index.iter().enumerate().sorted_by_key(|x| *x.1)
-        .map(|x| x.0).collect();
+fn rstack_arr_with_index<T: Clone>(index: &[usize], mats: Vec<Box<ArrayD<T>>>) -> ArrayD<T> {
+    let merged = mats
+        .into_iter()
+        .reduce(|mut accum, other| {
+            accum.as_mut().append(Axis(0), other.view()).unwrap();
+            accum
+        })
+        .unwrap();
+    let new_idx: Vec<_> = index
+        .iter()
+        .enumerate()
+        .sorted_by_key(|x| *x.1)
+        .map(|x| x.0)
+        .collect();
     merged.select(Axis(0), new_idx.as_slice())
 }
 
-fn rstack_csr_with_index<T: Clone>(
-    index: &[usize],
-    mats: Vec<Box<CsrMatrix<T>>>,
-) -> CsrMatrix<T> {
+fn rstack_csr_with_index<T: Clone>(index: &[usize], mats: Vec<Box<CsrMatrix<T>>>) -> CsrMatrix<T> {
     if !mats.iter().map(|x| x.ncols()).all_equal() {
         panic!("num cols mismatch");
     }
@@ -276,8 +377,13 @@ fn rstack_csr_with_index<T: Clone>(
     let mut values = Vec::new();
     let mut col_indices = Vec::new();
     let mut row_offsets = Vec::new();
-    let nnz = mats.iter().map(|x| x.row_iter()).flatten()
-        .zip(index).sorted_by_key(|x| *x.1).fold(0, |acc, x| {
+    let nnz = mats
+        .iter()
+        .map(|x| x.row_iter())
+        .flatten()
+        .zip(index)
+        .sorted_by_key(|x| *x.1)
+        .fold(0, |acc, x| {
             row_offsets.push(acc);
             values.extend_from_slice(x.0.values());
             col_indices.extend_from_slice(x.0.col_indices());
@@ -290,12 +396,24 @@ fn rstack_csr_with_index<T: Clone>(
 pub(crate) fn rstack(mats: Vec<Box<dyn MatrixData>>) -> Result<Box<dyn MatrixData>> {
     match mats[0].get_dtype() {
         DataType::Array(ty) => proc_numeric_data!(
-            ty, rstack_arr(mats.into_iter().map(|x| x.downcast().map_err(|_|
-                anyhow!("cannot downcast Array with type {}", ty)).unwrap())), _box, ArrayD
+            ty,
+            rstack_arr(mats.into_iter().map(|x| {
+                x.downcast()
+                    .map_err(|_| anyhow!("cannot downcast Array with type {}", ty))
+                    .unwrap()
+            })),
+            _box,
+            ArrayD
         ),
         DataType::CsrMatrix(ty) => proc_numeric_data!(
-            ty, rstack_csr(mats.into_iter().map(|x| x.downcast().map_err(|_|
-                anyhow!("cannot downcast Sparse Row Matrix with type {}", ty)).unwrap())), _box, CsrMatrix
+            ty,
+            rstack_csr(mats.into_iter().map(|x| {
+                x.downcast()
+                    .map_err(|_| anyhow!("cannot downcast Sparse Row Matrix with type {}", ty))
+                    .unwrap()
+            })),
+            _box,
+            CsrMatrix
         ),
         x => panic!("type '{}' is not a supported matrix format", x),
     }
@@ -306,10 +424,12 @@ where
     I: Iterator<Item = Box<ArrayD<T>>>,
     T: Clone,
 {
-    *mats.reduce(|mut accum, other| {
-        accum.as_mut().append(Axis(0), other.view()).unwrap();
-        accum
-    }).unwrap()
+    *mats
+        .reduce(|mut accum, other| {
+            accum.as_mut().append(Axis(0), other.view()).unwrap();
+            accum
+        })
+        .unwrap()
 }
 
 fn rstack_csr<I, T>(mats: I) -> CsrMatrix<T>
@@ -317,7 +437,6 @@ where
     I: Iterator<Item = Box<CsrMatrix<T>>>,
     T: Clone,
 {
-
     let mut num_rows = 0;
     let mut num_cols = 0;
 

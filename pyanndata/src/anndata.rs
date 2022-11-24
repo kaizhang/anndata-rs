@@ -1,17 +1,31 @@
 use crate::element::*;
 use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
-use crate::utils::{to_indices, instance::*, conversion::{RustToPy, PyToRust}};
+use crate::utils::{
+    conversion::{PyToRust, RustToPy},
+    instance::*,
+    to_indices,
+};
 
 use anndata_rs::{
-    AnnDataOp, element::DataFrameIndex,
-    {anndata, element::{Inner, Slot}}, data::{Data, MatrixData},
+    data::{Data, MatrixData},
+    element::DataFrameIndex,
+    AnnDataOp,
+    {
+        anndata,
+        element::{Inner, Slot},
+    },
 };
-use polars::frame::DataFrame;
 use anyhow::Result;
-use pyo3::{prelude::*, PyResult, Python, types::{IntoPyDict}, exceptions::{PyException, PyTypeError}};
-use std::{collections::HashMap, ops::Deref, path::PathBuf};
 use paste::paste;
-use rayon::iter::{ParallelIterator, IntoParallelIterator};
+use polars::frame::DataFrame;
+use pyo3::{
+    exceptions::{PyException, PyTypeError},
+    prelude::*,
+    types::IntoPyDict,
+    PyResult, Python,
+};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::{collections::HashMap, ops::Deref, path::PathBuf};
 
 macro_rules! def_df_accessor {
     ($name:ty, { $($field:ident),* }) => {
@@ -20,7 +34,7 @@ macro_rules! def_df_accessor {
             impl $name {
             $(
                 /// One-dimensional annotation.
-                /// 
+                ///
                 /// Returns
                 /// -------
                 /// PyDataFrameElem
@@ -93,12 +107,12 @@ macro_rules! def_arr_accessor {
     }
 }
 
-/** An annotated data matrix. 
-    
+/** An annotated data matrix.
+
     `AnnData` stores a data matrix `X` together with annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
     and unstructured annotations `uns`.
-    `AnnData` is stored as a HDF5 file. Opening/creating an AnnData object 
+    `AnnData` is stored as a HDF5 file. Opening/creating an AnnData object
     does not read data from the HDF5 file. Data is copied to memory only when
     individual element is requested (or when cache is turned on).
 
@@ -136,31 +150,46 @@ macro_rules! def_arr_accessor {
     read_csv
 */
 #[pyclass]
-#[pyo3(text_signature =
-    "(*, filename, X, n_obs, n_vars, obs, var, obsm, varm, uns)"
-)]
+#[pyo3(text_signature = "(*, filename, X, n_obs, n_vars, obs, var, obsm, varm, uns)")]
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct AnnData(pub(crate) Slot<anndata::AnnData>);
 
 impl AnnData {
-    pub fn inner(&self) -> Inner<'_, anndata::AnnData> { self.0.inner() }
+    pub fn inner(&self) -> Inner<'_, anndata::AnnData> {
+        self.0.inner()
+    }
 
     pub fn wrap(anndata: anndata::AnnData) -> Self {
         AnnData(Slot::new(anndata))
     }
 
-    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<Option<Vec<usize>>> {
-        match indices.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
-            Ok(names) => if axis == 0 {
-                Ok(Some(self.obs_ix(names)))
-            } else {
-                Ok(Some(self.var_ix(names)))
-            },
+    fn normalize_index<'py>(
+        &self,
+        py: Python<'py>,
+        indices: &'py PyAny,
+        axis: u8,
+    ) -> PyResult<Option<Vec<usize>>> {
+        match indices
+            .iter()?
+            .map(|x| x.unwrap().extract())
+            .collect::<PyResult<Vec<String>>>()
+        {
+            Ok(names) => {
+                if axis == 0 {
+                    Ok(Some(self.obs_ix(names)))
+                } else {
+                    Ok(Some(self.var_ix(names)))
+                }
+            }
             _ => {
-                let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
+                let length = if axis == 0 {
+                    self.n_obs()
+                } else {
+                    self.n_vars()
+                };
                 Ok(to_indices(py, indices, length)?.0)
-            },
+            }
         }
     }
 }
@@ -168,8 +197,17 @@ impl AnnData {
 #[pymethods]
 impl AnnData {
     #[new]
-    #[args("*", filename, X = "None", n_obs = "None", n_vars = "None", obs = "None", var = "None",
-        obsm = "None", varm = "None", uns = "None",
+    #[args(
+        "*",
+        filename,
+        X = "None",
+        n_obs = "None",
+        n_vars = "None",
+        obs = "None",
+        var = "None",
+        obsm = "None",
+        varm = "None",
+        uns = "None"
     )]
     pub fn new<'py>(
         py: Python<'py>,
@@ -183,89 +221,123 @@ impl AnnData {
         varm: Option<HashMap<String, &'py PyAny>>,
         uns: Option<HashMap<String, &'py PyAny>>,
     ) -> PyResult<Self> {
-        let mut anndata = AnnData::wrap(anndata::AnnData::new(
-            filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)
-        ).unwrap());
-        
-        if X.is_some() { anndata.set_x(py, X)?; }
-        if obs.is_some() { anndata.set_obs(py, obs)?; }
-        if var.is_some() { anndata.set_var(py, var)?; }
-        if obsm.is_some() { anndata.set_obsm(py, obsm)?; }
-        if varm.is_some() { anndata.set_varm(py, varm)?; }
-        if uns.is_some() { anndata.set_uns(py, uns)?; }
+        let mut anndata = AnnData::wrap(
+            anndata::AnnData::new(filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0)).unwrap(),
+        );
+
+        if X.is_some() {
+            anndata.set_x(py, X)?;
+        }
+        if obs.is_some() {
+            anndata.set_obs(py, obs)?;
+        }
+        if var.is_some() {
+            anndata.set_var(py, var)?;
+        }
+        if obsm.is_some() {
+            anndata.set_obsm(py, obsm)?;
+        }
+        if varm.is_some() {
+            anndata.set_varm(py, varm)?;
+        }
+        if uns.is_some() {
+            anndata.set_uns(py, uns)?;
+        }
         Ok(anndata)
     }
 
     /// Shape of data matrix (`n_obs`, `n_vars`).
-    /// 
+    ///
     /// Returns
     /// -------
     /// tuple[int, int]
     #[getter]
-    pub fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
+    pub fn shape(&self) -> (usize, usize) {
+        (self.n_obs(), self.n_vars())
+    }
 
     /// Number of observations.
-    /// 
+    ///
     /// Returns
     /// -------
     /// int
     #[getter]
-    pub fn n_obs(&self) -> usize { self.0.inner().n_obs() }
+    pub fn n_obs(&self) -> usize {
+        self.0.inner().n_obs()
+    }
 
     #[setter(n_obs)]
-    pub fn set_n_obs(&self, n: usize) { self.0.inner().set_n_obs(n) }
+    pub fn set_n_obs(&self, n: usize) {
+        self.0.inner().set_n_obs(n)
+    }
 
     /// Number of variables/features.
-    /// 
+    ///
     /// Returns
     /// -------
     /// int
     #[getter]
-    pub fn n_vars(&self) -> usize { self.0.inner().n_vars() }
+    pub fn n_vars(&self) -> usize {
+        self.0.inner().n_vars()
+    }
 
     #[setter(n_vars)]
-    pub fn set_n_vars(&self, n: usize) { self.0.inner().set_n_vars(n) }
+    pub fn set_n_vars(&self, n: usize) {
+        self.0.inner().set_n_vars(n)
+    }
 
     /// Names of variables.
-    /// 
+    ///
     /// Returns
     /// -------
     /// list[str]
     #[getter]
-    pub fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
+    pub fn var_names(&self) -> Vec<String> {
+        self.0.inner().var_names()
+    }
 
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
-        let var_names: PyResult<DataFrameIndex> = names.iter()?
-            .map(|x| x.unwrap().extract::<String>()).collect();
+        let var_names: PyResult<DataFrameIndex> = names
+            .iter()?
+            .map(|x| x.unwrap().extract::<String>())
+            .collect();
         self.0.inner().set_var_names(var_names?).unwrap();
         Ok(())
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().var_ix(&names).unwrap() }
+    pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().var_ix(&names).unwrap()
+    }
 
     /// Names of observations.
-    /// 
+    ///
     /// Returns
     /// -------
     /// list[str]
     #[getter]
-    pub fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
+    pub fn obs_names(&self) -> Vec<String> {
+        self.0.inner().obs_names()
+    }
 
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
-        let obs_names: PyResult<DataFrameIndex> = names.iter()?
-            .map(|x| x.unwrap().extract::<String>()).collect();
+        let obs_names: PyResult<DataFrameIndex> = names
+            .iter()?
+            .map(|x| x.unwrap().extract::<String>())
+            .collect();
         self.0.inner().set_obs_names(obs_names?).unwrap();
         Ok(())
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().obs_ix(&names).unwrap() }
+    pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().obs_ix(&names).unwrap()
+    }
 
     /// Data matrix of shape n_obs × n_vars.
-    /// 
+    ///
     /// Returns
     /// -------
     /// PyMatrixElem
@@ -290,7 +362,7 @@ impl AnnData {
     }
 
     /// Unstructured annotation (ordered dictionary).
-    /// 
+    ///
     /// Returns
     /// -------
     /// PyElemCollection
@@ -300,16 +372,22 @@ impl AnnData {
     }
 
     #[setter(uns)]
-    pub fn set_uns<'py>(&self, py: Python<'py>, uns: Option<HashMap<String, &'py PyAny>>) -> PyResult<()> {
-        let uns_ = uns.map(|mut x|
-            x.drain().map(|(k, v)| (k, v.into_rust(py).unwrap())).collect()
-        );
+    pub fn set_uns<'py>(
+        &self,
+        py: Python<'py>,
+        uns: Option<HashMap<String, &'py PyAny>>,
+    ) -> PyResult<()> {
+        let uns_ = uns.map(|mut x| {
+            x.drain()
+                .map(|(k, v)| (k, v.into_rust(py).unwrap()))
+                .collect()
+        });
         self.0.inner().set_uns(uns_).unwrap();
         Ok(())
     }
 
     /// Subsetting the AnnData object.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// obs_indices
@@ -319,7 +397,7 @@ impl AnnData {
     /// out: Path
     ///     File name of the output `.h5ad` file. If provided, the result will be
     ///     saved to a new file and the original AnnData object remains unchanged.
-    /// 
+    ///
     /// Returns
     /// -------
     /// Optional[AnnData]
@@ -335,30 +413,42 @@ impl AnnData {
         let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap());
         Ok(match out {
             None => {
-                self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice)).unwrap();
+                self.0
+                    .inner()
+                    .subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))
+                    .unwrap();
                 None
-            },
+            }
             Some(file) => Some(AnnData::wrap(
-                self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice), file).unwrap()
+                self.0
+                    .inner()
+                    .copy(
+                        i.as_ref().map(Vec::as_slice),
+                        j.as_ref().map(Vec::as_slice),
+                        file,
+                    )
+                    .unwrap(),
             )),
         })
     }
-            
+
     /// Filename of the backing .h5ad file.
-    /// 
+    ///
     /// Returns
     /// -------
     /// str
     #[getter]
-    pub fn filename(&self) -> String { self.0.inner().filename() }
+    pub fn filename(&self) -> String {
+        self.0.inner().filename()
+    }
 
     /// Copy the AnnData object.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// filename
-    ///     File name of the output `.h5ad` file. 
-    /// 
+    ///     File name of the output `.h5ad` file.
+    ///
     /// Returns
     /// -------
     /// AnnData
@@ -368,11 +458,11 @@ impl AnnData {
     }
 
     /// Write .h5ad-formatted hdf5 file.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// filename
-    ///     File name of the output `.h5ad` file. 
+    ///     File name of the output `.h5ad` file.
     #[pyo3(text_signature = "($self, filename)")]
     pub fn write(&self, filename: PathBuf) {
         self.0.inner().write(None, None, filename).unwrap();
@@ -387,32 +477,34 @@ impl AnnData {
     }
 
     /// Whether the AnnData object is backed. This is always true.
-    /// 
+    ///
     /// Returns
     /// -------
     /// bool
     #[getter]
-    pub fn isbacked(&self) -> bool { true }
+    pub fn isbacked(&self) -> bool {
+        true
+    }
 
     /// Return an iterator over the rows of the data matrix X.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// chunk_size : int
     ///     Row size of a single chunk. Default: 500.
-    /// 
+    ///
     /// Returns
     /// -------
     /// PyChunkedMatrix
     #[args(chunk_size = "500")]
     #[pyo3(text_signature = "($self, chunk_size, /)")]
     #[pyo3(name = "chunked_X")]
-    pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedMatrix  {
+    pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedMatrix {
         self.get_x().chunked(chunk_size)
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
-    /// 
+    ///
     /// Returns
     /// -------
     /// AnnData
@@ -422,12 +514,14 @@ impl AnnData {
     }
 
     /// If the AnnData object has been closed.
-    /// 
+    ///
     /// Returns
     /// -------
     /// bool
     #[pyo3(text_signature = "($self)")]
-    pub fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
+    pub fn is_closed(&self) -> bool {
+        self.0.inner().0.is_none()
+    }
 
     fn __repr__(&self) -> String {
         if self.is_closed() {
@@ -437,7 +531,9 @@ impl AnnData {
         }
     }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 def_df_accessor!(AnnData, { obs, var });
@@ -468,14 +564,18 @@ impl StackedAnnData {
         PyStackedAxisArrays(self.0.inner().get_obsm().clone())
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
-    and unstructured annotations `uns`. Additionally it provides lazy access to 
+    and unstructured annotations `uns`. Additionally it provides lazy access to
     concatenated component AnnData objects, including `X`, `obs`, `obsm`, `obsp`.
 
     Parameters
@@ -490,7 +590,7 @@ impl StackedAnnData {
     Note
     ----
     AnnDataSet does not copy underlying AnnData objects. It stores the references
-    to individual anndata files. If you move the anndata files to a new location, 
+    to individual anndata files. If you move the anndata files to a new location,
     remember to update the anndata file locations when opening an AnnDataSet object.
 
     See Also
@@ -498,31 +598,46 @@ impl StackedAnnData {
     read_dataset
 */
 #[pyclass]
-#[pyo3(text_signature =
-    "(*, adatas, filename, add_key /)"
-)]
+#[pyo3(text_signature = "(*, adatas, filename, add_key /)")]
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct AnnDataSet(Slot<anndata::AnnDataSet>);
 
 impl AnnDataSet {
-    pub fn inner(&self) -> Inner<'_, anndata::AnnDataSet> { self.0.inner() }
+    pub fn inner(&self) -> Inner<'_, anndata::AnnDataSet> {
+        self.0.inner()
+    }
 
     pub fn wrap(anndata: anndata::AnnDataSet) -> Self {
         AnnDataSet(Slot::new(anndata))
     }
 
-    fn normalize_index<'py>(&self, py: Python<'py>, indices: &'py PyAny, axis: u8) -> PyResult<(Option<Vec<usize>>, bool)> {
-        match indices.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<String>>>() {
-            Ok(names) => if axis == 0 {
-                Ok((Some(self.obs_ix(names)), false))
-            } else {
-                Ok((Some(self.var_ix(names)), false))
-            },
+    fn normalize_index<'py>(
+        &self,
+        py: Python<'py>,
+        indices: &'py PyAny,
+        axis: u8,
+    ) -> PyResult<(Option<Vec<usize>>, bool)> {
+        match indices
+            .iter()?
+            .map(|x| x.unwrap().extract())
+            .collect::<PyResult<Vec<String>>>()
+        {
+            Ok(names) => {
+                if axis == 0 {
+                    Ok((Some(self.obs_ix(names)), false))
+                } else {
+                    Ok((Some(self.var_ix(names)), false))
+                }
+            }
             _ => {
-                let length = if axis == 0 { self.n_obs() } else { self.n_vars() };
+                let length = if axis == 0 {
+                    self.n_obs()
+                } else {
+                    self.n_vars()
+                };
                 to_indices(py, indices, length)
-            },
+            }
         }
     }
 
@@ -544,95 +659,127 @@ pub enum AnnDataFile {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[args("*", adatas, filename, add_key="\"sample\"")]
-    pub fn new(adatas: Vec<(String, AnnDataFile)>, filename: PathBuf, add_key: &str) -> Result<Self> {
-        let anndatas = adatas.into_par_iter().map(|(key, data_file)| {
-            let adata = match data_file {
-                AnnDataFile::Data(data) => data.0.extract().unwrap(),
-                AnnDataFile::Path(path) => {
-                    let file = hdf5::File::open(path)?;
-                    anndata::AnnData::read(file)?
-                },
-            };
-            Ok((key, adata))
-        }).collect::<Result<_>>()?;
-        Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(anndatas, filename, add_key)?))
+    #[args("*", adatas, filename, add_key = "\"sample\"")]
+    pub fn new(
+        adatas: Vec<(String, AnnDataFile)>,
+        filename: PathBuf,
+        add_key: &str,
+    ) -> Result<Self> {
+        let anndatas = adatas
+            .into_par_iter()
+            .map(|(key, data_file)| {
+                let adata = match data_file {
+                    AnnDataFile::Data(data) => data.0.extract().unwrap(),
+                    AnnDataFile::Path(path) => {
+                        let file = hdf5::File::open(path)?;
+                        anndata::AnnData::read(file)?
+                    }
+                };
+                Ok((key, adata))
+            })
+            .collect::<Result<_>>()?;
+        Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(
+            anndatas, filename, add_key,
+        )?))
     }
 
     /// Shape of data matrix (`n_obs`, `n_vars`).
-    /// 
+    ///
     /// Returns
     /// -------
     /// tuple[int, int]
     #[getter]
-    pub fn shape(&self) -> (usize, usize) { (self.n_obs(), self.n_vars()) }
+    pub fn shape(&self) -> (usize, usize) {
+        (self.n_obs(), self.n_vars())
+    }
 
     /// Number of observations.
-    /// 
+    ///
     /// Returns
     /// -------
     /// int
     #[getter]
-    pub fn n_obs(&self) -> usize { self.0.inner().n_obs() }
+    pub fn n_obs(&self) -> usize {
+        self.0.inner().n_obs()
+    }
 
     /// Number of variables/features.
-    /// 
+    ///
     /// Returns
     /// -------
     /// int
     #[getter]
-    pub fn n_vars(&self) -> usize { self.0.inner().n_vars() }
+    pub fn n_vars(&self) -> usize {
+        self.0.inner().n_vars()
+    }
 
     /// Names of variables.
-    /// 
+    ///
     /// Returns
     /// -------
     /// list[str]
     #[getter]
-    pub fn var_names(&self) -> Vec<String> { self.0.inner().var_names() }
+    pub fn var_names(&self) -> Vec<String> {
+        self.0.inner().var_names()
+    }
 
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
-        let var_names: PyResult<DataFrameIndex> = names.iter()?
-            .map(|x| x.unwrap().extract::<String>()).collect();
+        let var_names: PyResult<DataFrameIndex> = names
+            .iter()?
+            .map(|x| x.unwrap().extract::<String>())
+            .collect();
         self.0.inner().set_var_names(var_names?).unwrap();
         Ok(())
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().var_ix(&names).unwrap() }
+    pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().var_ix(&names).unwrap()
+    }
 
     /// Names of observations.
-    /// 
+    ///
     /// Returns
     /// -------
     /// list[str]
     #[getter]
-    pub fn obs_names(&self) -> Vec<String> { self.0.inner().obs_names() }
+    pub fn obs_names(&self) -> Vec<String> {
+        self.0.inner().obs_names()
+    }
 
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
-        let obs_names: PyResult<DataFrameIndex> = names.iter()?
-            .map(|x| x.unwrap().extract::<String>()).collect();
+        let obs_names: PyResult<DataFrameIndex> = names
+            .iter()?
+            .map(|x| x.unwrap().extract::<String>())
+            .collect();
         self.0.inner().set_obs_names(obs_names?).unwrap();
         Ok(())
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> { self.0.inner().obs_ix(&names).unwrap() }
+    pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
+        self.0.inner().obs_ix(&names).unwrap()
+    }
 
     /// Vertically concatenated data matrices of shape `n_obs` x `n_vars`.
-    /// 
+    ///
     /// Returns
     /// -------
     /// PyStackedMatrixElem
     #[getter(X)]
     pub fn get_x(&self) -> Option<PyStackedMatrixElem> {
-        self.0.inner().get_inner_adatas().lock().as_ref().map(|x| PyStackedMatrixElem(x.get_x().clone()))
+        self.0
+            .inner()
+            .get_inner_adatas()
+            .lock()
+            .as_ref()
+            .map(|x| PyStackedMatrixElem(x.get_x().clone()))
     }
 
     /// Unstructured annotation (ordered dictionary).
-    /// 
+    ///
     /// Returns
     /// -------
     /// PyElemCollection
@@ -646,17 +793,16 @@ impl AnnDataSet {
         &self,
         py: Python<'py>,
         uns: Option<HashMap<String, &'py PyAny>>,
-    ) -> PyResult<()>
-    {
-        let data: PyResult<_> = uns.map(|mut x| x.drain().map(|(k, v)|
-            Ok((k, v.into_rust(py)?))
-        ).collect()).transpose();
+    ) -> PyResult<()> {
+        let data: PyResult<_> = uns
+            .map(|mut x| x.drain().map(|(k, v)| Ok((k, v.into_rust(py)?))).collect())
+            .transpose();
         self.0.inner().set_uns(data?).unwrap();
         Ok(())
     }
 
     /// Subsetting the AnnDataSet object.
-    /// 
+    ///
     /// Note
     /// ----
     /// AnnDataSet will not move data across underlying AnnData objects. So the
@@ -664,7 +810,7 @@ impl AnnDataSet {
     /// with the input `obs_indices`. This function will return a vector that can
     /// be used to reorder the `obs_indices` to match the final order of rows in
     /// the AnnDataSet.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// obs_indices
@@ -675,13 +821,13 @@ impl AnnDataSet {
     ///     Name of the directory used to store the new files. If provided,
     ///     the result will be saved to the directory and the original files
     ///     remains unchanged.
-    /// 
+    ///
     /// Returns
     /// -------
     /// None | list[int] | Tuple[AnnDataSet, list[int]]
     ///     If `out` is not `None`, a new AnnDataSet object will be returned.
     ///     Otherwise, the operation will be performed inplace.
-    ///     If the order of input `obs_indices` has been changed, it will 
+    ///     If the order of input `obs_indices` has been changed, it will
     ///     return the indices that would sort the `obs_indices` array.
     #[pyo3(text_signature = "($self, obs_indices, var_indices, out)")]
     pub fn subset<'py>(
@@ -691,25 +837,37 @@ impl AnnDataSet {
         var_indices: Option<&'py PyAny>,
         out: Option<&str>,
     ) -> Result<PyObject> {
-        let (i, obs_is_boolean) = obs_indices.map_or((None, false), |x| self.normalize_index(py, x, 0).unwrap());
+        let (i, obs_is_boolean) =
+            obs_indices.map_or((None, false), |x| self.normalize_index(py, x, 0).unwrap());
         let j = var_indices.and_then(|x| self.normalize_index(py, x, 1).unwrap().0);
         match out {
             None => {
-                let idx_order = self.0.inner().subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))?;
+                let idx_order = self
+                    .0
+                    .inner()
+                    .subset(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_slice))?;
                 let res = if obs_is_boolean { None } else { idx_order };
                 Ok(res.to_object(py))
-            },
+            }
             Some(dir) => {
-                let (adata, idx_order) = self.0.inner().copy(i.as_ref().map(Vec::as_slice), j.as_ref().map(Vec::as_ref), dir)?;
+                let (adata, idx_order) = self.0.inner().copy(
+                    i.as_ref().map(Vec::as_slice),
+                    j.as_ref().map(Vec::as_ref),
+                    dir,
+                )?;
                 let ann = AnnDataSet::wrap(adata).into_py(py);
-                let res = if obs_is_boolean { (ann, None) } else { (ann, idx_order) };
+                let res = if obs_is_boolean {
+                    (ann, None)
+                } else {
+                    (ann, idx_order)
+                };
                 Ok(res.to_object(py))
-            },
+            }
         }
     }
 
     /// Return an iterator over the rows of the data matrix X.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// chunk_size : int
@@ -720,25 +878,27 @@ impl AnnDataSet {
     pub fn chunked_x(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
         self.get_x().expect("X is empty").chunked(chunk_size)
     }
- 
+
     /// View into the component AnnData objects.
-    /// 
+    ///
     /// Returns
     /// -------
     /// StackedAnnData
     #[getter(adatas)]
-    pub fn adatas(&self) -> StackedAnnData { StackedAnnData(self.0.inner().get_inner_adatas().clone()) }
+    pub fn adatas(&self) -> StackedAnnData {
+        StackedAnnData(self.0.inner().get_inner_adatas().clone())
+    }
 
     /// Copy the AnnDataSet object to a new location.
-    /// 
+    ///
     /// Copying AnnDataSet object will copy both the object itself and assocated
     /// AnnData objects.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// dirname: Path
     ///     Name of the directory used to store the result.
-    /// 
+    ///
     /// Returns
     /// -------
     /// AnnDataSet
@@ -751,40 +911,51 @@ impl AnnDataSet {
     /// Close the AnnDataSet object.
     #[pyo3(text_signature = "($self)")]
     pub fn close(&self) {
-        if let Some(dataset) = self.0.extract() { dataset.close().unwrap(); }
+        if let Some(dataset) = self.0.extract() {
+            dataset.close().unwrap();
+        }
     }
 
     /// If the AnnDataSet object has been closed.
-    /// 
+    ///
     /// Returns
     /// -------
     /// bool
     #[pyo3(text_signature = "($self)")]
-    pub fn is_closed(&self) -> bool { self.0.inner().0.is_none() }
+    pub fn is_closed(&self) -> bool {
+        self.0.inner().0.is_none()
+    }
 
     /// Whether the AnnDataSet object is backed. This is always true.
-    /// 
+    ///
     /// Returns
     /// -------
     /// bool
     #[getter]
-    pub fn isbacked(&self) -> bool { true }
+    pub fn isbacked(&self) -> bool {
+        true
+    }
 
     /// Convert the AnnDataSet object to an AnnData object.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// file: Optional[Path]
     ///     If provided, the resultant AnnData object will be backed. Default: None.
     /// copy_X: bool
     ///     Whether to copy the `.X` field. Default: True.
-    /// 
+    ///
     /// Returns
     /// -------
     /// AnnData
     #[args(file = "None", copy_X = "true")]
     #[pyo3(text_signature = "($self, file, copy_X, /)")]
-    pub fn to_adata<'py>(&self, py: Python<'py>, file: Option<PathBuf>, copy_X: bool) -> Result<PyObject> {
+    pub fn to_adata<'py>(
+        &self,
+        py: Python<'py>,
+        file: Option<PathBuf>,
+        copy_X: bool,
+    ) -> Result<PyObject> {
         if let Some(_) = file {
             unimplemented!("saving backed anndata");
         } else {
@@ -800,7 +971,9 @@ impl AnnDataSet {
         }
     }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 def_df_accessor!(AnnDataSet, { obs, var });
@@ -817,46 +990,67 @@ pub struct PyAnnData<'py>(&'py PyAny);
 impl<'py> Deref for PyAnnData<'py> {
     type Target = PyAny;
 
-    fn deref(&self) -> &Self::Target { self.0 }
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
 }
 
 impl<'py> PyAnnData<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        PyModule::import(py, "anndata")?.call_method0("AnnData")?.extract()
+        PyModule::import(py, "anndata")?
+            .call_method0("AnnData")?
+            .extract()
     }
 
     pub fn from_anndata(py: Python<'py>, inner: &anndata::AnnData) -> Result<Self> {
         let adata = PyAnnData::new(py)?;
-        { // Set X
+        {
+            // Set X
             adata.set_n_obs(inner.n_obs())?;
             adata.set_n_vars(inner.n_vars())?;
             adata.set_x(inner.read_x()?)?;
         }
-        { // Set obs and var
+        {
+            // Set obs and var
             adata.set_obs_names(inner.obs_names().into())?;
             adata.set_var_names(inner.var_names().into())?;
             adata.set_obs(Some(inner.read_obs()?))?;
             adata.set_var(Some(inner.read_var()?))?;
         }
-        { // Set uns
-            inner.uns_keys().into_iter().try_for_each(|k|
-                adata.add_uns_item(&k, inner.read_uns_item(&k)?.unwrap()) )?;
+        {
+            // Set uns
+            inner
+                .uns_keys()
+                .into_iter()
+                .try_for_each(|k| adata.add_uns_item(&k, inner.read_uns_item(&k)?.unwrap()))?;
         }
-        { // Set obsm
-            inner.obsm_keys().into_iter().try_for_each(|k|
-                adata.add_obsm_item(&k, inner.read_obsm_item(&k)?.unwrap()) )?;
+        {
+            // Set obsm
+            inner
+                .obsm_keys()
+                .into_iter()
+                .try_for_each(|k| adata.add_obsm_item(&k, inner.read_obsm_item(&k)?.unwrap()))?;
         }
-        { // Set obsp
-            inner.obsp_keys().into_iter().try_for_each(|k|
-                adata.add_obsp_item(&k, inner.read_obsp_item(&k)?.unwrap()) )?;
+        {
+            // Set obsp
+            inner
+                .obsp_keys()
+                .into_iter()
+                .try_for_each(|k| adata.add_obsp_item(&k, inner.read_obsp_item(&k)?.unwrap()))?;
         }
-        { // Set varm
-            inner.varm_keys().into_iter().try_for_each(|k|
-                adata.add_varm_item(&k, inner.read_varm_item(&k)?.unwrap()) )?;
+        {
+            // Set varm
+            inner
+                .varm_keys()
+                .into_iter()
+                .try_for_each(|k| adata.add_varm_item(&k, inner.read_varm_item(&k)?.unwrap()))?;
         }
-        { // Set varp
-            inner.varp_keys().into_iter().try_for_each(|k|
-                adata.add_varp_item(&k, inner.read_varp_item(&k)?.unwrap()) )?;
+        {
+            // Set varp
+            inner
+                .varp_keys()
+                .into_iter()
+                .try_for_each(|k| adata.add_varp_item(&k, inner.read_varp_item(&k)?.unwrap()))?;
         }
         Ok(adata)
     }
@@ -865,8 +1059,11 @@ impl<'py> PyAnnData<'py> {
     where
         &'py PyAny: PyToRust<T>,
     {
-        let data = self.getattr(slot)?.call_method1("__getitem__", (key,))
-            .ok().map(|x| x.into_rust(self.py()));
+        let data = self
+            .getattr(slot)?
+            .call_method1("__getitem__", (key,))
+            .ok()
+            .map(|x| x.into_rust(self.py()));
         Ok(data.transpose()?)
     }
 
@@ -878,7 +1075,8 @@ impl<'py> PyAnnData<'py> {
         } else {
             d
         };
-        self.getattr(slot)?.call_method1("__setitem__", (key, new_d))?;
+        self.getattr(slot)?
+            .call_method1("__setitem__", (key, new_d))?;
         Ok(())
     }
 
@@ -911,10 +1109,12 @@ impl<'py> PyAnnData<'py> {
 
 impl<'py> FromPyObject<'py> for PyAnnData<'py> {
     fn extract(obj: &'py PyAny) -> PyResult<Self> {
-        Python::with_gil(|py| if isinstance_of_pyanndata(py, obj)? {
-            Ok(PyAnnData(obj))
-        } else {
-            Err(PyTypeError::new_err("Not a Python AnnData object"))
+        Python::with_gil(|py| {
+            if isinstance_of_pyanndata(py, obj)? {
+                Ok(PyAnnData(obj))
+            } else {
+                Err(PyTypeError::new_err("Not a Python AnnData object"))
+            }
         })
     }
 }
@@ -947,17 +1147,28 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn n_obs(&self) -> usize { self.0.getattr("n_obs").unwrap().extract().unwrap() }
-    fn n_vars(&self) -> usize { self.0.getattr("n_vars").unwrap().extract().unwrap() }
+    fn n_obs(&self) -> usize {
+        self.0.getattr("n_obs").unwrap().extract().unwrap()
+    }
+    fn n_vars(&self) -> usize {
+        self.0.getattr("n_vars").unwrap().extract().unwrap()
+    }
 
-    fn obs_names(&self) -> Vec<String> { self.0.getattr("obs_names").unwrap().extract().unwrap() }
-    fn var_names(&self) -> Vec<String> { self.0.getattr("var_names").unwrap().extract().unwrap() }
+    fn obs_names(&self) -> Vec<String> {
+        self.0.getattr("obs_names").unwrap().extract().unwrap()
+    }
+    fn var_names(&self) -> Vec<String> {
+        self.0.getattr("var_names").unwrap().extract().unwrap()
+    }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         if self.getattr("obs")?.getattr("empty")?.is_true()? {
             let py = self.py();
-            let df = py.import("pandas")?
-                .call_method("DataFrame", (), Some(&[("index", index.names)].into_py_dict(py)))?;
+            let df = py.import("pandas")?.call_method(
+                "DataFrame",
+                (),
+                Some(&[("index", index.names)].into_py_dict(py)),
+            )?;
             self.setattr("obs", df)?;
         } else {
             self.setattr("obs_names", index.names)?;
@@ -967,8 +1178,11 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         if self.getattr("var")?.getattr("empty")?.is_true()? {
             let py = self.py();
-            let df = py.import("pandas")?
-                .call_method("DataFrame", (), Some(&[("index", index.names)].into_py_dict(py)))?;
+            let df = py.import("pandas")?.call_method(
+                "DataFrame",
+                (),
+                Some(&[("index", index.names)].into_py_dict(py)),
+            )?;
             self.setattr("var", df)?;
         } else {
             self.setattr("var_names", index.names)?;
@@ -976,64 +1190,104 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn obs_ix(&self, _names: &[String]) -> Result<Vec<usize>> {todo!()}
-    fn var_ix(&self, _names: &[String]) -> Result<Vec<usize>> {todo!()}
+    fn obs_ix(&self, _names: &[String]) -> Result<Vec<usize>> {
+        todo!()
+    }
+    fn var_ix(&self, _names: &[String]) -> Result<Vec<usize>> {
+        todo!()
+    }
 
     fn read_obs(&self) -> Result<DataFrame> {
         let py = self.py();
-        let df = py.import("polars")?.call_method1("from_pandas", (self.0.getattr("obs")?,))?;
+        let df = py
+            .import("polars")?
+            .call_method1("from_pandas", (self.0.getattr("obs")?,))?;
         Ok(df.into_rust(py)?)
     }
     fn read_var(&self) -> Result<DataFrame> {
         let py = self.py();
-        let df = py.import("polars")?.call_method1("from_pandas", (self.0.getattr("var")?,))?;
+        let df = py
+            .import("polars")?
+            .call_method1("from_pandas", (self.0.getattr("var")?,))?;
         Ok(df.into_rust(py)?)
     }
 
     fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
         match obs_ {
-            None => { self.0.setattr("obs", None::<PyObject>)?; },
+            None => {
+                self.0.setattr("obs", None::<PyObject>)?;
+            }
             Some(obs) => {
                 let py = self.py();
                 let index = self.getattr("obs")?.getattr("index")?;
                 let df = if obs.is_empty() {
-                    py.import("pandas")?.call_method1("DataFrame", (py.None(), index))?.into_py(py)
+                    py.import("pandas")?
+                        .call_method1("DataFrame", (py.None(), index))?
+                        .into_py(py)
                 } else {
-                    obs.rust_into_py(py)?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (index,))?
+                    obs.rust_into_py(py)?
+                        .call_method0(py, "to_pandas")?
+                        .call_method1(py, "set_index", (index,))?
                 };
                 self.setattr("obs", df)?;
-            },
+            }
         }
         Ok(())
     }
     fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
         match var_ {
-            None => { self.0.setattr("var", None::<PyObject>)?; },
+            None => {
+                self.0.setattr("var", None::<PyObject>)?;
+            }
             Some(var) => {
                 let py = self.py();
                 let index = self.getattr("var")?.getattr("index")?;
                 let df = if var.is_empty() {
-                    py.import("pandas")?.call_method1("DataFrame", (py.None(), index))?.into_py(py)
+                    py.import("pandas")?
+                        .call_method1("DataFrame", (py.None(), index))?
+                        .into_py(py)
                 } else {
-                    var.rust_into_py(py)?.call_method0(py, "to_pandas")?.call_method1(py, "set_index", (index,))?
+                    var.rust_into_py(py)?
+                        .call_method0(py, "to_pandas")?
+                        .call_method1(py, "set_index", (index,))?
                 };
                 self.setattr("var", df)?;
-            },
+            }
         }
         Ok(())
     }
 
-    fn uns_keys(&self) -> Vec<String> { self.get_keys("uns").unwrap() }
-    fn obsm_keys(&self) -> Vec<String> { self.get_keys("obsm").unwrap() }
-    fn obsp_keys(&self) -> Vec<String> { self.get_keys("obsp").unwrap() }
-    fn varm_keys(&self) -> Vec<String> { self.get_keys("varm").unwrap() }
-    fn varp_keys(&self) -> Vec<String> { self.get_keys("varp").unwrap() }
+    fn uns_keys(&self) -> Vec<String> {
+        self.get_keys("uns").unwrap()
+    }
+    fn obsm_keys(&self) -> Vec<String> {
+        self.get_keys("obsm").unwrap()
+    }
+    fn obsp_keys(&self) -> Vec<String> {
+        self.get_keys("obsp").unwrap()
+    }
+    fn varm_keys(&self) -> Vec<String> {
+        self.get_keys("varm").unwrap()
+    }
+    fn varp_keys(&self) -> Vec<String> {
+        self.get_keys("varp").unwrap()
+    }
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> { self.get_item("uns", key) }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("obsm", key) }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("obsp", key) }
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("varm", key) }
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> { self.get_item("varp", key) }
+    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> {
+        self.get_item("uns", key)
+    }
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_item("obsm", key)
+    }
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_item("obsp", key)
+    }
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_item("varm", key)
+    }
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+        self.get_item("varp", key)
+    }
 
     fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
         self.set_item("uns", key, data.into_dyn_data())

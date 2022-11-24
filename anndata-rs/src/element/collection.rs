@@ -1,10 +1,14 @@
 use crate::{data::*, element::base::*};
 
-use std::{sync::Arc, collections::{HashMap, HashSet}, ops::{Deref, DerefMut}};
-use parking_lot::Mutex;
-use hdf5::Group; 
-use anyhow::{ensure, anyhow, Result};
+use anyhow::{anyhow, ensure, Result};
+use hdf5::Group;
 use itertools::Itertools;
+use parking_lot::Mutex;
+use std::{
+    collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 pub struct InnerElemCollection {
     container: Group,
@@ -14,17 +18,24 @@ pub struct InnerElemCollection {
 impl Deref for InnerElemCollection {
     type Target = HashMap<String, Elem>;
 
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 impl DerefMut for InnerElemCollection {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
 }
 
 impl std::fmt::Display for InnerElemCollection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let keys = self.keys().map(|x| x.to_string())
-            .collect::<Vec<_>>().join(", ");
+        let keys = self
+            .keys()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         write!(f, "Dict with keys: {}", keys)
     }
 }
@@ -34,8 +45,12 @@ impl TryFrom<Group> for InnerElemCollection {
 
     fn try_from(container: Group) -> Result<Self> {
         let data: Result<HashMap<_, _>> = get_all_data(&container)
-            .map(|(k, v)| Ok((k, Elem::try_from(v)?))).collect();
-        Ok(Self { container, data: data? })
+            .map(|(k, v)| Ok((k, Elem::try_from(v)?)))
+            .collect();
+        Ok(Self {
+            container,
+            data: data?,
+        })
     }
 }
 
@@ -51,7 +66,10 @@ impl TryFrom<Group> for ElemCollection {
 
 impl ElemCollection {
     pub fn add_data<D: Data>(&self, key: &str, data: D) -> Result<()> {
-        ensure!(!self.is_empty(), "cannot add data to an empty ElemCollection");
+        ensure!(
+            !self.is_empty(),
+            "cannot add data to an empty ElemCollection"
+        );
         let mut inner = self.inner();
         match inner.get_mut(key) {
             None => {
@@ -66,12 +84,13 @@ impl ElemCollection {
     pub fn write(&self, location: &Group) -> Result<()> {
         if !self.is_empty() {
             let inner = self.inner();
-            for (key, val) in inner.iter() { val.write(location, key)?; }
+            for (key, val) in inner.iter() {
+                val.write(location, key)?;
+            }
         }
         Ok(())
     }
 }
-
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Axis {
@@ -83,18 +102,22 @@ pub enum Axis {
 pub struct InnerAxisArrays {
     pub axis: Axis,
     pub(crate) container: Group,
-    pub(crate) size: Arc<Mutex<usize>>,   // shared global reference
+    pub(crate) size: Arc<Mutex<usize>>, // shared global reference
     data: HashMap<String, MatrixElem>,
 }
 
 impl Deref for InnerAxisArrays {
     type Target = HashMap<String, MatrixElem>;
 
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 impl DerefMut for InnerAxisArrays {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
 }
 
 impl std::fmt::Display for InnerAxisArrays {
@@ -104,8 +127,11 @@ impl std::fmt::Display for InnerAxisArrays {
             Axis::Column => "column",
             Axis::Both => "square",
         };
-        let keys = self.keys().map(|x| x.to_string())
-            .collect::<Vec<_>>().join(", ");
+        let keys = self
+            .keys()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         write!(f, "AxisArrays ({}) with keys: {}", ty, keys)
     }
 }
@@ -113,38 +139,60 @@ impl std::fmt::Display for InnerAxisArrays {
 macro_rules! check_dims {
     ($size:expr, $data:expr, $axis: expr) => {
         match $axis {
-            Axis::Column => if $data.ncols() == $size {
-                None
-            } else if $size == 0 {
-                Some($data.ncols())
-            } else {
-                panic!("inconsistent size, found: {}, expecting: {}", $data.ncols(), $size);
-            },
-            Axis::Row => if $data.nrows() == $size {
-                None
-            } else if $size == 0 {
-                Some($data.nrows())
-            } else {
-                panic!("inconsistent size, found: {}, expecting: {}", $data.nrows(), $size);
-            },
-            Axis::Both => if $data.nrows() != $data.ncols() {
-                panic!("not a square matrix: nrow = {}, ncol = {}", $data.nrows(), $data.ncols());
-            } else if $data.ncols() == $size {
-                None
-            } else if $size == 0 {
-                Some($data.ncols())
-            } else {
-                panic!("inconsistent size, found: {}, expecting: {}", $data.nrows(), $size);
+            Axis::Column => {
+                if $data.ncols() == $size {
+                    None
+                } else if $size == 0 {
+                    Some($data.ncols())
+                } else {
+                    panic!(
+                        "inconsistent size, found: {}, expecting: {}",
+                        $data.ncols(),
+                        $size
+                    );
+                }
+            }
+            Axis::Row => {
+                if $data.nrows() == $size {
+                    None
+                } else if $size == 0 {
+                    Some($data.nrows())
+                } else {
+                    panic!(
+                        "inconsistent size, found: {}, expecting: {}",
+                        $data.nrows(),
+                        $size
+                    );
+                }
+            }
+            Axis::Both => {
+                if $data.nrows() != $data.ncols() {
+                    panic!(
+                        "not a square matrix: nrow = {}, ncol = {}",
+                        $data.nrows(),
+                        $data.ncols()
+                    );
+                } else if $data.ncols() == $size {
+                    None
+                } else if $size == 0 {
+                    Some($data.ncols())
+                } else {
+                    panic!(
+                        "inconsistent size, found: {}, expecting: {}",
+                        $data.nrows(),
+                        $size
+                    );
+                }
             }
         }
-    }
+    };
 }
 
 impl InnerAxisArrays {
     pub(crate) fn new(group: Group, axis: Axis, size: Arc<Mutex<usize>>) -> Self {
-        let data: HashMap<_, _> = get_all_data(&group).map(|(k, v)|
-            (k, MatrixElem::try_from(v).unwrap())
-        ).collect();
+        let data: HashMap<_, _> = get_all_data(&group)
+            .map(|(k, v)| (k, MatrixElem::try_from(v).unwrap()))
+            .collect();
         {
             let mut size_guard = size.lock();
             let mut n = *size_guard;
@@ -155,14 +203,21 @@ impl InnerAxisArrays {
             }
             *size_guard = n;
         }
-        Self { container: group, size, axis, data }
+        Self {
+            container: group,
+            size,
+            axis,
+            data,
+        }
     }
 }
 
 pub type AxisArrays = Slot<InnerAxisArrays>;
 
 impl AxisArrays {
-    pub fn size(&self) -> Option<usize> { self.lock().as_ref().map(|x| *x.size.lock()) }
+    pub fn size(&self) -> Option<usize> {
+        self.lock().as_ref().map(|x| *x.size.lock())
+    }
 
     pub fn add_data<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
         ensure!(!self.is_empty(), "cannot add data to a closed AxisArrays");
@@ -185,14 +240,16 @@ impl AxisArrays {
         }
         Ok(())
     }
-    
+
     pub fn subset(&self, idx: &[usize]) -> Result<()> {
         if !self.is_empty() {
             let inner = self.inner();
             match inner.axis {
                 Axis::Row => inner.values().try_for_each(|x| x.subset(Some(idx), None)),
                 Axis::Column => inner.values().try_for_each(|x| x.subset(None, Some(idx))),
-                Axis::Both => inner.values().try_for_each(|x| x.subset(Some(idx), Some(idx))),
+                Axis::Both => inner
+                    .values()
+                    .try_for_each(|x| x.subset(Some(idx), Some(idx))),
             }?;
         }
         Ok(())
@@ -202,11 +259,19 @@ impl AxisArrays {
         if !self.is_empty() {
             let inner = self.inner();
             match idx_ {
-                None => inner.iter().try_for_each(|(k, x)| x.write(None, None, location, k)),
+                None => inner
+                    .iter()
+                    .try_for_each(|(k, x)| x.write(None, None, location, k)),
                 Some(idx) => match inner.axis {
-                    Axis::Row => inner.iter().try_for_each(|(k, x)| x.write(Some(idx), None, location, k)),
-                    Axis::Column => inner.iter().try_for_each(|(k, x)| x.write(None, Some(idx), location, k)),
-                    Axis::Both => inner.iter().try_for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k)),
+                    Axis::Row => inner
+                        .iter()
+                        .try_for_each(|(k, x)| x.write(Some(idx), None, location, k)),
+                    Axis::Column => inner
+                        .iter()
+                        .try_for_each(|(k, x)| x.write(None, Some(idx), location, k)),
+                    Axis::Both => inner
+                        .iter()
+                        .try_for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k)),
                 },
             }?;
         }
@@ -227,8 +292,12 @@ impl std::fmt::Display for StackedAxisArrays {
             Axis::Column => "column",
             Axis::Both => "square",
         };
-        let keys = self.data.keys().map(|x| x.to_string())
-            .collect::<Vec<_>>().join(", ");
+        let keys = self
+            .data
+            .keys()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         write!(f, "Stacked AxisArrays ({}) with keys: {}", ty, keys)
     }
 }
@@ -246,17 +315,26 @@ impl StackedAxisArrays {
         if !arrays.iter().map(|x| x.axis).all_equal() {
             return Err(anyhow!("arrays must have same axis"));
         }
-        let keys = intersections(arrays.iter()
-            .map(|x| x.keys().map(Clone::clone).collect()).collect()
+        let keys = intersections(
+            arrays
+                .iter()
+                .map(|x| x.keys().map(Clone::clone).collect())
+                .collect(),
         );
-        let data = keys.into_iter().map(|k| {
-            let elems = arrays.iter()
-                .map(|x| x.get(&k).unwrap().clone()).collect();
-            Ok((
-                k, StackedMatrixElem::new(elems, nrows.clone(), ncols.clone(), accum.clone())?
-            ))
-        }).collect::<Result<HashMap<_, _>>>()?;
-        Ok(Self { axis: arrays[0].axis, data })
+        let data = keys
+            .into_iter()
+            .map(|k| {
+                let elems = arrays.iter().map(|x| x.get(&k).unwrap().clone()).collect();
+                Ok((
+                    k,
+                    StackedMatrixElem::new(elems, nrows.clone(), ncols.clone(), accum.clone())?,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        Ok(Self {
+            axis: arrays[0].axis,
+            data,
+        })
     }
 
     pub fn contains_key(&self, key: &str) -> bool {

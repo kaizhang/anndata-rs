@@ -1,13 +1,21 @@
 use crate::{
-    data::Data, element::base::DataFrameIndex,
-    utils::hdf5::{create_str_attr, read_str_attr, read_str_vec_attr, read_str_vec, create_dataset},
+    data::Data,
+    element::base::DataFrameIndex,
+    utils::hdf5::{
+        create_dataset, create_str_attr, read_str_attr, read_str_vec, read_str_vec_attr,
+    },
 };
 
-use std::{collections::HashMap, fmt};
-use ndarray::{Array1, ArrayD, ArrayView, Dimension};
-use hdf5::{H5Type, Group, Dataset, Result, types::{TypeDescriptor, VarLenUnicode, TypeDescriptor::*}};
+use hdf5::{
+    types::{TypeDescriptor, TypeDescriptor::*, VarLenUnicode},
+    Dataset, Group, H5Type, Result,
+};
 use nalgebra_sparse::csr::CsrMatrix;
-use polars::{prelude::IntoSeries, series::Series, datatypes::CategoricalChunkedBuilder, frame::DataFrame};
+use ndarray::{Array1, ArrayD, ArrayView, Dimension};
+use polars::{
+    datatypes::CategoricalChunkedBuilder, frame::DataFrame, prelude::IntoSeries, series::Series,
+};
+use std::{collections::HashMap, fmt};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scalar<T>(pub T);
@@ -25,25 +33,28 @@ impl<'a> FromIterator<&'a str> for CategoricalArray {
     {
         let mut str_to_id = HashMap::new();
         let mut counter = 0;
-        let codes = iter.into_iter().map(|x| {
-            let str = x.to_string();
-            match str_to_id.get(&str) {
-                Some(v) => *v,
-                None => {
-                    let v = counter;
-                    str_to_id.insert(str, v);
-                    counter += 1;
-                    v
-                },
-            }
-        }).collect();
+        let codes = iter
+            .into_iter()
+            .map(|x| {
+                let str = x.to_string();
+                match str_to_id.get(&str) {
+                    Some(v) => *v,
+                    None => {
+                        let v = counter;
+                        str_to_id.insert(str, v);
+                        counter += 1;
+                        v
+                    }
+                }
+            })
+            .collect();
         let mut categories = str_to_id.drain().collect::<Vec<_>>();
         categories.sort_by_key(|x| x.1);
         CategoricalArray {
-            codes, categories: categories.into_iter().map(|x| x.0).collect()
+            codes,
+            categories: categories.into_iter().map(|x| x.0).collect(),
         }
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +89,8 @@ impl DataContainer {
             _ => match group.group(name) {
                 Ok(x) => Ok(DataContainer::H5Group(x)),
                 _ => Err(hdf5::Error::Internal(format!(
-                    "Cannot open '{}' as group or dataset", name
+                    "Cannot open '{}' as group or dataset",
+                    name
                 ))),
             },
         }
@@ -89,14 +101,17 @@ impl DataContainer {
     /// Group objects, or "scalar" for Dataset objects.
     fn _encoding_type(&self) -> String {
         match self {
-            Self::H5Group(group) => read_str_attr(group, "encoding-type")
-                .unwrap_or("mapping".to_string()),
+            Self::H5Group(group) => {
+                read_str_attr(group, "encoding-type").unwrap_or("mapping".to_string())
+            }
             Self::H5Dataset(dataset) => match read_str_attr(dataset, "encoding-type") {
                 Ok(ty) => ty,
-                _ => if dataset.is_scalar() {
-                    "scalar".to_string()
-                } else {
-                    "array".to_string()
+                _ => {
+                    if dataset.is_scalar() {
+                        "scalar".to_string()
+                    } else {
+                        "array".to_string()
+                    }
                 }
             },
         }
@@ -110,26 +125,27 @@ impl DataContainer {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
                 Ok(DataType::Scalar(ty))
-            },
+            }
             "dataframe" => Ok(DataType::DataFrame),
             "categorical" => Ok(DataType::Categorical),
             "array" | "string-array" => {
                 let dataset = self.get_dataset_ref()?;
                 let ty = dataset.dtype()?.to_descriptor()?;
                 Ok(DataType::Array(ty))
-            },
+            }
             "csr_matrix" => {
                 let group = self.get_group_ref()?;
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
                 Ok(DataType::CsrMatrix(ty))
-            },
+            }
             "csc_matrix" => {
                 let group = self.get_group_ref()?;
                 let ty = group.dataset("data")?.dtype()?.to_descriptor()?;
                 Ok(DataType::CscMatrix(ty))
-            },
+            }
             ty => Err(hdf5::Error::Internal(format!(
-                "Unknown encoding type '{}'", ty 
+                "Unknown encoding type '{}'",
+                ty
             ))),
         }
     }
@@ -137,18 +153,14 @@ impl DataContainer {
     pub fn get_group_ref(&self) -> Result<&Group> {
         match self {
             Self::H5Group(x) => Ok(&x),
-            _ => Err(hdf5::Error::Internal(format!(
-                "Expecting Group" 
-            ))),
+            _ => Err(hdf5::Error::Internal(format!("Expecting Group"))),
         }
     }
 
     pub fn get_dataset_ref(&self) -> Result<&Dataset> {
         match self {
             Self::H5Dataset(x) => Ok(&x),
-            _ => Err(hdf5::Error::Internal(format!(
-                "Expecting Dataset" 
-            ))),
+            _ => Err(hdf5::Error::Internal(format!("Expecting Dataset"))),
         }
     }
 
@@ -158,7 +170,9 @@ impl DataContainer {
             DataContainer::H5Group(grp) => (grp.file()?, grp.name()),
             DataContainer::H5Dataset(data) => (data.file()?, data.name()),
         };
-        let (path, obj) = name.as_str().rsplit_once("/")
+        let (path, obj) = name
+            .as_str()
+            .rsplit_once("/")
             .unwrap_or(("", name.as_str()));
         if path.is_empty() {
             file.unlink(obj)?;
@@ -177,14 +191,18 @@ pub trait WriteData {
 
     fn get_dtype(&self) -> DataType;
 
-    fn dtype() -> DataType where Self: Sized;
+    fn dtype() -> DataType
+    where
+        Self: Sized;
 
     fn update(&self, container: &DataContainer) -> Result<DataContainer> {
         let (file, name) = match container {
             DataContainer::H5Group(grp) => (grp.file()?, grp.name()),
             DataContainer::H5Dataset(data) => (data.file()?, data.name()),
         };
-        let (path, obj) = name.as_str().rsplit_once("/")
+        let (path, obj) = name
+            .as_str()
+            .rsplit_once("/")
             .unwrap_or(("", name.as_str()));
         if path.is_empty() {
             file.unlink(obj)?;
@@ -198,7 +216,9 @@ pub trait WriteData {
 }
 
 pub trait ReadData {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized;
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized;
     fn to_dyn_data(&self) -> Box<dyn Data>;
     fn into_dyn_data(self) -> Box<dyn Data>;
 }
@@ -217,22 +237,35 @@ where
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Scalar(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::Scalar(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Scalar(T::type_descriptor())
+    }
+    fn dtype() -> DataType {
+        DataType::Scalar(T::type_descriptor())
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl<T> ReadData for Scalar<T>
 where
     T: H5Type + Copy + Send + Sync,
 {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let dataset = container.get_dataset_ref()?;
         Ok(Scalar(dataset.read_scalar()?))
     }
 
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -247,20 +280,33 @@ impl WriteData for String {
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::String }
-    fn dtype() -> DataType { DataType::String }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::String
+    }
+    fn dtype() -> DataType {
+        DataType::String
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl ReadData for String {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let dataset = container.get_dataset_ref()?;
         let result: VarLenUnicode = dataset.read_scalar()?;
         Ok(result.parse().unwrap())
     }
 
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -271,30 +317,45 @@ impl WriteData for CategoricalArray {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "categorical")?;
         create_str_attr(&group, "encoding-version", self.version())?;
-        group.new_attr::<bool>().create("ordered")?.write_scalar(&false)?;
+        group
+            .new_attr::<bool>()
+            .create("ordered")?
+            .write_scalar(&false)?;
 
         create_dataset(&group, "codes", self.codes.as_slice())?;
-        let cat: Vec<VarLenUnicode> = self.categories.iter()
-            .map(|x| x.parse().unwrap()).collect();
+        let cat: Vec<VarLenUnicode> = self.categories.iter().map(|x| x.parse().unwrap()).collect();
         create_dataset(&group, "categories", cat.as_slice())?;
         Ok(DataContainer::H5Group(group))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Categorical }
-    fn dtype() -> DataType { DataType::Categorical }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Categorical
+    }
+    fn dtype() -> DataType {
+        DataType::Categorical
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl ReadData for CategoricalArray {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
-        let group : &Group = container.get_group_ref()?;
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        let group: &Group = container.get_group_ref()?;
         let categories: Vec<String> = read_str_vec(&group.dataset("categories")?)?;
         let codes: Vec<u32> = group.dataset("codes")?.read_1d()?.to_vec();
 
         Ok(CategoricalArray { categories, codes })
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -304,52 +365,104 @@ impl<T> WriteData for CsrMatrix<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
-    {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
         create_str_attr(&group, "encoding-type", "csr_matrix")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
-        group.new_attr_builder().with_data(&[self.nrows(), self.ncols()]).create("shape")?;
+        group
+            .new_attr_builder()
+            .with_data(&[self.nrows(), self.ncols()])
+            .create("shape")?;
         create_dataset(&group, "data", self.values())?;
 
         let num_cols = self.ncols();
         // Use i32 or i64 as indices type in order to be compatible with scipy
         if TryInto::<i32>::try_into(num_cols.saturating_sub(1)).is_ok() {
-            let try_convert_indptr: Option<Vec<i32>> = self.row_offsets().iter()
-                .map(|x| (*x).try_into().ok()).collect();
+            let try_convert_indptr: Option<Vec<i32>> = self
+                .row_offsets()
+                .iter()
+                .map(|x| (*x).try_into().ok())
+                .collect();
             if let Some(indptr_i32) = try_convert_indptr {
                 create_dataset(&group, "indptr", indptr_i32.as_slice())?;
-                create_dataset(&group, "indices", self.col_indices().iter()
-                    .map(|x| (*x) as i32).collect::<Vec<_>>().as_slice())?;
+                create_dataset(
+                    &group,
+                    "indices",
+                    self.col_indices()
+                        .iter()
+                        .map(|x| (*x) as i32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )?;
             } else {
-                create_dataset(&group, "indptr", self.row_offsets().iter()
-                    .map(|x| TryInto::<i64>::try_into(*x).unwrap()).collect::<Vec<_>>().as_slice())?;
-                create_dataset(&group, "indices", self.col_indices().iter()
-                    .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
+                create_dataset(
+                    &group,
+                    "indptr",
+                    self.row_offsets()
+                        .iter()
+                        .map(|x| TryInto::<i64>::try_into(*x).unwrap())
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )?;
+                create_dataset(
+                    &group,
+                    "indices",
+                    self.col_indices()
+                        .iter()
+                        .map(|x| (*x) as i64)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )?;
             }
         } else if TryInto::<i64>::try_into(num_cols.saturating_sub(1)).is_ok() {
-                create_dataset(&group, "indptr", self.row_offsets().iter()
-                    .map(|x| TryInto::<i64>::try_into(*x).unwrap()).collect::<Vec<_>>().as_slice())?;
-                create_dataset(&group, "indices", self.col_indices().iter()
-                    .map(|x| (*x) as i64).collect::<Vec<_>>().as_slice())?;
+            create_dataset(
+                &group,
+                "indptr",
+                self.row_offsets()
+                    .iter()
+                    .map(|x| TryInto::<i64>::try_into(*x).unwrap())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )?;
+            create_dataset(
+                &group,
+                "indices",
+                self.col_indices()
+                    .iter()
+                    .map(|x| (*x) as i64)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )?;
         } else {
-            panic!("The number of columns ({}) is too large to be stored as i64", num_cols);
+            panic!(
+                "The number of columns ({}) is too large to be stored as i64",
+                num_cols
+            );
         }
 
         Ok(DataContainer::H5Group(group))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::CsrMatrix(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.1.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::CsrMatrix(T::type_descriptor())
+    }
+    fn dtype() -> DataType {
+        DataType::CsrMatrix(T::type_descriptor())
+    }
+    fn version(&self) -> &str {
+        "0.1.0"
+    }
 }
 
 impl<T> ReadData for CsrMatrix<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let dataset: &Group = container.get_group_ref()?;
         let shape: Vec<usize> = dataset.attr("shape")?.read_1d()?.to_vec();
         let data = dataset.dataset("data")?.read_1d()?.to_vec();
@@ -357,8 +470,12 @@ where
         let indptr: Vec<usize> = dataset.dataset("indptr")?.read_1d()?.to_vec();
         Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -368,8 +485,7 @@ impl<T> WriteData for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
-    {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = create_dataset(location, name, &self.as_standard_layout())?;
         let encoding_type = if T::type_descriptor() == TypeDescriptor::VarLenUnicode {
             "string-array"
@@ -381,21 +497,34 @@ where
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn dtype() -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl<T> ReadData for ArrayD<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let dataset: &Dataset = container.get_dataset_ref()?;
         dataset.read()
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -405,30 +534,42 @@ impl<T> WriteData for Vec<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn write(&self, location: &Group, name: &str) -> Result<DataContainer>
-    {
+    fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let dataset = create_dataset(location, name, self)?;
         create_str_attr(&*dataset, "encoding-type", "array")?;
         create_str_attr(&*dataset, "encoding-version", self.version())?;
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn dtype() -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl<T> ReadData for Vec<T>
 where
     T: H5Type + Clone + Send + Sync,
 {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let dataset: &Dataset = container.get_dataset_ref()?;
         let arr: Array1<_> = dataset.read()?;
         Ok(arr.into_raw_vec())
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -440,10 +581,17 @@ impl WriteData for DataFrame {
         create_str_attr(&group, "encoding-type", "dataframe")?;
         create_str_attr(&group, "encoding-version", self.version())?;
 
-        let columns: Array1<hdf5::types::VarLenUnicode> = self.get_column_names().into_iter()
-            .map(|x| x.parse().unwrap()).collect();
-        group.new_attr_builder().with_data(&columns).create("column-order")?;
-        self.iter().try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
+        let columns: Array1<hdf5::types::VarLenUnicode> = self
+            .get_column_names()
+            .into_iter()
+            .map(|x| x.parse().unwrap())
+            .collect();
+        group
+            .new_attr_builder()
+            .with_data(&columns)
+            .create("column-order")?;
+        self.iter()
+            .try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
 
         let container = DataContainer::H5Group(group);
         // Create an index as python anndata package enforce it.
@@ -451,23 +599,39 @@ impl WriteData for DataFrame {
         Ok(container)
     }
 
-    fn get_dtype(&self) -> DataType { DataType::DataFrame }
-    fn dtype() -> DataType { DataType::DataFrame }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::DataFrame
+    }
+    fn dtype() -> DataType {
+        DataType::DataFrame
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl ReadData for DataFrame {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let group: &Group = container.get_group_ref()?;
-        read_str_vec_attr(group, "column-order")?.into_iter().map(|x| {
-            let name = x.as_str();
-            let mut series = Series::read(&DataContainer::open(group, name)?)?;
-            series.rename(name);
-            Ok(series)
-        }).collect()
+        read_str_vec_attr(group, "column-order")?
+            .into_iter()
+            .map(|x| {
+                let name = x.as_str();
+                let mut series = Series::read(&DataContainer::open(group, name)?)?;
+                series.rename(name);
+                Ok(series)
+            })
+            .collect()
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -476,83 +640,156 @@ impl ReadData for DataFrame {
 impl WriteData for Series {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         match self.dtype() {
-            polars::datatypes::DataType::UInt8 =>
-                self.u8().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::UInt16 =>
-                self.u16().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::UInt32 =>
-                self.u32().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::UInt64 =>
-                self.u64().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Int8 =>
-                self.i8().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Int16 =>
-                self.i16().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Int32 =>
-                self.i32().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Int64 =>
-                self.i64().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Float32 => 
-                self.f32().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Float64 => 
-                self.f64().unwrap().to_ndarray().unwrap().write(location, name),
-            polars::datatypes::DataType::Boolean => 
-                self.bool().unwrap().into_iter().flatten().collect::<Vec<_>>().write(location, name),
+            polars::datatypes::DataType::UInt8 => self
+                .u8()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::UInt16 => self
+                .u16()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::UInt32 => self
+                .u32()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::UInt64 => self
+                .u64()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Int8 => self
+                .i8()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Int16 => self
+                .i16()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Int32 => self
+                .i32()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Int64 => self
+                .i64()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Float32 => self
+                .f32()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Float64 => self
+                .f64()
+                .unwrap()
+                .to_ndarray()
+                .unwrap()
+                .write(location, name),
+            polars::datatypes::DataType::Boolean => self
+                .bool()
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .write(location, name),
             polars::datatypes::DataType::Utf8 => {
-                let vec: Vec<VarLenUnicode> = self.utf8().unwrap()
-                    .into_iter().map(|x|
+                let vec: Vec<VarLenUnicode> = self
+                    .utf8()
+                    .unwrap()
+                    .into_iter()
+                    .map(|x| {
                         x.expect(&format!("Encounter a null value in '{}'", name))
-                        .parse().unwrap()
-                    ).collect();
+                            .parse()
+                            .unwrap()
+                    })
+                    .collect();
                 let dataset = create_dataset(location, name, vec.as_slice())?;
                 create_str_attr(&*dataset, "encoding-type", "string-array")?;
                 create_str_attr(&*dataset, "encoding-version", "0.2.0")?;
                 Ok(DataContainer::H5Dataset(dataset))
-            },
+            }
             polars::datatypes::DataType::Categorical(_) => self
-                .categorical().unwrap().iter_str().map(|x| x.unwrap())
-                .collect::<CategoricalArray>().write(location, name),
-            other => Err(hdf5::Error::Internal(
-                format!("Not implemented: writing Series of type '{:?}'", other)
-            )),
+                .categorical()
+                .unwrap()
+                .iter_str()
+                .map(|x| x.unwrap())
+                .collect::<CategoricalArray>()
+                .write(location, name),
+            other => Err(hdf5::Error::Internal(format!(
+                "Not implemented: writing Series of type '{:?}'",
+                other
+            ))),
         }
     }
 
-    fn get_dtype(&self) -> DataType { todo!() }
-    fn dtype() -> DataType { todo!() }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        todo!()
+    }
+    fn dtype() -> DataType {
+        todo!()
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl ReadData for Series {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         macro_rules! _into_series {
-            ($x:expr) => { Ok($x.iter().collect::<Series>()) };
+            ($x:expr) => {
+                Ok($x.iter().collect::<Series>())
+            };
         }
 
         match container.get_encoding_type()? {
-            DataType::Scalar(VarLenUnicode) | DataType::Array(VarLenUnicode) =>
-                Ok(read_str_vec(container.get_dataset_ref()?)?.into_iter().collect()),
-            DataType::Scalar(ty) | DataType::Array(ty) => crate::proc_numeric_data!(
-                ty,
-                ReadData::read(container)?,
-                _into_series,
-                ArrayD
-            ),
+            DataType::Scalar(VarLenUnicode) | DataType::Array(VarLenUnicode) => {
+                Ok(read_str_vec(container.get_dataset_ref()?)?
+                    .into_iter()
+                    .collect())
+            }
+            DataType::Scalar(ty) | DataType::Array(ty) => {
+                crate::proc_numeric_data!(ty, ReadData::read(container)?, _into_series, ArrayD)
+            }
             DataType::Categorical => {
                 let arr = CategoricalArray::read(container).unwrap();
                 let mut builder = CategoricalChunkedBuilder::new("", arr.codes.len());
-                builder.drain_iter(arr.codes.into_iter()
-                    .map(|i| Some(arr.categories[i as usize].as_str()))
+                builder.drain_iter(
+                    arr.codes
+                        .into_iter()
+                        .map(|i| Some(arr.categories[i as usize].as_str())),
                 );
                 Ok(builder.finish().into_series())
-            },
-            unknown => Err(hdf5::Error::Internal(
-                format!("Not implemented: reading Series from type '{:?}'", unknown)
-            )),
+            }
+            unknown => Err(hdf5::Error::Internal(format!(
+                "Not implemented: reading Series from type '{:?}'",
+                unknown
+            ))),
         }
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -565,28 +802,42 @@ impl WriteData for Mapping {
     fn write(&self, location: &Group, name: &str) -> Result<DataContainer> {
         let group = location.create_group(name)?;
 
-        self.0.iter().try_for_each(|(k, v)|
-            v.write(&group, k).map(|_| ())
-        )?;
+        self.0
+            .iter()
+            .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;
 
         Ok(DataContainer::H5Group(group))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Mapping }
-    fn dtype() -> DataType { DataType::Mapping }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Mapping
+    }
+    fn dtype() -> DataType {
+        DataType::Mapping
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
 impl ReadData for Mapping {
-    fn read(container: &DataContainer) -> Result<Self> where Self: Sized {
+    fn read(container: &DataContainer) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let group: &Group = container.get_group_ref()?;
 
         let m: Result<HashMap<_, _>> = get_all_data(group)
-            .map(|(k, c)| Ok((k, <Box<dyn Data>>::read(&c)?))).collect();
+            .map(|(k, c)| Ok((k, <Box<dyn Data>>::read(&c)?)))
+            .collect();
         Ok(Mapping(m?))
     }
-    fn to_dyn_data(&self) -> Box<dyn Data> { Box::new(self.clone()) }
-    fn into_dyn_data(self) -> Box<dyn Data> { Box::new(self) }
+    fn to_dyn_data(&self) -> Box<dyn Data> {
+        Box::new(self.clone())
+    }
+    fn into_dyn_data(self) -> Box<dyn Data> {
+        Box::new(self)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -604,27 +855,46 @@ where
         Ok(DataContainer::H5Dataset(dataset))
     }
 
-    fn get_dtype(&self) -> DataType { DataType::Array(T::type_descriptor()) }
-    fn dtype() -> DataType { DataType::Array(T::type_descriptor()) }
-    fn version(&self) -> &str { "0.2.0" }
+    fn get_dtype(&self) -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn dtype() -> DataType {
+        DataType::Array(T::type_descriptor())
+    }
+    fn version(&self) -> &str {
+        "0.2.0"
+    }
 }
 
-pub(crate) fn get_all_data(group: &Group) -> impl Iterator<Item=(String, DataContainer)> {
-    let get_name = |x: String| std::path::Path::new(&x).file_name()
-        .unwrap().to_str().unwrap().to_string();
-    group.groups().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Group(x))
-    ).chain(group.datasets().unwrap().into_iter().map(move |x|
-        (get_name(x.name()), DataContainer::H5Dataset(x))
-    ))
+pub(crate) fn get_all_data(group: &Group) -> impl Iterator<Item = (String, DataContainer)> {
+    let get_name = |x: String| {
+        std::path::Path::new(&x)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+    group
+        .groups()
+        .unwrap()
+        .into_iter()
+        .map(move |x| (get_name(x.name()), DataContainer::H5Group(x)))
+        .chain(
+            group
+                .datasets()
+                .unwrap()
+                .into_iter()
+                .map(move |x| (get_name(x.name()), DataContainer::H5Dataset(x))),
+        )
 }
 
 #[cfg(test)]
 mod data_io_test {
     use super::*;
     use hdf5::*;
-    use tempfile::tempdir;
     use std::path::PathBuf;
+    use tempfile::tempdir;
 
     pub fn with_tmp_dir<T, F: Fn(PathBuf) -> T>(func: F) -> T {
         let dir = tempdir().unwrap();

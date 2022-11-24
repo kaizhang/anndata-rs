@@ -1,9 +1,17 @@
 use crate::iterator::{PyChunkedMatrix, PyStackedChunkedMatrix};
-use crate::utils::{to_indices, instance::is_none_slice, conversion::{RustToPy, PyToRust}};
+use crate::utils::{
+    conversion::{PyToRust, RustToPy},
+    instance::is_none_slice,
+    to_indices,
+};
 use anndata_rs::{data::DataType, element::*, Data, MatrixData};
-use pyo3::{prelude::*, exceptions::{PyTypeError, PyKeyError}, PyResult, Python};
-use rand::SeedableRng;
+use pyo3::{
+    exceptions::{PyKeyError, PyTypeError},
+    prelude::*,
+    PyResult, Python,
+};
 use rand::Rng;
+use rand::SeedableRng;
 
 #[pyclass]
 #[repr(transparent)]
@@ -11,9 +19,13 @@ pub struct PyElem(pub(crate) Elem);
 
 #[pymethods]
 impl PyElem {
-    fn enable_cache(&self) { self.0.enable_cache() }
+    fn enable_cache(&self) {
+        self.0.enable_cache()
+    }
 
-    fn disable_cache(&self) { self.0.disable_cache() }
+    fn disable_cache(&self) {
+        self.0.disable_cache()
+    }
 
     fn is_scalar(&self) -> bool {
         match self.0.dtype() {
@@ -27,14 +39,18 @@ impl PyElem {
             self.0.read().unwrap().rust_into_py(py)
         } else {
             Err(PyTypeError::new_err(
-                "Please use '...' or ':' to retrieve value"
+                "Please use '...' or ':' to retrieve value",
             ))
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// An element that stores matrix objects such as arrays and sparse matrices.
@@ -49,15 +65,21 @@ impl PyMatrixElem {
     /// is accessed the first time. Subsequent requests for the data will use
     /// the in-memory cache.
     #[pyo3(text_signature = "($self)")]
-    fn enable_cache(&mut self) { self.0.enable_cache() }
+    fn enable_cache(&mut self) {
+        self.0.enable_cache()
+    }
 
     /// Disable caching. In-memory cache will be cleared immediately.
     #[pyo3(text_signature = "($self)")]
-    fn disable_cache(&mut self) { self.0.disable_cache() }
+    fn disable_cache(&mut self) {
+        self.0.disable_cache()
+    }
 
     /// Shape of matrix.
     #[getter]
-    fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
+    fn shape(&self) -> (usize, usize) {
+        (self.0.nrows(), self.0.ncols())
+    }
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
         let ridx;
@@ -75,12 +97,17 @@ impl PyMatrixElem {
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
             //data.call_method1(py, "__getitem__", (subscript,))
         }
-        self.0.read(ridx.as_ref().map(|x| x.as_slice()), cidx.as_ref().map(|x| x.as_slice()))
-            .unwrap().rust_into_py(py)
+        self.0
+            .read(
+                ridx.as_ref().map(|x| x.as_slice()),
+                cidx.as_ref().map(|x| x.as_slice()),
+            )
+            .unwrap()
+            .rust_into_py(py)
     }
 
     /// Return a chunk of the matrix with random indices.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// size
@@ -89,14 +116,11 @@ impl PyMatrixElem {
     ///     True means random sampling of indices with replacement, False without replacement.
     /// seed
     ///     Random seed.
-    /// 
+    ///
     /// Returns
     /// -------
     /// A matrix
-    #[args(
-        replace = true,
-        seed = 2022,
-    )]
+    #[args(replace = true, seed = 2022)]
     #[pyo3(text_signature = "($self, size, replace, seed)")]
     fn chunk<'py>(
         &self,
@@ -108,20 +132,25 @@ impl PyMatrixElem {
         let length = self.0.nrows();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
-            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
+            std::iter::repeat_with(|| rng.gen_range(0..length))
+                .take(size)
+                .collect()
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        self.0.read(Some(idx.as_slice()), None).unwrap().rust_into_py(py)
+        self.0
+            .read(Some(idx.as_slice()), None)
+            .unwrap()
+            .rust_into_py(py)
     }
 
     /// Return an iterator over the rows of the matrix.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// chunk_size
     ///     Number of rows of a single chunk.
-    /// 
+    ///
     /// Returns
     /// -------
     /// An iterator, of which the elements are matrices.
@@ -130,9 +159,13 @@ impl PyMatrixElem {
         PyChunkedMatrix(self.0.chunked(chunk_size))
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// An element that stores dataframe objects.
@@ -146,17 +179,16 @@ impl PyDataFrameElem {
         if is_none_slice(py, subscript)? {
             self.0.read().unwrap().rust_into_py(py)
         } else {
-            self.0.read().unwrap().rust_into_py(py)?.call_method1(py, "__getitem__", (subscript,))
+            self.0
+                .read()
+                .unwrap()
+                .rust_into_py(py)?
+                .call_method1(py, "__getitem__", (subscript,))
         }
     }
 
     //TODO: pandas dataframe should set index as well.
-    fn __setitem__<'py>(
-        &self,
-        py: Python<'py>,
-        key: &'py PyAny,
-        data: &'py PyAny,
-    ) -> PyResult<()> {
+    fn __setitem__<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> PyResult<()> {
         let df = self.0.read().unwrap().rust_into_py(py)?;
         let new_df = if key.is_instance_of::<pyo3::types::PyString>()? {
             let series = py.import("polars")?.call_method1("Series", (key, data))?;
@@ -165,15 +197,26 @@ impl PyDataFrameElem {
             df.call_method1(py, "__setitem__", (key, data))?;
             df
         };
-        self.0.update(new_df.as_ref(py).into_rust(py).unwrap()).unwrap();
+        self.0
+            .update(new_df.as_ref(py).into_rust(py).unwrap())
+            .unwrap();
         Ok(())
     }
- 
-    fn __contains__(&self, key: &str) -> bool { self.0.get_column_names().map(|x| x.contains(key)).unwrap_or(false) }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __contains__(&self, key: &str) -> bool {
+        self.0
+            .get_column_names()
+            .map(|x| x.contains(key))
+            .unwrap_or(false)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// Unstructured annotations (ordered dictionary).
@@ -187,7 +230,9 @@ impl PyElemCollection {
         self.0.inner().keys().map(|x| x.to_string()).collect()
     }
 
-    fn __contains__(&self, key: &str) -> bool { self.0.inner().contains_key(key) }
+    fn __contains__(&self, key: &str) -> bool {
+        self.0.inner().contains_key(key)
+    }
 
     fn __getitem__<'py>(&self, py: Python<'py>, key: &str) -> PyResult<PyObject> {
         match self.0.inner().get_mut(key) {
@@ -202,15 +247,19 @@ impl PyElemCollection {
         Ok(())
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// A mapping, in which each key is associated with an axisarray
-/// (a two or higher-dimensional ndarray). 
+/// (a two or higher-dimensional ndarray).
 /// It allows indexing and slicing along the associated axis.
-/// 
+///
 /// Examples
 /// --------
 /// >>> data.obsm
@@ -232,7 +281,7 @@ pub struct PyAxisArrays(pub(crate) AxisArrays);
 #[pymethods]
 impl PyAxisArrays {
     /// Return the keys.
-    /// 
+    ///
     /// Returns
     /// -------
     /// List[str]
@@ -253,12 +302,12 @@ impl PyAxisArrays {
     }
 
     /// Provide a lazy access to the elements.
-    /// 
+    ///
     /// This function provides a lazy access to underlying elements. For example,
     /// calling `adata.obsm['elem']` will immediately read the data into memory,
     /// while using `adata.obsm.el('elem')` will return a :class:`.PyMatrixElem` object,
     /// which contains a reference to data stored in the disk.
-    /// 
+    ///
     /// /// Examples
     /// --------
     /// >>> data.obsm
@@ -273,12 +322,12 @@ impl PyAxisArrays {
     ///       [13.247231  , -4.200884  ]], dtype=float32)
     /// >>> data.obsm.el('X_umap')
     /// Array(Float(U4)) element, cache_enabled: no, cached: no
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// key
     ///     the name of the key.
-    /// 
+    ///
     /// Returns
     /// -------
     /// Optional[PyMatrixElem]
@@ -296,9 +345,13 @@ impl PyAxisArrays {
         Ok(())
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 #[pyclass]
@@ -329,11 +382,14 @@ impl PyStackedAxisArrays {
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
-
 
 /// Lazily concatenated matrix elements.
 #[pyclass]
@@ -344,33 +400,39 @@ pub struct PyStackedMatrixElem(pub(crate) StackedMatrixElem);
 impl PyStackedMatrixElem {
     /// Shape of matrix.
     #[getter]
-    fn shape(&self) -> (usize, usize) { (self.0.nrows(), self.0.ncols()) }
+    fn shape(&self) -> (usize, usize) {
+        (self.0.nrows(), self.0.ncols())
+    }
 
     /// Enable caching so that data will be stored in memory when the element
     /// is accessed the first time. Subsequent requests for the data will use
     /// the in-memory cache.
     #[pyo3(text_signature = "($self)")]
-    fn enable_cache(&mut self) { self.0.enable_cache() }
+    fn enable_cache(&mut self) {
+        self.0.enable_cache()
+    }
 
-    fn disable_cache(&mut self) { self.0.disable_cache() }
+    fn disable_cache(&mut self) {
+        self.0.disable_cache()
+    }
 
     /// Return an iterator over the rows of the matrix.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// chunk_size
     ///     Number of rows of a single chunk.
-    /// 
+    ///
     /// Returns
     /// -------
     /// An iterator, of which the elements are matrices.
     #[pyo3(text_signature = "($self, chunk_size)")]
-    pub fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix{
+    pub fn chunked(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
         PyStackedChunkedMatrix(self.0.chunked(chunk_size))
     }
 
     /// Return a chunk of the matrix with random indices.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// size
@@ -379,14 +441,11 @@ impl PyStackedMatrixElem {
     ///     True means random sampling of indices with replacement, False without replacement.
     /// seed
     ///     Random seed.
-    /// 
+    ///
     /// Returns
     /// -------
     /// A matrix
-    #[args(
-        replace = true,
-        seed = 2022,
-    )]
+    #[args(replace = true, seed = 2022)]
     #[pyo3(text_signature = "($self, size, replace, seed)")]
     pub fn chunk<'py>(
         &self,
@@ -398,11 +457,16 @@ impl PyStackedMatrixElem {
         let length = self.0.nrows();
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
-            std::iter::repeat_with(|| rng.gen_range(0..length)).take(size).collect()
+            std::iter::repeat_with(|| rng.gen_range(0..length))
+                .take(size)
+                .collect()
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        self.0.read(Some(idx.as_slice()), None).unwrap().rust_into_py(py)
+        self.0
+            .read(Some(idx.as_slice()), None)
+            .unwrap()
+            .rust_into_py(py)
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> PyResult<Py<PyAny>> {
@@ -421,13 +485,22 @@ impl PyStackedMatrixElem {
             //let data = to_py_data2(py, self.0.read(None, None).unwrap())?;
             //data.call_method1(py, "__getitem__", (subscript,))
         }
-        self.0.read(ridx.as_ref().map(|x| x.as_slice()), cidx.as_ref().map(|x| x.as_slice()))
-            .unwrap().rust_into_py(py)
+        self.0
+            .read(
+                ridx.as_ref().map(|x| x.as_slice()),
+                cidx.as_ref().map(|x| x.as_slice()),
+            )
+            .unwrap()
+            .rust_into_py(py)
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 #[pyclass]
@@ -446,7 +519,11 @@ impl PyStackedDataFrame {
         }
     }
 
-    fn __repr__(&self) -> String { format!("{}", self.0) }
+    fn __repr__(&self) -> String {
+        format!("{}", self.0)
+    }
 
-    fn __str__(&self) -> String { self.__repr__() }
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
