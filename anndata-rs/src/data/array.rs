@@ -1,4 +1,4 @@
-use crate::backend::{Backend, GroupOp, LocationOp, BackendData, DataContainer, ScalarType, Selection};
+use crate::backend::{Backend, GroupOp, LocationOp, DatasetOp, BackendData, DataContainer, ScalarType, Selection};
 use crate::data::other::{DynScalar, ReadData, WriteData};
 
 use anyhow::Result;
@@ -272,65 +272,23 @@ impl WriteData for DynArray {
 impl ReadData for DynArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
-            DataContainer::Dataset(dataset) => match B::dtype(dataset)? {
-                ScalarType::I8 => Ok(Self::ArrayI8(i8::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::I16 => Ok(Self::ArrayI16(i16::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::I32 => Ok(Self::ArrayI32(i32::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::I64 => Ok(Self::ArrayI64(i64::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::U8 => Ok(Self::ArrayU8(u8::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::U16 => Ok(Self::ArrayU16(u16::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::U32 => Ok(Self::ArrayU32(u32::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::U64 => Ok(Self::ArrayU64(u64::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::F32 => Ok(Self::ArrayF32(f32::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::F64 => Ok(Self::ArrayF64(f64::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::Bool => Ok(Self::ArrayBool(bool::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
-                ScalarType::String => Ok(Self::ArrayString(String::read_arr_data::<B, _, _>(
-                    dataset,
-                    Selection::All,
-                )?)),
+            DataContainer::Dataset(dataset) => match dataset.dtype()? {
+                ScalarType::I8 => Ok(Self::ArrayI8(dataset.read_array(Selection::All)?)),
+                ScalarType::I16 => Ok(Self::ArrayI16(dataset.read_array(Selection::All)?)),
+                ScalarType::I32 => Ok(Self::ArrayI32(dataset.read_array(Selection::All)?)),
+                ScalarType::I64 => Ok(Self::ArrayI64(dataset.read_array(Selection::All)?)),
+                ScalarType::U8 => Ok(Self::ArrayU8(dataset.read_array(Selection::All)?)),
+                ScalarType::U16 => Ok(Self::ArrayU16(dataset.read_array(Selection::All)?)),
+                ScalarType::U32 => Ok(Self::ArrayU32(dataset.read_array(Selection::All)?)),
+                ScalarType::U64 => Ok(Self::ArrayU64(dataset.read_array(Selection::All)?)),
+                ScalarType::F32 => Ok(Self::ArrayF32(dataset.read_array(Selection::All)?)),
+                ScalarType::F64 => Ok(Self::ArrayF64(dataset.read_array(Selection::All)?)),
+                ScalarType::Bool => Ok(Self::ArrayBool(dataset.read_array(Selection::All)?)),
+                ScalarType::String => Ok(Self::ArrayString(dataset.read_array(Selection::All)?)),
             },
             DataContainer::Group(group) => {
-                let codes = u32::read_arr_data::<B, _, _>(
-                    &group.open_dataset("codes")?,
-                    Selection::All,
-                )?;
-                let categories = String::read_arr_data::<B, _, _>(
-                    &group.open_dataset("categories")?,
-                    Selection::All,
-                )?;
+                let codes = group.open_dataset("codes")?.read_array(Selection::All)?;
+                let categories = group.open_dataset("categories")?.read_array(Selection::All)?;
                 Ok(Self::ArrayCategorical(CategoricalArray {
                     codes,
                     categories,
@@ -411,7 +369,7 @@ impl ArrayOp for DynArray {
 impl WriteArrayData for DynArray {}
 impl ReadArrayData for DynArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
-        Ok(B::shape(container.as_dataset()?)?.into())
+        Ok(container.as_dataset()?.shape()?.into())
     }
 }
 

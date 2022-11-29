@@ -1,9 +1,9 @@
-//mod hdf5;
+pub mod hdf5;
 
 use crate::data::DynScalar;
 
 use anyhow::{bail, Result};
-use ndarray::{Array, Array2, ArrayView};
+use ndarray::{Array, Array2, ArrayView, Dimension};
 use std::{ops::Deref, path::{Path, PathBuf}};
 use core::fmt::{Display, Formatter};
 
@@ -87,7 +87,7 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.file(),
         }
     }
-    fn path(&self) -> Result<PathBuf> {
+    fn path(&self) -> PathBuf {
         match self {
             DataContainer::Group(g) => g.path(),
             DataContainer::Dataset(d) => d.path(),
@@ -102,7 +102,8 @@ impl<B: Backend> LocationOp for DataContainer<B> {
     }
     fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
     where
-        A: Into<ArrayView<'a, String, D>>
+        A: Into<ArrayView<'a, String, D>>,
+        D: ndarray::Dimension,
     {
         match self {
             DataContainer::Group(g) => g.write_str_arr_attr(name, value),
@@ -137,7 +138,7 @@ impl<B: Backend> DataContainer<B> {
 
     pub fn delete(container: DataContainer<B>) -> Result<()> {
         let file = container.file()?;
-        let name = container.path()?;
+        let name = container.path();
         let group = file.open_group(name.parent().unwrap().to_str().unwrap())?;
 
         group.delete(name.file_name().unwrap().to_str().unwrap())
@@ -154,13 +155,13 @@ impl<B: Backend> DataContainer<B> {
         };
         let ty = match enc.as_str() {
             "string" => DataType::Scalar(ScalarType::String),
-            "numeric-scalar" => DataType::Scalar(B::dtype(self.as_dataset()?)?),
+            "numeric-scalar" => DataType::Scalar(self.as_dataset()?.dtype()?),
             "categorical" => DataType::Categorical,
             "string-array" => DataType::Array(ScalarType::String),
-            "array" => DataType::Array(B::dtype(self.as_dataset()?)?),
+            "array" => DataType::Array(self.as_dataset()?.dtype()?),
             "csc_matrix" => todo!(),
             "csr_matrix" => {
-                let ty = B::dtype(&self.as_group()?.open_dataset("data")?)?;
+                let ty = self.as_group()?.open_dataset("data")?.dtype()?;
                 DataType::CsrMatrix(ty)
             },
             "dataframe" => DataType::DataFrame,
@@ -185,127 +186,101 @@ impl<B: Backend> DataContainer<B> {
     }
 }
 
+pub trait FileOp {
+    type Backend: Backend;
+
+    fn filename(&self) -> PathBuf;
+    fn close(self) -> Result<()>;
+}
+
 pub trait GroupOp {
     type Backend: Backend;
 
     fn list(&self) -> Result<Vec<String>>;
-    fn create_group(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Group>;
-    fn open_group(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Group>;
-    fn open_dataset(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>; 
+    fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+    fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>; 
     fn delete(&self, name: &str) -> Result<()>;
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>;
+    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<Self::Backend as Backend>::Dataset>;
     fn write_array<'a, A, S, D, Dim>(
         &self,
         name: &str,
         data: A,
         selection: S,
-    ) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>
+    ) -> Result<<Self::Backend as Backend>::Dataset>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        S: Into<Selection>;
+        S: Into<Selection>,
+        Dim: Dimension;
 }
 
 pub trait LocationOp {
     type Backend: Backend;
 
-    fn file(&self) -> Result<<<Self as LocationOp>::Backend as Backend>::File>;
-    fn path(&self) -> Result<PathBuf>;
+    fn file(&self) -> Result<<Self::Backend as Backend>::File>;
+    fn path(&self) -> PathBuf;
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
     fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
     where
-        A: Into<ArrayView<'a, String, D>>;
+        A: Into<ArrayView<'a, String, D>>,
+        D: ndarray::Dimension;
 
     fn read_str_attr(&self, name: &str) -> Result<String>;
     fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>>;
 }
 
+pub trait DatasetOp {
+    type Backend: Backend;
+
+    fn dtype(&self) -> Result<ScalarType>;
+    fn shape(&self) -> Result<Vec<usize>>;
+
+    fn read_scalar<T: BackendData>(&self) -> Result<T>;
+
+    fn read_array<T: BackendData, S, D>(
+        &self,
+        selection: S,
+    ) -> Result<Array<T, D>>
+    where
+        S: Into<Selection>;
+}
+
 pub trait Backend {
-    type File: GroupOp<Backend = Self>;
+    type File: FileOp<Backend = Self> + GroupOp<Backend = Self>;
 
     /// Groups work like dictionaries.
     type Group: GroupOp<Backend = Self> + LocationOp<Backend=Self>;
 
     /// datasets contain arrays.
-    type Dataset: LocationOp<Backend=Self>;
+    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend=Self>;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
-    fn filename(file: &Self::File) -> PathBuf;
-    fn close(file: Self::File) -> Result<()>;
+}
 
-    fn dtype(dataset: &Self::Dataset) -> Result<ScalarType>;
-    fn shape(dataset: &Self::Dataset) -> Result<Vec<usize>>;
-
-    fn read_i8(dataset: &Self::Dataset) -> Result<i8>;
-    fn read_i16(dataset: &Self::Dataset) -> Result<i16>;
-    fn read_i32(dataset: &Self::Dataset) -> Result<i32>;
-    fn read_i64(dataset: &Self::Dataset) -> Result<i64>;
-    fn read_u8(dataset: &Self::Dataset) -> Result<u8>;
-    fn read_u16(dataset: &Self::Dataset) -> Result<u16>;
-    fn read_u32(dataset: &Self::Dataset) -> Result<u32>;
-    fn read_u64(dataset: &Self::Dataset) -> Result<u64>;
-    fn read_f32(dataset: &Self::Dataset) -> Result<f32>;
-    fn read_f64(dataset: &Self::Dataset) -> Result<f64>;
-    fn read_bool(dataset: &Self::Dataset) -> Result<bool>;
-    fn read_string(dataset: &Self::Dataset) -> Result<String>;
-
-    fn read_i8_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<i8, D>>
-    where
-        S: Into<Selection>;
-    fn read_i16_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<i16, D>>
-    where
-        S: Into<Selection>;
-    fn read_i32_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<i32, D>>
-    where
-        S: Into<Selection>;
-    fn read_i64_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<i64, D>>
-    where
-        S: Into<Selection>;
-    fn read_u8_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<u8, D>>
-    where
-        S: Into<Selection>;
-    fn read_u16_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<u16, D>>
-    where
-        S: Into<Selection>;
-    fn read_u32_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<u32, D>>
-    where
-        S: Into<Selection>;
-    fn read_u64_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<u64, D>>
-    where
-        S: Into<Selection>;
-    fn read_f32_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<f32, D>>
-    where
-        S: Into<Selection>;
-    fn read_f64_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<f64, D>>
-    where
-        S: Into<Selection>;
-    fn read_bool_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<bool, D>>
-    where
-        S: Into<Selection>;
-    fn read_str_arr<D, S>(dataset: &Self::Dataset, selection: S) -> Result<Array<String, D>>
-    where
-        S: Into<Selection>;
+pub enum DynArrayView<'a, D> {
+    I8(ArrayView<'a, i8, D>),
+    I16(ArrayView<'a, i16, D>),
+    I32(ArrayView<'a, i32, D>),
+    I64(ArrayView<'a, i64, D>),
+    U8(ArrayView<'a, u8, D>),
+    U16(ArrayView<'a, u16, D>),
+    U32(ArrayView<'a, u32, D>),
+    U64(ArrayView<'a, u64, D>),
+    F32(ArrayView<'a, f32, D>),
+    F64(ArrayView<'a, f64, D>),
+    String(ArrayView<'a, String, D>),
+    Bool(ArrayView<'a, bool, D>),
 }
 
 pub trait BackendData: Send + Sync + Clone + 'static {
     const DTYPE: ScalarType;
-
     fn into_dyn(&self) -> DynScalar;
-
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized;
-
-    fn read_arr_data<B: Backend, S, D>(
-        dataset: &B::Dataset,
-        selection: S,
-    ) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized;
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D>;
+    fn from_dyn(x: DynScalar) -> Result<Self>;
 }
 
 impl BackendData for i8 {
@@ -315,19 +290,16 @@ impl BackendData for i8 {
         DynScalar::I8(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_i8(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::I8(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_i8_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::I8(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i8")
+        }
     }
 }
 
@@ -338,19 +310,16 @@ impl BackendData for i16 {
         DynScalar::I16(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_i16(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::I16(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_i16_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::I16(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i16")
+        }
     }
 }
 
@@ -361,19 +330,16 @@ impl BackendData for i32 {
         DynScalar::I32(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_i32(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::I32(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_i32_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::I32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i32")
+        }
     }
 }
 
@@ -384,19 +350,16 @@ impl BackendData for i64 {
         DynScalar::I64(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_i64(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::I64(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_i64_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::I64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i64")
+        }
     }
 }
 
@@ -407,19 +370,16 @@ impl BackendData for u8 {
         DynScalar::U8(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_u8(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::U8(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_u8_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::U8(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u8")
+        }
     }
 }
 
@@ -430,19 +390,16 @@ impl BackendData for u16 {
         DynScalar::U16(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_u16(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::U16(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_u16_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::U16(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u16")
+        }
     }
 }
 
@@ -453,19 +410,16 @@ impl BackendData for u32 {
         DynScalar::U32(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_u32(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::U32(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_u32_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::U32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u32")
+        }
     }
 }
 
@@ -475,20 +429,17 @@ impl BackendData for u64 {
     fn into_dyn(&self) -> DynScalar {
         DynScalar::U64(*self)
     }
-
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_u64(dataset)
+    
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::U64(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_u64_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::U64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u64")
+        }
     }
 }
 
@@ -499,19 +450,16 @@ impl BackendData for f32 {
         DynScalar::F32(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_f32(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::F32(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_f32_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::F32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting f32")
+        }
     }
 }
 
@@ -522,19 +470,16 @@ impl BackendData for f64 {
         DynScalar::F64(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_f64(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::F64(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_f64_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::F64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting f64")
+        }
     }
 }
 
@@ -545,19 +490,16 @@ impl BackendData for String {
         DynScalar::String(self.clone())
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_string(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::String(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_str_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::String(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting string")
+        }
     }
 }
 
@@ -568,19 +510,16 @@ impl BackendData for bool {
         DynScalar::Bool(*self)
     }
 
-    fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        B::read_bool(dataset)
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::Bool(arr)
     }
 
-    fn read_arr_data<B: Backend, S, D>(dataset: &B::Dataset, selection: S) -> Result<Array<Self, D>>
-    where
-        S: Into<Selection>,
-        Self: Sized,
-    {
-        B::read_bool_arr(dataset, selection)
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::Bool(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting bool")
+        }
     }
 }
 

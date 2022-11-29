@@ -5,7 +5,7 @@ use crate::{
         base::{InnerDataFrameElem},
         collection::{AxisArrays, InnerAxisArrays},
     },
-    backend::{Backend, GroupOp},
+    backend::{Backend, GroupOp, FileOp},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -199,7 +199,7 @@ impl<B: Backend> AnnData<B> {
     }
 
     pub fn filename(&self) -> PathBuf{
-        B::filename(&self.file)
+        self.file.filename()
     }
 
     pub fn close(self) -> Result<()> {
@@ -215,7 +215,7 @@ impl<B: Backend> AnnData<B> {
         self.obs.drop();
         self.var.drop();
         close!(obsm, obsp, varm, varp, uns);
-        B::close(self.file)
+        self.file.close()
     }
 
     pub fn subset<S, E>(&self, selection: S) -> Result<()>

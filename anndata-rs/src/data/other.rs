@@ -1,7 +1,7 @@
 use crate::data::array::{CategoricalArray, DynArray};
 use crate::data::Data;
 
-use crate::backend::{Backend, GroupOp, LocationOp, BackendData, DataContainer, ScalarType, Selection};
+use crate::backend::{Backend, GroupOp, LocationOp, DatasetOp, BackendData, DataContainer, ScalarType, Selection};
 use anyhow::{bail, Result, Ok};
 use ndarray::Array1;
 use polars::{
@@ -14,7 +14,7 @@ pub trait WriteData {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>>;
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
         let file = container.file()?;
-        let path = container.path()?;
+        let path = container.path();
         let group = file.open_group(path.parent().unwrap().to_str().unwrap())?;
         let name = path.file_name().unwrap().to_str().unwrap();
         group.delete(name)?;
@@ -142,19 +142,19 @@ impl WriteData for DynScalar {
 impl ReadData for DynScalar {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let dataset = container.as_dataset()?;
-        match B::dtype(dataset)? {
-            ScalarType::I8 => Ok(DynScalar::I8(i8::read_data::<B>(dataset)?)),
-            ScalarType::I16 => Ok(DynScalar::I16(i16::read_data::<B>(dataset)?)),
-            ScalarType::I32 => Ok(DynScalar::I32(i32::read_data::<B>(dataset)?)),
-            ScalarType::I64 => Ok(DynScalar::I64(i64::read_data::<B>(dataset)?)),
-            ScalarType::U8 => Ok(DynScalar::U8(u8::read_data::<B>(dataset)?)),
-            ScalarType::U16 => Ok(DynScalar::U16(u16::read_data::<B>(dataset)?)),
-            ScalarType::U32 => Ok(DynScalar::U32(u32::read_data::<B>(dataset)?)),
-            ScalarType::U64 => Ok(DynScalar::U64(u64::read_data::<B>(dataset)?)),
-            ScalarType::F32 => Ok(DynScalar::F32(f32::read_data::<B>(dataset)?)),
-            ScalarType::F64 => Ok(DynScalar::F64(f64::read_data::<B>(dataset)?)),
-            ScalarType::Bool => Ok(DynScalar::Bool(bool::read_data::<B>(dataset)?)),
-            ScalarType::String => Ok(DynScalar::String(String::read_data::<B>(dataset)?)),
+        match dataset.dtype()? {
+            ScalarType::I8 => Ok(DynScalar::I8(dataset.read_scalar()?)),
+            ScalarType::I16 => Ok(DynScalar::I16(dataset.read_scalar()?)),
+            ScalarType::I32 => Ok(DynScalar::I32(dataset.read_scalar()?)),
+            ScalarType::I64 => Ok(DynScalar::I64(dataset.read_scalar()?)),
+            ScalarType::U8 => Ok(DynScalar::U8(dataset.read_scalar()?)),
+            ScalarType::U16 => Ok(DynScalar::U16(dataset.read_scalar()?)),
+            ScalarType::U32 => Ok(DynScalar::U32(dataset.read_scalar()?)),
+            ScalarType::U64 => Ok(DynScalar::U64(dataset.read_scalar()?)),
+            ScalarType::F32 => Ok(DynScalar::F32(dataset.read_scalar()?)),
+            ScalarType::F64 => Ok(DynScalar::F64(dataset.read_scalar()?)),
+            ScalarType::Bool => Ok(DynScalar::Bool(dataset.read_scalar()?)),
+            ScalarType::String => Ok(DynScalar::String(dataset.read_scalar()?)),
         }
     }
 }
@@ -395,7 +395,7 @@ impl ReadData for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let index_name = container.read_str_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
-        let data = String::read_arr_data::<B, _, _>(&dataset, Selection::All)?;
+        let data = dataset.read_array(Selection::All)?;
         let mut index: DataFrameIndex = data.to_vec().into();
         index.index_name = index_name;
         Ok(index)
