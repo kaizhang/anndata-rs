@@ -1,4 +1,4 @@
-use crate::backend::{Backend, BackendData, DataContainer, ScalarType, Selection};
+use crate::backend::{Backend, GroupOp, LocationOp, BackendData, DataContainer, ScalarType, Selection};
 use crate::data::other::{DynScalar, ReadData, WriteData};
 
 use anyhow::Result;
@@ -136,18 +136,13 @@ impl<'a> FromIterator<&'a str> for CategoricalArray {
 }
 
 impl WriteData for CategoricalArray {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let group = B::create_group(location, name)?;
-        B::write_str_attr(&group, "encoding-type", "categorical")?;
-        B::write_str_attr(&group, "encoding-version", "0.2.0")?;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let group = location.create_group(name)?;
+        group.write_str_attr("encoding-type", "categorical")?;
+        group.write_str_attr("encoding-version", "0.2.0")?;
 
-        u32::write_arr_data::<B, _, _, _>(&group, "codes", &self.codes, Selection::All)?;
-        String::write_arr_data::<B, _, _, _>(
-            &group,
-            "categories",
-            &self.categories,
-            Selection::All,
-        )?;
+        group.write_array("codes", &self.codes, Selection::All)?;
+        group.write_array("categories", &self.categories, Selection::All)?;
 
         Ok(DataContainer::Group(group))
     }
@@ -198,16 +193,16 @@ impl_into_dyn_array!(ArrayD<String>, ArrayString);
 impl_into_dyn_array!(CategoricalArray, ArrayCategorical);
 
 impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let dataset = T::write_arr_data::<B, _, _, _>(location, name, self, Selection::All)?;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let dataset = location.write_array(name, self, Selection::All)?;
         let encoding_type = if T::DTYPE == ScalarType::String {
             "string-array"
         } else {
             "array"
         };
         let container = DataContainer::<B>::Dataset(dataset);
-        B::write_str_attr(&container, "encoding-type", encoding_type)?;
-        B::write_str_attr(&container, "encoding-version", "0.2.0")?;
+        container.write_str_attr("encoding-type", encoding_type)?;
+        container.write_str_attr("encoding-version", "0.2.0")?;
         Ok(container)
     }
 }
@@ -255,7 +250,7 @@ impl<T: BackendData> ArrayOp for ArrayD<T> {
 impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
 
 impl WriteData for DynArray {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             Self::ArrayI8(array) => array.write(location, name),
             Self::ArrayI16(array) => array.write(location, name),
@@ -329,11 +324,11 @@ impl ReadData for DynArray {
             },
             DataContainer::Group(group) => {
                 let codes = u32::read_arr_data::<B, _, _>(
-                    &B::open_dataset(group, "codes")?,
+                    &group.open_dataset("codes")?,
                     Selection::All,
                 )?;
                 let categories = String::read_arr_data::<B, _, _>(
-                    &B::open_dataset(group, "categories")?,
+                    &group.open_dataset("categories")?,
                     Selection::All,
                 )?;
                 Ok(Self::ArrayCategorical(CategoricalArray {
@@ -460,13 +455,13 @@ impl_into_dyn_csr!(CsrMatrix<bool>, CsrMatrixBool);
 impl_into_dyn_csr!(CsrMatrix<String>, CsrMatrixString);
 
 impl<T: BackendData> WriteData for CsrMatrix<T> {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         todo!()
     }
 }
 
 impl WriteData for DynCsrMatrix {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             DynCsrMatrix::CsrMatrixI8(data) => data.write(location, name),
             DynCsrMatrix::CsrMatrixI16(data) => data.write(location, name),

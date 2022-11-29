@@ -58,7 +58,7 @@ where
     pub fn add_data<D: WriteData + Into<Data>>(&mut self, key: &str, data: D) -> Result<()> {
         match self.get_mut(key) {
             None => {
-                let container = data.write::<B>(&self.container, key)?;
+                let container = data.write(&self.container, key)?;
                 self.insert(key.to_string(), container.try_into()?);
             }
             Some(elem) => elem.inner().save(data)?,
@@ -170,7 +170,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         }
         match self.get_mut(key) {
             None => {
-                let container = data.write::<B>(&self.container, key)?;
+                let container = data.write(&self.container, key)?;
                 let elem = container.try_into()?;
                 self.insert(key.to_string(), elem);
             }

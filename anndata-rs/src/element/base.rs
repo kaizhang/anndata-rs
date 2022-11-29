@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, DataContainer, DataType, BackendData},
+    backend::{Backend, GroupOp, LocationOp, DataContainer, DataType, BackendData},
     //iterator::{ChunkedMatrix, StackedChunkedMatrix},
     data::*,
 };
@@ -117,8 +117,8 @@ pub struct InnerDataFrameElem<B: Backend> {
 }
 
 impl<B: Backend> InnerDataFrameElem<B> {
-    pub fn new(
-        location: &B::Group,
+    pub fn new<G: GroupOp<Backend = B>>(
+        location: &G,
         name: &str,
         index: DataFrameIndex,
         df: &DataFrame,
@@ -127,7 +127,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = index.overwrite(df.write::<B>(location, name)?)?;
+        let container = index.overwrite(df.write(location, name)?)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -175,7 +175,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        self.index.overwrite(df.write::<B>(location, name)?)?;
+        self.index.overwrite(df.write(location, name)?)?;
         Ok(())
     }
 
@@ -209,7 +209,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
             DataType::DataFrame => {
                 //let grp = container.as_group()?;
                 let index = DataFrameIndex::read(&container)?;
-                let column_names = B::read_str_arr_attr::<Ix1>(&container, "column_order")?.into_raw_vec().into_iter().collect();
+                let column_names = container.read_str_arr_attr::<Ix1>("column_order")?.into_raw_vec().into_iter().collect();
                 let df = InnerDataFrameElem {
                     element: None,
                     container,
@@ -314,7 +314,7 @@ impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
 
     pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
         match self.element.as_ref() {
-            Some(data) => data.write::<B>(location, name)?,
+            Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
         };
         Ok(())
@@ -362,7 +362,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
         if select_all(&selection) {
             self.export(location, name)
         } else {
-            self.select(selection)?.write::<B>(location, name)?;
+            self.select(selection)?.write(location, name)?;
             Ok(())
         }
     }

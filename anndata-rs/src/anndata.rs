@@ -5,7 +5,7 @@ use crate::{
         base::{InnerDataFrameElem},
         collection::{AxisArrays, InnerAxisArrays},
     },
-    backend::Backend,
+    backend::{Backend, GroupOp},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -919,13 +919,13 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
                 if !self.x.is_empty() {
                     self.x.inner().save(data)?;
                 } else {
-                    let new_elem = ArrayElem::try_from(data.write::<B>(&self.file, "X")?)?;
+                    let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
                     self.x.swap(&new_elem);
                 }
             }
             None => {
                 if !self.x.is_empty() {
-                    B::delete(&self.file, "X")?;
+                    self.file.delete("X")?;
                     self.x.drop();
                 }
             }
@@ -951,7 +951,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         self.set_n_obs(index.len());
         if self.obs.is_empty() {
-            let df = InnerDataFrameElem::new(self.file.deref(), "obs", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
             self.obs.insert(df);
         } else {
             self.obs.inner().set_index(index)?;
@@ -962,7 +962,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         self.set_n_vars(index.len());
         if self.var.is_empty() {
-            let df = InnerDataFrameElem::new(self.file.deref(), "var", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
             self.var.insert(df);
         } else {
             self.var.inner().set_index(index)?;
@@ -1008,7 +1008,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             if nrows != 0 { self.set_n_obs(nrows); }
             if self.obs.is_empty() {
                 self.obs.insert(InnerDataFrameElem::new(
-                    self.file.deref(),
+                    &self.file,
                     "obs",
                     DataFrameIndex::from(nrows),
                     &obs,
@@ -1018,7 +1018,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             }
         } else {
             if !self.obs.is_empty() {
-                B::delete(&self.file, "obs")?;
+                self.file.delete("obs")?;
                 self.obs.drop();
             }
         }
@@ -1031,7 +1031,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             if nrows != 0 { self.set_n_vars(nrows); }
             if self.var.is_empty() {
                 self.var.insert(InnerDataFrameElem::new(
-                    self.file.deref(),
+                    &self.file,
                     "var",
                     DataFrameIndex::from(nrows),
                     &var,
@@ -1041,7 +1041,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             }
         } else {
             if !self.var.is_empty() {
-                B::delete(&self.file, "var")?;
+                self.file.delete("var")?;
                 self.var.drop();
             }
         }
@@ -1127,14 +1127,14 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_uns().is_empty() {
-            let collection = ElemCollection::new(B::create_group(&self.file, "uns")?)?;
+            let collection = ElemCollection::new(self.file.create_group("uns")?)?;
             self.uns.swap(&collection);
         }
         self.get_uns().inner().add_data(key, data)
     }
     fn add_obsm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_obsm().is_empty() {
-            let group = B::create_group(&self.file, "obsm")?;
+            let group = self.file.create_group("obsm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_obs.clone())?;
             self.obsm.swap(&arrays);
         }
@@ -1142,7 +1142,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn add_obsp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_obsp().is_empty() {
-            let group = B::create_group(&self.file, "obsp")?;
+            let group = self.file.create_group("obsp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_obs.clone())?;
             self.obsp.swap(&arrays);
         }
@@ -1150,7 +1150,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn add_varm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_varm().is_empty() {
-            let group = B::create_group(&self.file, "varm")?;
+            let group = self.file.create_group("varm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_vars.clone())?;
             self.varm.swap(&arrays);
         }
@@ -1158,7 +1158,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn add_varp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_varp().is_empty() {
-            let group = B::create_group(&self.file, "varp")?;
+            let group = self.file.create_group("varp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_vars.clone())?;
             self.varp.swap(&arrays);
         }

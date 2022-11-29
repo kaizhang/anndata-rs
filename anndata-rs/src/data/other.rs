@@ -1,7 +1,7 @@
 use crate::data::array::{CategoricalArray, DynArray};
 use crate::data::Data;
 
-use crate::backend::{Backend, BackendData, DataContainer, ScalarType, Selection};
+use crate::backend::{Backend, GroupOp, LocationOp, BackendData, DataContainer, ScalarType, Selection};
 use anyhow::{bail, Result, Ok};
 use ndarray::Array1;
 use polars::{
@@ -11,15 +11,13 @@ use polars::{
 use std::collections::HashMap;
 
 pub trait WriteData {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>>;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>>;
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
-        let (file, path) = match &container {
-            DataContainer::Group(grp) => (B::file(grp)?, B::path(grp)?),
-            DataContainer::Dataset(data) => (B::file(data)?, B::path(data)?),
-        };
-        let group = B::open_group(&file, path.parent().unwrap().to_str().unwrap())?;
+        let file = container.file()?;
+        let path = container.path()?;
+        let group = file.open_group(path.parent().unwrap().to_str().unwrap())?;
         let name = path.file_name().unwrap().to_str().unwrap();
-        B::delete(&group, name)?;
+        group.delete(name)?;
         self.write(&group, name)
     }
 }
@@ -108,22 +106,22 @@ impl From<String> for DynScalar {
 }
 
 impl<T: BackendData> WriteData for T {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let dataset = T::write_data::<B>(location, name, self)?;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let dataset = location.write_scalar(name, self)?;
         let container = DataContainer::Dataset(dataset);
         let encoding_type = if T::DTYPE == ScalarType::String {
             "string"
         } else {
             "numeric_scalar"
         };
-        B::write_str_attr(&container, "encoding-type", encoding_type)?;
-        B::write_str_attr(&container, "encoding-version", "0.2.0")?;
+        container.write_str_attr("encoding-type", encoding_type)?;
+        container.write_str_attr("encoding-version", "0.2.0")?;
         Ok(container)
     }
 }
 
 impl WriteData for DynScalar {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             DynScalar::I8(data) => data.write(location, name),
             DynScalar::I16(data) => data.write(location, name),
@@ -162,21 +160,21 @@ impl ReadData for DynScalar {
 }
 
 impl WriteData for DataFrame {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let group = if B::exists(location, name)? {
-            B::open_group(location, name)?
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let group = if location.exists(name)? {
+            location.open_group(name)?
         } else {
-            B::create_group(location, name)?
+            location.create_group(name)?
         };
-        B::write_str_attr(&group, "encoding-type", "dataframe")?;
-        B::write_str_attr(&group, "encoding-version", "0.2.0")?;
+        group.write_str_attr("encoding-type", "dataframe")?;
+        group.write_str_attr("encoding-version", "0.2.0")?;
 
         let columns: Array1<String> = self
             .get_column_names()
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        B::write_str_arr_attr(&group, "column-order", &columns)?;
+        group.write_str_arr_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| write_series::<B>(x, &group, x.name()).map(|_| ()))?;
 
@@ -186,10 +184,10 @@ impl WriteData for DataFrame {
     }
 
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
-        let index_name = B::read_str_attr(&container, "_index")?;
-        for obj in B::list(container.as_group()?)? {
+        let index_name = container.read_str_attr("_index")?;
+        for obj in container.as_group()?.list()? {
             if obj != index_name {
-                B::delete(container.as_group()?, &obj)?;
+                container.as_group()?.delete(&obj)?;
             }
         }
 
@@ -198,7 +196,7 @@ impl WriteData for DataFrame {
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        B::write_str_arr_attr(&container, "column-order", &columns)?;
+        container.write_str_arr_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| write_series::<B>(x, container.as_group()?, x.name()).map(|_| ()))?;
 
@@ -208,12 +206,12 @@ impl WriteData for DataFrame {
 
 impl ReadData for DataFrame {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let columns: Array1<String> = B::read_str_arr_attr(container, "column-order")?;
+        let columns: Array1<String> = container.read_str_arr_attr("column-order")?;
         columns
             .into_iter()
             .map(|x| {
                 let name = x.as_str();
-                let mut series = B::open_dataset(container.as_group()?, name)
+                let mut series = container.as_group()?.open_dataset(name)
                     .map(DataContainer::Dataset)
                     .and_then(|x| read_series::<B>(&x))?;
                 series.rename(name);
@@ -371,32 +369,32 @@ impl DataFrameIndex {
 }
 
 impl WriteData for DataFrameIndex {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let group = if B::exists(location, name)? {
-            B::open_group(location, name)?
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let group = if location.exists(name)? {
+            location.open_group(name)?
         } else {
-            B::create_group(location, name)?
+            location.create_group(name)?
         };
-        B::write_str_attr(&group, "_index", &self.index_name)?;
+        group.write_str_attr("_index", &self.index_name)?;
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        let dataset = String::write_arr_data::<B, _, _, _>(location, &self.index_name, &data, Selection::All)?;
+        let dataset = location.write_array(&self.index_name, &data, Selection::All)?;
         Ok(DataContainer::Group(group))
     }
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
-        let index_name = B::read_str_attr(&container, "_index")?;
-        B::delete(container.as_group()?, &index_name)?;
-        B::write_str_attr(&container, "_index", &self.index_name)?;
+        let index_name = container.read_str_attr("_index")?;
+        container.as_group()?.delete(&index_name)?;
+        container.write_str_attr("_index", &self.index_name)?;
 
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        let dataset = String::write_arr_data::<B, _, _, _>(container.as_group()?, &self.index_name, &data, Selection::All)?;
+        let dataset = container.as_group()?.write_array(&self.index_name, &data, Selection::All)?;
         Ok(container)
     }
 }
 
 impl ReadData for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let index_name = B::read_str_attr(&container, "_index")?;
-        let dataset = B::open_dataset(container.as_group()?, &index_name)?;
+        let index_name = container.read_str_attr("_index")?;
+        let dataset = container.as_group()?.open_dataset(&index_name)?;
         let data = String::read_arr_data::<B, _, _>(&dataset, Selection::All)?;
         let mut index: DataFrameIndex = data.to_vec().into();
         index.index_name = index_name;
@@ -470,11 +468,11 @@ impl<'a> FromIterator<&'a str> for DataFrameIndex {
 pub struct Mapping(HashMap<String, Data>);
 
 impl WriteData for Mapping {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let group = B::create_group(location, name)?;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+        let group = location.create_group(name)?;
         self.0
             .iter()
-            .try_for_each(|(k, v)| v.write::<B>(&group, k).map(|_| ()))?;
+            .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;
         Ok(DataContainer::Group(group))
     }
 }

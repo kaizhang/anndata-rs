@@ -3,7 +3,7 @@ mod other;
 
 pub use array::{Shape, SelectInfo, SelectInfoElem, ArrayOp, WriteArrayData, ReadArrayData, DynArray, DynCsrMatrix, select_all, SLICE_FULL};
 pub use other::{WriteData, ReadData, DynScalar, Mapping, DataFrameIndex};
-use crate::backend::{Backend, DataContainer, DataType};
+use crate::backend::{Backend, GroupOp, DataContainer, DataType};
 
 use polars::frame::DataFrame;
 use anyhow::{bail, Result};
@@ -50,7 +50,7 @@ macro_rules! impl_into_matrix_data {
 impl_into_matrix_data!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
 
 impl WriteData for ArrayData {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             ArrayData::Array(data) => data.write(location, name),
             ArrayData::CsrMatrix(data) => data.write(location, name),
@@ -167,7 +167,7 @@ impl_into_data!(
 );
 
 impl WriteData for Data {
-    fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             Data::Matrix(data) => data.write(location, name),
             Data::Scalar(data) => data.write(location, name),

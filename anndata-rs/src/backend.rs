@@ -1,3 +1,5 @@
+//mod hdf5;
+
 use crate::data::DynScalar;
 
 use anyhow::{bail, Result};
@@ -76,45 +78,78 @@ pub enum DataContainer<B: Backend> {
     Dataset(B::Dataset),
 }
 
-impl<B: Backend> Deref for DataContainer<B> {
-    type Target = B::Location;
+impl<B: Backend> LocationOp for DataContainer<B> {
+    type Backend = B;
 
-    fn deref(&self) -> &Self::Target {
+    fn file(&self) -> Result<B::File> {
         match self {
-            DataContainer::Group(group) => group,
-            DataContainer::Dataset(dataset) => dataset,
+            DataContainer::Group(g) => g.file(),
+            DataContainer::Dataset(d) => d.file(),
+        }
+    }
+    fn path(&self) -> Result<PathBuf> {
+        match self {
+            DataContainer::Group(g) => g.path(),
+            DataContainer::Dataset(d) => d.path(),
+        }
+    }
+
+    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+        match self {
+            DataContainer::Group(g) => g.write_str_attr(name, value),
+            DataContainer::Dataset(d) => d.write_str_attr(name, value),
+        }
+    }
+    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
+    where
+        A: Into<ArrayView<'a, String, D>>
+    {
+        match self {
+            DataContainer::Group(g) => g.write_str_arr_attr(name, value),
+            DataContainer::Dataset(d) => d.write_str_arr_attr(name, value),
+        }
+    }
+
+    fn read_str_attr(&self, name: &str) -> Result<String> {
+        match self {
+            DataContainer::Group(g) => g.read_str_attr(name),
+            DataContainer::Dataset(d) => d.read_str_attr(name),
+        }
+    }
+    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>> {
+        match self {
+            DataContainer::Group(g) => g.read_str_arr_attr(name),
+            DataContainer::Dataset(d) => d.read_str_arr_attr(name),
         }
     }
 }
 
 impl<B: Backend> DataContainer<B> {
     pub fn open(group: &B::Group, name: &str) -> Result<Self> {
-        if B::exists(group, name)? {
-            B::open_dataset(group, name)
+        if group.exists(name)? {
+            group.open_dataset(name)
                 .map(DataContainer::Dataset)
-                .or(B::open_group(group, name).map(DataContainer::Group))
+                .or(group.open_group(name).map(DataContainer::Group))
         } else {
             bail!("No group or dataset named '{}' in group", name);
         }
     }
 
     pub fn delete(container: DataContainer<B>) -> Result<()> {
-        let (file, name) = match &container {
-            DataContainer::Group(grp) => (B::file(grp)?, B::path(grp)?),
-            DataContainer::Dataset(data) => (B::file(data)?, B::path(data)?),
-        };
-        let group = B::open_group(&file, name.parent().unwrap().to_str().unwrap())?;
+        let file = container.file()?;
+        let name = container.path()?;
+        let group = file.open_group(name.parent().unwrap().to_str().unwrap())?;
 
-        B::delete(&group, name.file_name().unwrap().to_str().unwrap())
+        group.delete(name.file_name().unwrap().to_str().unwrap())
     }
 
     pub fn encoding_type(&self) -> Result<DataType> {
         let enc = match self {
             DataContainer::Group(group) => {
-                B::read_str_attr(&group, "encoding_type").unwrap_or("mapping".to_string())
+                group.read_str_attr("encoding_type").unwrap_or("mapping".to_string())
             }
             DataContainer::Dataset(dataset) => {
-                B::read_str_attr(&dataset, "encoding_type").unwrap_or("numeric-scalar".to_string())
+                dataset.read_str_attr("encoding_type").unwrap_or("numeric-scalar".to_string())
             }
         };
         let ty = match enc.as_str() {
@@ -125,7 +160,7 @@ impl<B: Backend> DataContainer<B> {
             "array" => DataType::Array(B::dtype(self.as_dataset()?)?),
             "csc_matrix" => todo!(),
             "csr_matrix" => {
-                let ty = B::dtype(&B::open_dataset(self.as_group()?, "data")?)?;
+                let ty = B::dtype(&self.as_group()?.open_dataset("data")?)?;
                 DataType::CsrMatrix(ty)
             },
             "dataframe" => DataType::DataFrame,
@@ -150,163 +185,59 @@ impl<B: Backend> DataContainer<B> {
     }
 }
 
+pub trait GroupOp {
+    type Backend: Backend;
+
+    fn list(&self) -> Result<Vec<String>>;
+    fn create_group(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Group>;
+    fn open_group(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Group>;
+    fn open_dataset(&self, name: &str) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>; 
+    fn delete(&self, name: &str) -> Result<()>;
+    fn exists(&self, name: &str) -> Result<bool>;
+
+    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>;
+    fn write_array<'a, A, S, D, Dim>(
+        &self,
+        name: &str,
+        data: A,
+        selection: S,
+    ) -> Result<<<Self as GroupOp>::Backend as Backend>::Dataset>
+    where
+        A: Into<ArrayView<'a, D, Dim>>,
+        D: BackendData,
+        S: Into<Selection>;
+}
+
+pub trait LocationOp {
+    type Backend: Backend;
+
+    fn file(&self) -> Result<<<Self as LocationOp>::Backend as Backend>::File>;
+    fn path(&self) -> Result<PathBuf>;
+
+    fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
+    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
+    where
+        A: Into<ArrayView<'a, String, D>>;
+
+    fn read_str_attr(&self, name: &str) -> Result<String>;
+    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>>;
+}
+
 pub trait Backend {
-    type File: Deref<Target = Self::Group>;
+    type File: GroupOp<Backend = Self>;
 
     /// Groups work like dictionaries.
-    type Group: Deref<Target = Self::Location>;
+    type Group: GroupOp<Backend = Self> + LocationOp<Backend=Self>;
 
     /// datasets contain arrays.
-    type Dataset: Deref<Target = Self::Location>;
-
-    type Location;
+    type Dataset: LocationOp<Backend=Self>;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
     fn filename(file: &Self::File) -> PathBuf;
     fn close(file: Self::File) -> Result<()>;
 
-    fn list(group: &Self::Group) -> Result<Vec<String>>;
-    fn create_group(group: &Self::Group, name: &str) -> Result<Self::Group>;
-    fn open_group(group: &Self::Group, name: &str) -> Result<Self::Group>;
-    fn open_dataset(group: &Self::Group, name: &str) -> Result<Self::Dataset>;
-    fn delete(group: &Self::Group, name: &str) -> Result<()>;
-    fn exists(group: &Self::Group, name: &str) -> Result<bool>;
-
     fn dtype(dataset: &Self::Dataset) -> Result<ScalarType>;
     fn shape(dataset: &Self::Dataset) -> Result<Vec<usize>>;
-
-    fn file(location: &Self::Location) -> Result<Self::File>;
-    fn path(location: &Self::Location) -> Result<PathBuf>;
-
-    fn write_str_attr(location: &Self::Location, name: &str, value: &str) -> Result<()>;
-    fn write_str_arr_attr<'a, A, D>(location: &Self::Location, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, String, D>>;
-
-    fn read_str_attr(location: &Self::Location, name: &str) -> Result<String>;
-    fn read_str_arr_attr<D>(location: &Self::Location, name: &str) -> Result<Array<String, D>>;
-
-    fn write_i8(group: &Self::Group, name: &str, data: &i8) -> Result<Self::Dataset>;
-    fn write_i16(group: &Self::Group, name: &str, data: &i16) -> Result<Self::Dataset>;
-    fn write_i32(group: &Self::Group, name: &str, data: &i32) -> Result<Self::Dataset>;
-    fn write_i64(group: &Self::Group, name: &str, data: &i64) -> Result<Self::Dataset>;
-    fn write_u8(group: &Self::Group, name: &str, data: &u8) -> Result<Self::Dataset>;
-    fn write_u16(group: &Self::Group, name: &str, data: &u16) -> Result<Self::Dataset>;
-    fn write_u32(group: &Self::Group, name: &str, data: &u32) -> Result<Self::Dataset>;
-    fn write_u64(group: &Self::Group, name: &str, data: &u64) -> Result<Self::Dataset>;
-    fn write_f32(group: &Self::Group, name: &str, data: &f32) -> Result<Self::Dataset>;
-    fn write_f64(group: &Self::Group, name: &str, data: &f64) -> Result<Self::Dataset>;
-    fn write_bool(group: &Self::Group, name: &str, data: &bool) -> Result<Self::Dataset>;
-    fn write_string(group: &Self::Group, name: &str, data: &str) -> Result<Self::Dataset>;
-
-    fn write_i8_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, i8, D>>,
-        S: Into<Selection>;
-    fn write_i16_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, i16, D>>,
-        S: Into<Selection>;
-    fn write_i32_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, i32, D>>,
-        S: Into<Selection>;
-    fn write_i64_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, i64, D>>,
-        S: Into<Selection>;
-    fn write_u8_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, u8, D>>,
-        S: Into<Selection>;
-    fn write_u16_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, u16, D>>,
-        S: Into<Selection>;
-    fn write_u32_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, u32, D>>,
-        S: Into<Selection>;
-    fn write_u64_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, u64, D>>,
-        S: Into<Selection>;
-    fn write_f32_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, f32, D>>,
-        S: Into<Selection>;
-    fn write_f64_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, f64, D>>,
-        S: Into<Selection>;
-    fn write_bool_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, bool, D>>,
-        S: Into<Selection>;
-    fn write_str_arr<'a, A, S, D>(
-        group: &Self::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<Self::Dataset>
-    where
-        A: Into<ArrayView<'a, String, D>>,
-        S: Into<Selection>;
 
     fn read_i8(dataset: &Self::Dataset) -> Result<i8>;
     fn read_i16(dataset: &Self::Dataset) -> Result<i16>;
@@ -364,19 +295,6 @@ pub trait BackendData: Send + Sync + Clone + 'static {
 
     fn into_dyn(&self) -> DynScalar;
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset>;
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a;
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized;
@@ -395,24 +313,6 @@ impl BackendData for i8 {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::I8(*self)
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_i8(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_i8_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -438,24 +338,6 @@ impl BackendData for i16 {
         DynScalar::I16(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_i16(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_i16_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -477,24 +359,6 @@ impl BackendData for i32 {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::I32(*self)
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_i32(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_i32_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -520,24 +384,6 @@ impl BackendData for i64 {
         DynScalar::I64(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_i64(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_i64_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -559,24 +405,6 @@ impl BackendData for u8 {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::U8(*self)
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_u8(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_u8_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -602,24 +430,6 @@ impl BackendData for u16 {
         DynScalar::U16(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_u16(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_u16_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -641,24 +451,6 @@ impl BackendData for u32 {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::U32(*self)
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_u32(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_u32_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -684,24 +476,6 @@ impl BackendData for u64 {
         DynScalar::U64(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_u64(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_u64_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -723,24 +497,6 @@ impl BackendData for f32 {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::F32(*self)
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_f32(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_f32_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -766,24 +522,6 @@ impl BackendData for f64 {
         DynScalar::F64(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_f64(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_f64_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -805,24 +543,6 @@ impl BackendData for String {
 
     fn into_dyn(&self) -> DynScalar {
         DynScalar::String(self.clone())
-    }
-
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_string(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_str_arr(group, name, data, selection)
     }
 
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
@@ -848,24 +568,6 @@ impl BackendData for bool {
         DynScalar::Bool(*self)
     }
 
-    fn write_data<B: Backend>(group: &B::Group, name: &str, data: &Self) -> Result<B::Dataset> {
-        B::write_bool(group, name, data)
-    }
-
-    fn write_arr_data<'a, B: Backend, A, S, D>(
-        group: &B::Group,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<B::Dataset>
-    where
-        A: Into<ArrayView<'a, Self, D>>,
-        S: Into<Selection>,
-        Self: Sized + 'a,
-    {
-        B::write_bool_arr(group, name, data, selection)
-    }
-
     fn read_data<B: Backend>(dataset: &B::Dataset) -> Result<Self>
     where
         Self: Sized,
@@ -883,7 +585,7 @@ impl BackendData for bool {
 }
 
 pub fn iter_containers<B: Backend>(group: &B::Group) -> impl Iterator<Item = (String, DataContainer<B>)> + '_{
-    B::list(group).unwrap().into_iter().map(|x| {
+    group.list().unwrap().into_iter().map(|x| {
         let container = DataContainer::open(group, &x).unwrap();
         (x, container)
     })
