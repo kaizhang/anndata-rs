@@ -1,16 +1,14 @@
 use crate::{
+    backend::{Backend, DataContainer, DataType, BackendData},
+    //iterator::{ChunkedMatrix, StackedChunkedMatrix},
     data::*,
-    iterator::{ChunkedMatrix, StackedChunkedMatrix},
-    utils::hdf5::{
-        create_dataset, create_str_attr, read_str_attr, read_str_vec, read_str_vec_attr,
-    },
 };
 
-use anyhow::{bail, ensure, Result};
-use hdf5::Group;
+use anyhow::{bail, ensure, Ok, Result};
+use either::Either;
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use ndarray::Array1;
+use ndarray::{Ix1, Array1};
 use parking_lot::{Mutex, MutexGuard};
 use polars::{frame::DataFrame, series::Series};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -22,6 +20,7 @@ use std::{
 };
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
+/// Encapsulating an object inside a slot allows us to drop the object from all references.
 pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
 impl<T> Clone for Slot<T> {
@@ -104,112 +103,16 @@ impl<T> DerefMut for Inner<'_, T> {
     }
 }
 
-pub struct DataFrameIndex {
-    pub index_name: String,
-    pub names: Vec<String>,
-    pub index_map: HashMap<String, usize>,
-}
-
-impl DataFrameIndex {
-    pub fn len(&self) -> usize {
-        self.names.len()
-    }
-
-    pub fn get(&self, k: &String) -> Option<usize> {
-        self.index_map.get(k).map(|x| *x)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
-    }
-
-    pub fn write(&self, container: &DataContainer) -> hdf5::Result<()> {
-        let group = container.get_group_ref()?;
-        create_str_attr(group, "_index", &self.index_name)?;
-
-        if group.link_exists(&self.index_name) {
-            group.unlink(&self.index_name)?;
-        }
-
-        let names: Array1<hdf5::types::VarLenUnicode> =
-            self.names.iter().map(|x| x.parse().unwrap()).collect();
-        create_dataset(group, &self.index_name, &names)?;
-        Ok(())
-    }
-}
-
-impl From<Vec<String>> for DataFrameIndex {
-    fn from(names: Vec<String>) -> Self {
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
-        Self {
-            index_name: "index".to_owned(),
-            names,
-            index_map,
-        }
-    }
-}
-
-impl From<usize> for DataFrameIndex {
-    fn from(size: usize) -> Self {
-        (0..size).map(|x| x.to_string()).collect()
-    }
-}
-
-impl FromIterator<String> for DataFrameIndex {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = String>,
-    {
-        let names: Vec<_> = iter.into_iter().collect();
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
-        Self {
-            index_name: "index".to_owned(),
-            names,
-            index_map,
-        }
-    }
-}
-
-impl<'a> FromIterator<&'a str> for DataFrameIndex {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = &'a str>,
-    {
-        let names: Vec<_> = iter.into_iter().map(|x| x.to_owned()).collect();
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
-        Self {
-            index_name: "index".to_owned(),
-            names,
-            index_map,
-        }
-    }
-}
-
-pub struct InnerDataFrameElem {
+pub struct InnerDataFrameElem<B: Backend> {
     element: Option<DataFrame>,
-    container: DataContainer,
+    container: DataContainer<B>,
     column_names: IndexSet<String>,
     pub index: DataFrameIndex,
 }
 
-impl InnerDataFrameElem {
+impl<B: Backend> InnerDataFrameElem<B> {
     pub fn new(
-        location: &Group,
+        location: &B::Group,
         name: &str,
         index: DataFrameIndex,
         df: &DataFrame,
@@ -218,8 +121,8 @@ impl InnerDataFrameElem {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = df.write(location, name)?;
-        index.write(&container)?;
+        let container = df.write::<B>(location, name)?;
+        index.write::<B>(container.as_group()?, &index.index_name)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -230,27 +133,55 @@ impl InnerDataFrameElem {
     }
 }
 
-impl std::fmt::Display for InnerDataFrameElem {
+impl<B: Backend> std::fmt::Display for InnerDataFrameElem<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Dataframe element")
     }
 }
 
-pub type DataFrameElem = Slot<InnerDataFrameElem>;
+impl<B: Backend> InnerDataFrameElem<B> {
+    pub fn height(&self) -> usize {
+        self.index.len()
+    }
 
-impl TryFrom<DataContainer> for DataFrameElem {
+    pub fn data(&mut self) -> Result<DataFrame> {
+        match self.element {
+            Some(ref df) => Ok(df.clone()),
+            None => {
+                let df = DataFrame::read(&self.container)?;
+                self.element = Some(df.clone());
+                Ok(df)
+            }
+        }
+    }
+
+    pub fn export(&self, location: &B::Group, name: &str) -> Result<()> {
+        let df = match self.element {
+            Some(ref df) => df.clone(),
+            None => DataFrame::read(&self.container)?,
+        };
+        let container = df.write::<B>(location, name)?;
+        self.index.write::<B>(container.as_group()?, &self.index.index_name)?;
+        Ok(())
+    }
+
+    pub fn subset_rows<S: AsRef<SelectInfoElem>>(&mut self, selection: S) -> Result<()> {
+        todo!()
+    }
+}
+
+
+pub type DataFrameElem<B> = Slot<InnerDataFrameElem<B>>;
+
+impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
     type Error = anyhow::Error;
 
-    fn try_from(container: DataContainer) -> Result<Self> {
-        match container.get_encoding_type()? {
+    fn try_from(container: DataContainer<B>) -> Result<Self> {
+        match container.encoding_type()? {
             DataType::DataFrame => {
-                let grp = container.get_group_ref()?;
-                let index_name = read_str_attr(grp, "_index")?;
-                let mut index: DataFrameIndex = read_str_vec(&grp.dataset(&index_name)?)?.into();
-                index.index_name = index_name;
-                let column_names = read_str_vec_attr(grp, "column-order")?
-                    .into_iter()
-                    .collect();
+                //let grp = container.as_group()?;
+                let index = DataFrameIndex::read(&container)?;
+                let column_names = B::read_str_arr_attr::<Ix1>(&container, "column_order")?.into_raw_vec().into_iter().collect();
                 let df = InnerDataFrameElem {
                     element: None,
                     container,
@@ -258,67 +189,13 @@ impl TryFrom<DataContainer> for DataFrameElem {
                     index,
                 };
                 Ok(Slot::new(df))
-            }
-            ty => bail!("Expecting a dataframe but found: {}", ty),
+            },
+            ty => bail!("Expecting a dataframe but found: '{}'", ty),
         }
     }
 }
 
-impl DataFrameElem {
-    pub fn nrows(&self) -> usize {
-        self.lock().as_ref().map(|x| x.index.len()).unwrap_or(0)
-    }
-
-    pub fn with_data_ref<F, O>(&self, f: F) -> Result<O>
-    where
-        F: Fn(Option<(&DataFrameIndex, &DataFrame)>) -> O,
-    {
-        if self.is_empty() {
-            Ok(f(None))
-        } else {
-            let mut inner = self.inner();
-            if let None = inner.element {
-                inner.element = Some(DataFrame::read(&inner.container)?);
-            }
-            Ok(f(Some((&inner.index, inner.element.as_ref().unwrap()))))
-        }
-    }
-
-    pub fn with_data_mut_ref<F, O>(&self, mut f: F) -> Result<O>
-    where
-        F: FnMut(Option<(&DataFrameIndex, &DataFrame)>) -> O,
-    {
-        if self.is_empty() {
-            Ok(f(None))
-        } else {
-            let mut inner = self.inner();
-            if let None = inner.element {
-                inner.element = Some(DataFrame::read(&inner.container)?);
-            }
-            Ok(f(Some((&inner.index, inner.element.as_ref().unwrap()))))
-        }
-    }
-
-    pub fn read(&self) -> Result<DataFrame> {
-        self.with_data_ref(|x| x.map(|(_, df)| df.clone()).unwrap_or(DataFrame::empty()))
-    }
-
-    pub fn write(&self, idx_: Option<&[usize]>, location: &Group, name: &str) -> Result<()> {
-        self.with_data_ref(|x| {
-            if let Some((index, df)) = x {
-                match idx_ {
-                    None => index.write(&df.write(location, name)?),
-                    Some(idx) => {
-                        let new_df = df.take_iter(idx.into_iter().map(|x| *x))?;
-                        let new_index: DataFrameIndex =
-                            idx.into_iter().map(|i| index.names[*i].clone()).collect();
-                        new_index.write(&new_df.write(location, name)?)
-                    }
-                }?;
-            }
-            Ok(())
-        })?
-    }
+/*
 
     pub fn update(&self, data: DataFrame) -> Result<()> {
         ensure!(!self.is_empty(), "cannot update an empty DataFrameElem");
@@ -328,8 +205,9 @@ impl DataFrameElem {
             num_recs == 0 || inner.index.len() == num_recs,
             "cannot update dataframe as lengths differ"
         );
-        inner.container = data.update(&inner.container)?; // Note updating the container removes the index
-        inner.index.write(&inner.container)?; // So we need to add back the index here
+        inner.container = data.overwrite(&inner.container)?; // Note updating the container removes the index
+        // FIXME
+        inner.index.overwrite(&inner.container)?; // So we need to add back the index here
         inner.column_names = data.get_column_names_owned().into_iter().collect();
         if inner.element.is_some() {
             inner.element = Some(data);
@@ -352,7 +230,8 @@ impl DataFrameElem {
             "cannot change the index as the lengths differ"
         );
         inner.index = index;
-        inner.index.write(&inner.container)?;
+        // FIXME
+        inner.index.overwrite(&inner.container)?;
         Ok(())
     }
 
@@ -381,16 +260,18 @@ impl DataFrameElem {
         Ok(())
     }
 }
+*/
 
 /// Container holding general data types.
-pub struct InnerElem {
+pub struct InnerElem<B: Backend, T> {
     dtype: DataType,
+    shape: Option<Shape>,
     cache_enabled: bool,
-    container: DataContainer,
-    element: Option<Box<dyn Data>>,
+    container: DataContainer<B>,
+    element: Option<T>,
 }
 
-impl std::fmt::Display for InnerElem {
+impl<B: Backend, T> std::fmt::Display for InnerElem<B, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -402,265 +283,155 @@ impl std::fmt::Display for InnerElem {
     }
 }
 
-#[derive(Clone)]
-pub struct Elem(Arc<Mutex<InnerElem>>);
-
-impl std::fmt::Display for Elem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.lock().fmt(f)
-    }
-}
-
-impl TryFrom<DataContainer> for Elem {
-    type Error = anyhow::Error;
-
-    fn try_from(container: DataContainer) -> Result<Self> {
-        let dtype = container.get_encoding_type()?;
-        let elem = InnerElem {
-            dtype,
-            cache_enabled: false,
-            element: None,
-            container,
-        };
-        Ok(Elem(Arc::new(Mutex::new(elem))))
-    }
-}
-
-impl Elem {
+impl<B: Backend, T> InnerElem<B, T> {
     pub fn dtype(&self) -> DataType {
-        self.0.lock().dtype.clone()
+        self.dtype
     }
 
-    pub fn read(&self) -> Result<Box<dyn Data>> {
-        let mut inner = self.0.lock();
-        match inner.element.as_ref() {
+    pub fn enable_cache(&mut self) {
+        self.cache_enabled = true;
+    }
+
+    pub fn disable_cache(&mut self) {
+        if self.element.is_some() {
+            self.element = None;
+        }
+        self.cache_enabled = false;
+    }
+}
+
+impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
+    pub fn data(&mut self) -> Result<T> {
+        match self.element.as_ref() {
             Some(data) => Ok(data.clone()),
             None => {
-                let data = <Box<dyn Data>>::read(&inner.container)?;
-                if inner.cache_enabled {
-                    inner.element = Some(data.clone());
+                let data = T::read(&self.container)?;
+                if self.cache_enabled {
+                    self.element = Some(data.clone());
                 }
                 Ok(data)
             }
         }
     }
 
-    pub fn write(&self, location: &Group, name: &str) -> Result<()> {
-        let inner = self.0.lock();
-        match inner.element.as_ref() {
-            Some(data) => data.write(location, name)?,
-            None => <Box<dyn Data>>::read(&inner.container)?.write(location, name)?,
+    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
+        match self.element.as_ref() {
+            Some(data) => data.write::<B>(location, name)?,
+            None => T::read(&self.container)?.write(location, name)?,
         };
         Ok(())
     }
 
-    pub fn update<D: Data>(&self, data: D) -> Result<()> {
-        let mut inner = self.0.lock();
-        inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() {
-            inner.element = Some(data.into_dyn_data());
+    pub fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
+        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        if self.element.is_some() {
+            self.element = Some(data.into());
         }
         Ok(())
     }
+}
 
-    pub fn enable_cache(&self) {
-        self.0.lock().cache_enabled = true;
+impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
+    pub fn shape(&self) -> &Shape {
+        self.shape.as_ref().unwrap()
     }
 
-    pub fn disable_cache(&self) {
-        let mut inner = self.0.lock();
-        if inner.element.is_some() {
-            inner.element = None;
+    pub fn select<S, E>(&mut self, selection: S) -> Result<T>
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        if select_all(&selection) {
+            self.data()
+        } else {
+            match self.element.as_ref() {
+                Some(data) => Ok(data.select(selection)),
+                None => T::read_select(&self.container, selection),
+            }
         }
-        inner.cache_enabled = false;
+    }
+
+    pub fn export_select<S, E>(
+        &mut self,
+        selection: S,
+        location: &B::Group,
+        name: &str,
+    ) -> Result<()>
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        if select_all(&selection) {
+            self.export(location, name)
+        } else {
+            self.select(selection)?.write::<B>(location, name)?;
+            Ok(())
+        }
+    }
+
+    pub fn subset<S, E>(&mut self, selection: S) -> Result<()>
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        let data = match self.element.as_ref() {
+            Some(data) => data.select(selection),
+            None => T::read_select(&self.container, selection)?,
+        };
+
+        self.shape = Some(data.shape());
+        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        if self.element.is_some() {
+            self.element = Some(data);
+        }
+        Ok(())
     }
 }
 
-/// Container holding matrix data types.
-pub struct InnerMatrixElem {
-    dtype: DataType,
-    cache_enabled: bool,
-    container: DataContainer,
-    nrows: usize,
-    ncols: usize,
-    element: Option<Box<dyn MatrixData>>,
-}
+pub type Elem<B> = Slot<InnerElem<B, Data>>;
 
-impl std::fmt::Display for InnerMatrixElem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} x {} {} element, cache_enabled: {}, cached: {}",
-            self.nrows,
-            self.ncols,
-            self.dtype,
-            if self.cache_enabled { "yes" } else { "no" },
-            if self.element.is_some() { "yes" } else { "no" },
-        )
-    }
-}
-
-impl TryFrom<DataContainer> for InnerMatrixElem {
+impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
     type Error = anyhow::Error;
 
-    fn try_from(container: DataContainer) -> Result<Self> {
-        let dtype = container.get_encoding_type()?;
-        let nrows = <Box<dyn MatrixData>>::get_nrows(&container);
-        let ncols = <Box<dyn MatrixData>>::get_ncols(&container);
-        Ok(Self {
+    fn try_from(container: DataContainer<B>) -> Result<Self> {
+        let dtype = container.encoding_type()?;
+        let elem = InnerElem {
             dtype,
+            shape: None,
             cache_enabled: false,
             element: None,
             container,
-            nrows,
-            ncols,
-        })
+        };
+        Ok(Slot::new(elem))
     }
 }
 
-pub type MatrixElem = Slot<InnerMatrixElem>;
+pub type ArrayElem<B> = Slot<InnerElem<B, ArrayData>>;
 
-impl TryFrom<DataContainer> for MatrixElem {
+/// Container holding matrix data types.
+impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
     type Error = anyhow::Error;
-    fn try_from(container: DataContainer) -> Result<Self> {
-        Ok(Slot::new(InnerMatrixElem::try_from(container)?))
+
+    fn try_from(container: DataContainer<B>) -> Result<Self> {
+        let dtype = container.encoding_type()?;
+        let elem = InnerElem {
+            dtype,
+            shape: Some(ArrayData::get_shape(&container)?),
+            cache_enabled: false,
+            element: None,
+            container,
+        };
+        Ok(Slot::new(elem))
     }
 }
 
-impl MatrixElem {
-    pub fn dtype(&self) -> Option<DataType> {
-        self.lock().as_ref().map(|x| x.dtype.clone())
-    }
-
-    pub fn enable_cache(&self) {
-        self.inner().cache_enabled = true;
-    }
-    pub fn disable_cache(&self) {
-        let mut inner = self.inner();
-        if inner.element.is_some() {
-            inner.element = None;
-        }
-        inner.cache_enabled = false;
-    }
-
-    pub fn nrows(&self) -> usize {
-        self.inner().nrows
-    }
-    pub fn ncols(&self) -> usize {
-        self.inner().ncols
-    }
-
-    pub fn read(
-        &self,
-        ridx: Option<&[usize]>,
-        cidx: Option<&[usize]>,
-    ) -> Result<Box<dyn MatrixData>> {
-        ensure!(!self.is_empty(), "cannot read an empty MatrixElem");
-        let mut inner = self.inner();
-        match inner.element.as_ref() {
-            Some(data) => match (ridx, cidx) {
-                (None, None) => Ok(data.clone()),
-                (Some(i), Some(j)) => Ok(data.subset(i, j)),
-                (Some(i), None) => Ok(data.get_rows(i)),
-                (None, Some(j)) => Ok(data.get_columns(j)),
-            },
-            None => match (ridx, cidx) {
-                (None, None) => {
-                    let data = <Box<dyn MatrixData>>::read(&inner.container)?;
-                    if inner.cache_enabled {
-                        inner.element = Some(data.clone());
-                    }
-                    Ok(data)
-                }
-                (Some(i), Some(j)) => {
-                    Ok(<Box<dyn MatrixData>>::read_partial(&inner.container, i, j))
-                }
-                (Some(i), None) => Ok(<Box<dyn MatrixData>>::read_rows(&inner.container, i)),
-                (None, Some(j)) => Ok(<Box<dyn MatrixData>>::read_columns(&inner.container, j)),
-            },
-        }
-    }
-
-    // TODO: use in-memory data when possible
-    pub fn read_row_slice(&self, slice: std::ops::Range<usize>) -> Result<Box<dyn MatrixData>> {
-        ensure!(
-            !self.is_empty(),
-            "cannot read rows from an empty MatrixElem"
-        );
-        let inner = self.inner();
-        Ok(<Box<dyn MatrixData>>::read_row_slice(
-            &inner.container,
-            slice,
-        )?)
-    }
-
-    pub fn write(
-        &self,
-        ridx: Option<&[usize]>,
-        cidx: Option<&[usize]>,
-        location: &Group,
-        name: &str,
-    ) -> Result<()> {
-        if !self.is_empty() {
-            self.read(ridx, cidx)?.write(location, name)?;
-        }
-        Ok(())
-    }
-
-    pub fn subset(&self, ridx: Option<&[usize]>, cidx: Option<&[usize]>) -> Result<()> {
-        if !self.is_empty() {
-            let mut inner = self.inner();
-            let sub = match inner.element.as_ref() {
-                Some(data) => match (ridx, cidx) {
-                    (None, None) => None,
-                    (Some(i), Some(j)) => Some(data.subset(i, j)),
-                    (Some(i), None) => Some(data.get_rows(i)),
-                    (None, Some(j)) => Some(data.get_columns(j)),
-                },
-                None => match (ridx, cidx) {
-                    (None, None) => None,
-                    (Some(i), Some(j)) => {
-                        Some(<Box<dyn MatrixData>>::read_partial(&inner.container, i, j))
-                    }
-                    (Some(i), None) => Some(<Box<dyn MatrixData>>::read_rows(&inner.container, i)),
-                    (None, Some(j)) => {
-                        Some(<Box<dyn MatrixData>>::read_columns(&inner.container, j))
-                    }
-                },
-            };
-            if let Some(data) = sub {
-                inner.container = data.update(&inner.container)?;
-                if inner.element.is_some() {
-                    inner.element = Some(data);
-                }
-                if let Some(i) = ridx {
-                    inner.nrows = i.len();
-                }
-                if let Some(j) = cidx {
-                    inner.ncols = j.len();
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn update<D: MatrixData>(&self, data: D) -> Result<()> {
-        ensure!(!self.is_empty(), "cannot update an empty MatrixElem");
-        let mut inner = self.inner();
-        inner.nrows = data.nrows();
-        inner.ncols = data.ncols();
-        inner.container = data.update(&inner.container)?;
-        if inner.element.is_some() {
-            inner.element = Some(data.into_dyn_matrix());
-        }
-        Ok(())
-    }
-
-    pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-        ChunkedMatrix::new(self.clone(), chunk_size)
-    }
+/*
+pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
+    ChunkedMatrix::new(self.clone(), chunk_size)
 }
+*/
 
+/*
 /// This struct is used to perform index lookup for Vectors of Vectors.
 pub struct VecVecIndex(Vec<usize>);
 
@@ -723,6 +494,7 @@ impl FromIterator<usize> for VecVecIndex {
         VecVecIndex(index)
     }
 }
+*/
 
 /*
 impl<T> From<&[T]> for VecVecIndex {
@@ -741,16 +513,17 @@ impl<T> From<&[T]> for VecVecIndex {
 }
 */
 
+/*
 // TODO: remove Arc.
 #[derive(Clone)]
-pub struct StackedMatrixElem {
+pub struct StackedArrayElem<B: Backend> {
     nrows: Arc<Mutex<usize>>,
     ncols: Arc<Mutex<usize>>,
-    pub elems: Arc<Vec<MatrixElem>>,
+    pub elems: Arc<Vec<ArrayElem<B>>>,
     index: Arc<Mutex<VecVecIndex>>,
 }
 
-impl std::fmt::Display for StackedMatrixElem {
+impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.elems.len() == 0 {
             write!(f, "empty stacked elements")
@@ -767,9 +540,10 @@ impl std::fmt::Display for StackedMatrixElem {
     }
 }
 
-impl StackedMatrixElem {
+/*
+impl<B: Backend> StackedArrayElem<B> {
     pub(crate) fn new(
-        elems: Vec<MatrixElem>,
+        elems: Vec<ArrayElem<B>>,
         nrows: Arc<Mutex<usize>>,
         ncols: Arc<Mutex<usize>>,
         index: Arc<Mutex<VecVecIndex>>,
@@ -797,7 +571,7 @@ impl StackedMatrixElem {
         &self,
         ridx_: Option<&[usize]>,
         cidx: Option<&[usize]>,
-    ) -> Result<Box<dyn MatrixData>> {
+    ) -> Result<ArrayData> {
         match ridx_ {
             Some(ridx) => {
                 let index = self.index.lock();
@@ -899,3 +673,6 @@ impl StackedDataFrame {
         }
     }
 }
+
+*/
+*/

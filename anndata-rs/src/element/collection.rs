@@ -1,7 +1,11 @@
-use crate::{data::*, element::base::*};
+use crate::{
+    backend::{Backend, DataContainer, iter_containers},
+    data::*,
+    element::base::*,
+};
 
+use either::Either;
 use anyhow::{anyhow, ensure, Result};
-use hdf5::Group;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use std::{
@@ -10,26 +14,26 @@ use std::{
     sync::Arc,
 };
 
-pub struct InnerElemCollection {
-    container: Group,
-    data: HashMap<String, Elem>,
+pub struct InnerElemCollection<B: Backend> {
+    container: B::Group,
+    data: HashMap<String, Elem<B>>,
 }
 
-impl Deref for InnerElemCollection {
-    type Target = HashMap<String, Elem>;
+impl<B: Backend> Deref for InnerElemCollection<B> {
+    type Target = HashMap<String, Elem<B>>;
 
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl DerefMut for InnerElemCollection {
+impl<B: Backend> DerefMut for InnerElemCollection<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
 }
 
-impl std::fmt::Display for InnerElemCollection {
+impl<B: Backend> std::fmt::Display for InnerElemCollection<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let keys = self
             .keys()
@@ -40,92 +44,94 @@ impl std::fmt::Display for InnerElemCollection {
     }
 }
 
-impl TryFrom<Group> for InnerElemCollection {
-    type Error = anyhow::Error;
+impl<B> InnerElemCollection<B>
+where
+    B: Backend,
+{
+    pub fn export(&self, location: &B::Group) -> Result<()> {
+        for (key, val) in self.iter() {
+            val.inner().export(location, key)?;
+        }
+        Ok(())
+    }
 
-    fn try_from(container: Group) -> Result<Self> {
-        let data: Result<HashMap<_, _>> = get_all_data(&container)
+    pub fn add_data<D: WriteData + Into<Data>>(&mut self, key: &str, data: D) -> Result<()> {
+        match self.get_mut(key) {
+            None => {
+                let container = data.write::<B>(&self.container, key)?;
+                self.insert(key.to_string(), container.try_into()?);
+            }
+            Some(elem) => elem.inner().save(data)?,
+        }
+        Ok(())
+    }
+}
+
+pub struct ElemCollection<B: Backend>(Slot<InnerElemCollection<B>>);
+
+impl<B: Backend> Deref for ElemCollection<B> {
+    type Target = Slot<InnerElemCollection<B>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<B: Backend> DerefMut for ElemCollection<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<B: Backend> ElemCollection<B> {
+    pub fn empty() -> Self {
+        Self(Slot::empty())
+    }
+
+    pub fn new(container: B::Group) -> Result<Self> {
+        let data: Result<HashMap<_, _>> = iter_containers(&container)
             .map(|(k, v)| Ok((k, Elem::try_from(v)?)))
             .collect();
-        Ok(Self {
+        let collection = InnerElemCollection {
             container,
             data: data?,
-        })
-    }
-}
-
-pub type ElemCollection = Slot<InnerElemCollection>;
-
-impl TryFrom<Group> for ElemCollection {
-    type Error = anyhow::Error;
-
-    fn try_from(container: Group) -> Result<Self> {
-        Ok(Slot::new(InnerElemCollection::try_from(container)?))
-    }
-}
-
-impl ElemCollection {
-    pub fn add_data<D: Data>(&self, key: &str, data: D) -> Result<()> {
-        ensure!(
-            !self.is_empty(),
-            "cannot add data to an empty ElemCollection"
-        );
-        let mut inner = self.inner();
-        match inner.get_mut(key) {
-            None => {
-                let container = data.write(&inner.container, key)?;
-                inner.insert(key.to_string(), Elem::try_from(container)?);
-            }
-            Some(elem) => elem.update(data)?,
-        }
-        Ok(())
-    }
-
-    pub fn write(&self, location: &Group) -> Result<()> {
-        if !self.is_empty() {
-            let inner = self.inner();
-            for (key, val) in inner.iter() {
-                val.write(location, key)?;
-            }
-        }
-        Ok(())
+        };
+        Ok(Self(Slot::new(collection)))
     }
 }
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Axis {
     Row,
-    Column,
-    Both,
+    RowColumn,
 }
 
-pub struct InnerAxisArrays {
+pub struct InnerAxisArrays<B: Backend> {
     pub axis: Axis,
-    pub(crate) container: Group,
+    pub(crate) container: B::Group,
     pub(crate) size: Arc<Mutex<usize>>, // shared global reference
-    data: HashMap<String, MatrixElem>,
+    data: HashMap<String, ArrayElem<B>>,
 }
 
-impl Deref for InnerAxisArrays {
-    type Target = HashMap<String, MatrixElem>;
+impl<B: Backend> Deref for InnerAxisArrays<B> {
+    type Target = HashMap<String, ArrayElem<B>>;
 
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl DerefMut for InnerAxisArrays {
+impl<B: Backend> DerefMut for InnerAxisArrays<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
 }
 
-impl std::fmt::Display for InnerAxisArrays {
+impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ty = match self.axis {
             Axis::Row => "row",
-            Axis::Column => "column",
-            Axis::Both => "square",
+            Axis::RowColumn => "square",
         };
         let keys = self
             .keys()
@@ -136,149 +142,146 @@ impl std::fmt::Display for InnerAxisArrays {
     }
 }
 
-macro_rules! check_dims {
-    ($size:expr, $data:expr, $axis: expr) => {
-        match $axis {
-            Axis::Column => {
-                if $data.ncols() == $size {
-                    None
-                } else if $size == 0 {
-                    Some($data.ncols())
-                } else {
-                    panic!(
-                        "inconsistent size, found: {}, expecting: {}",
-                        $data.ncols(),
-                        $size
-                    );
+impl<B: Backend> InnerAxisArrays<B> {
+    pub fn size(&self) -> usize {
+        *self.size.lock()
+    }
+
+    pub fn add_data<D: WriteArrayData + ReadArrayData + Into<ArrayData>>(
+        &mut self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
+        { // Check if the data is compatible with the current size
+            let shape = data.shape();
+            let mut size= self.size.lock();
+
+            match self.axis {
+                Axis::Row => {
+                    ensure!(*size == 0 || *size == shape[0], "Row arrays must have same length");
+                    *size = shape[0];
                 }
-            }
-            Axis::Row => {
-                if $data.nrows() == $size {
-                    None
-                } else if $size == 0 {
-                    Some($data.nrows())
-                } else {
-                    panic!(
-                        "inconsistent size, found: {}, expecting: {}",
-                        $data.nrows(),
-                        $size
-                    );
-                }
-            }
-            Axis::Both => {
-                if $data.nrows() != $data.ncols() {
-                    panic!(
-                        "not a square matrix: nrow = {}, ncol = {}",
-                        $data.nrows(),
-                        $data.ncols()
-                    );
-                } else if $data.ncols() == $size {
-                    None
-                } else if $size == 0 {
-                    Some($data.ncols())
-                } else {
-                    panic!(
-                        "inconsistent size, found: {}, expecting: {}",
-                        $data.nrows(),
-                        $size
-                    );
+                Axis::RowColumn => {
+                    ensure!(shape[0] == shape[1], "Square arrays must be square");
+                    ensure!(*size == 0 || *size == shape[0], "Square arrays must have same length");
+                    *size = shape[0];
                 }
             }
         }
-    };
+        match self.get_mut(key) {
+            None => {
+                let container = data.write::<B>(&self.container, key)?;
+                let elem = container.try_into()?;
+                self.insert(key.to_string(), elem);
+            }
+            Some(elem) => elem.inner().save(data)?,
+        }
+        Ok(())
+    }
+
+    pub fn export(&self, location: &B::Group) -> Result<()> {
+        for (key, val) in self.iter() {
+            val.inner().export(location, key)?;
+        }
+        Ok(())
+    }
+
+    pub fn export_select<S>(&self, selection: S, location: &B::Group) -> Result<()>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        if selection.as_ref().is_full_slice() {
+            self.export(location)
+        } else {
+            match self.axis {
+                Axis::Row => {
+                    let s = vec![selection.as_ref()];
+                    self
+                        .iter()
+                        .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
+                },
+                Axis::RowColumn => {
+                    let s = vec![selection.as_ref(), selection.as_ref()];
+                    self
+                        .iter()
+                        .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
+                },
+            }
+        }
+    }
+
+    pub fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
+        match self.axis {
+            Axis::Row => {
+                let s = vec![selection.as_ref()];
+                self.values().try_for_each(|x| x.inner().subset(&s))?;
+            },
+            Axis::RowColumn => {
+                let s = vec![selection.as_ref(), selection.as_ref()];
+                self.values().try_for_each(|x| x.inner().subset(&s))?;
+            }
+        }
+        Ok(())
+    }
 }
 
-impl InnerAxisArrays {
-    pub(crate) fn new(group: Group, axis: Axis, size: Arc<Mutex<usize>>) -> Self {
-        let data: HashMap<_, _> = get_all_data(&group)
-            .map(|(k, v)| (k, MatrixElem::try_from(v).unwrap()))
+pub struct AxisArrays<B: Backend>(Slot<InnerAxisArrays<B>>);
+
+impl<B: Backend> Deref for AxisArrays<B> {
+    type Target = Slot<InnerAxisArrays<B>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<B: Backend> DerefMut for AxisArrays<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<B: Backend> AxisArrays<B> {
+    pub fn empty() -> Self {
+        Self(Slot::empty())
+    }
+
+    pub fn new(group: B::Group, axis: Axis, size_: Arc<Mutex<usize>>) -> Result<Self> {
+        let data: HashMap<_, _> = iter_containers::<B>(&group)
+            .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
-        {
-            let mut size_guard = size.lock();
-            let mut n = *size_guard;
+        { // Check if the data is compatible with the current size
+            let mut size= size_.lock();
             for (_, v) in data.iter() {
-                if let Some(s) = check_dims!(n, v, axis) {
-                    n = s;
+                let v_lock = v.inner();
+                let shape = v_lock.shape();
+                match &axis {
+                    Axis::Row => {
+                        ensure!(*size == 0 || *size == shape[0], "Row arrays must have same length");
+                        *size = shape[0];
+                    }
+                    Axis::RowColumn => {
+                        ensure!(shape[0] == shape[1], "Square arrays must be square");
+                        ensure!(*size == 0 || *size == shape[0], "Square arrays must have same length");
+                        *size = shape[0];
+                    }
                 }
             }
-            *size_guard = n;
         }
-        Self {
+        let arrays = InnerAxisArrays{
             container: group,
-            size,
+            size: size_,
             axis,
             data,
-        }
+        };
+        Ok(Self(Slot::new(arrays)))
     }
 }
 
-pub type AxisArrays = Slot<InnerAxisArrays>;
 
-impl AxisArrays {
-    pub fn size(&self) -> Option<usize> {
-        self.lock().as_ref().map(|x| *x.size.lock())
-    }
 
-    pub fn add_data<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
-        ensure!(!self.is_empty(), "cannot add data to a closed AxisArrays");
-        let mut inner = self.inner();
-        {
-            let mut size_guard = inner.size.lock();
-            let mut n = *size_guard;
-            if let Some(s) = check_dims!(n, data, inner.axis) {
-                n = s;
-            }
-            *size_guard = n;
-        }
-        match inner.get_mut(key) {
-            None => {
-                let container = data.write(&inner.container, key)?;
-                let elem = MatrixElem::try_from(container)?;
-                inner.insert(key.to_string(), elem);
-            }
-            Some(elem) => elem.update(data)?,
-        }
-        Ok(())
-    }
 
-    pub fn subset(&self, idx: &[usize]) -> Result<()> {
-        if !self.is_empty() {
-            let inner = self.inner();
-            match inner.axis {
-                Axis::Row => inner.values().try_for_each(|x| x.subset(Some(idx), None)),
-                Axis::Column => inner.values().try_for_each(|x| x.subset(None, Some(idx))),
-                Axis::Both => inner
-                    .values()
-                    .try_for_each(|x| x.subset(Some(idx), Some(idx))),
-            }?;
-        }
-        Ok(())
-    }
-
-    pub fn write(&self, idx_: Option<&[usize]>, location: &Group) -> Result<()> {
-        if !self.is_empty() {
-            let inner = self.inner();
-            match idx_ {
-                None => inner
-                    .iter()
-                    .try_for_each(|(k, x)| x.write(None, None, location, k)),
-                Some(idx) => match inner.axis {
-                    Axis::Row => inner
-                        .iter()
-                        .try_for_each(|(k, x)| x.write(Some(idx), None, location, k)),
-                    Axis::Column => inner
-                        .iter()
-                        .try_for_each(|(k, x)| x.write(None, Some(idx), location, k)),
-                    Axis::Both => inner
-                        .iter()
-                        .try_for_each(|(k, x)| x.write(Some(idx), Some(idx), location, k)),
-                },
-            }?;
-        }
-        Ok(())
-    }
-}
-
+/*
 #[derive(Clone)]
 pub struct StackedAxisArrays {
     pub axis: Axis,
@@ -352,3 +355,4 @@ fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
     }
     sets[0].clone()
 }
+*/

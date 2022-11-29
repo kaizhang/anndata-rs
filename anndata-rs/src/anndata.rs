@@ -2,13 +2,13 @@ use crate::{
     data::*,
     element::*,
     element::{
-        base::{InnerDataFrameElem, InnerMatrixElem, VecVecIndex},
+        base::{InnerDataFrameElem},
         collection::{AxisArrays, InnerAxisArrays},
     },
+    backend::Backend,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use hdf5::File;
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -17,23 +17,24 @@ use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
-use std::{collections::HashMap, ops::Deref, path::Path, sync::Arc};
+use std::{collections::HashMap, ops::Deref, path::{Path, PathBuf}, sync::Arc};
 
-pub struct AnnData {
-    pub(crate) file: File,
+pub struct AnnData<B: Backend> {
+    pub(crate) file: B::File,
     pub(crate) n_obs: Arc<Mutex<usize>>,
     pub(crate) n_vars: Arc<Mutex<usize>>,
-    pub(crate) x: MatrixElem,
-    pub(crate) obs: DataFrameElem,
-    pub(crate) obsm: AxisArrays,
-    pub(crate) obsp: AxisArrays,
-    pub(crate) var: DataFrameElem,
-    pub(crate) varm: AxisArrays,
-    pub(crate) varp: AxisArrays,
-    pub(crate) uns: ElemCollection,
+    pub(crate) x: ArrayElem<B>,
+    pub(crate) obs: DataFrameElem<B>,
+    pub(crate) obsm: AxisArrays<B>,
+    pub(crate) obsp: AxisArrays<B>,
+    pub(crate) var: DataFrameElem<B>,
+    pub(crate) varm: AxisArrays<B>,
+    pub(crate) varp: AxisArrays<B>,
+    pub(crate) uns: ElemCollection<B>,
 }
 
-impl std::fmt::Display for AnnData {
+/*
+impl<B: Backend> std::fmt::Display for AnnData<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -80,14 +81,16 @@ impl std::fmt::Display for AnnData {
         Ok(())
     }
 }
+*/
 
+/*
 macro_rules! anndata_setter {
     ($(($field:ident, $ty:ty, $n:ident)),*) => {
         paste! {
             $(
             pub fn [<set_ $field>](
                 &self,
-                data_: Option<HashMap<String, Box<dyn MatrixData>>>,
+                data_: Option<HashMap<String, Box<dyn ArrayData>>>,
             ) -> Result<()>
             {
                 let mut guard = self.$field.inner();
@@ -110,41 +113,42 @@ macro_rules! anndata_setter {
         }
     }
 }
+*/
 
-impl AnnData {
-    pub fn get_x(&self) -> &MatrixElem {
+impl<B: Backend> AnnData<B> {
+    pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
-    pub fn get_obs(&self) -> &DataFrameElem {
+    pub fn get_obs(&self) -> &DataFrameElem<B> {
         &self.obs
     }
-    pub fn get_var(&self) -> &DataFrameElem {
-        &self.var
-    }
-    pub fn get_obsm(&self) -> &AxisArrays {
+    pub fn get_obsm(&self) -> &AxisArrays<B> {
         &self.obsm
     }
-    pub fn get_obsp(&self) -> &AxisArrays {
+    pub fn get_obsp(&self) -> &AxisArrays<B> {
         &self.obsp
     }
-    pub fn get_varm(&self) -> &AxisArrays {
+    pub fn get_var(&self) -> &DataFrameElem<B> {
+        &self.var
+    }
+    pub fn get_varm(&self) -> &AxisArrays<B> {
         &self.varm
     }
-    pub fn get_varp(&self) -> &AxisArrays {
+    pub fn get_varp(&self) -> &AxisArrays<B> {
         &self.varp
     }
-    pub fn get_uns(&self) -> &ElemCollection {
+    pub fn get_uns(&self) -> &ElemCollection<B> {
         &self.uns
     }
 
     pub fn set_n_obs(&self, n: usize) {
         let mut n_obs = self.n_obs.lock();
         if *n_obs != n {
-            let obs_is_empty = self.obs.is_empty()
+            let obs_is_none= self.obs.is_empty()
                 && self.x.is_empty()
                 && (self.obsm.is_empty() || self.obsm.inner().is_empty())
                 && (self.obsp.is_empty() || self.obsp.inner().is_empty());
-            if obs_is_empty {
+            if obs_is_none {
                 *n_obs = n;
             } else {
                 panic!(
@@ -159,11 +163,11 @@ impl AnnData {
     pub fn set_n_vars(&self, n: usize) {
         let mut n_vars = self.n_vars.lock();
         if *n_vars != n {
-            let var_is_empty = self.var.is_empty()
+            let var_is_none= self.var.is_empty()
                 && self.x.is_empty()
                 && (self.varm.is_empty() || self.varm.inner().is_empty())
                 && (self.varp.is_empty() || self.varp.inner().is_empty());
-            if var_is_empty {
+            if var_is_none {
                 *n_vars = n;
             } else {
                 panic!(
@@ -175,81 +179,34 @@ impl AnnData {
         }
     }
 
-    anndata_setter!(
-        (obsm, Axis::Row, n_obs),
-        (obsp, Axis::Both, n_obs),
-        (varm, Axis::Row, n_vars),
-        (varp, Axis::Both, n_vars)
-    );
-
-    pub fn set_uns(&self, uns_: Option<HashMap<String, Box<dyn Data>>>) -> Result<()> {
-        if !self.uns.is_empty() {
-            self.file.unlink("uns")?;
-        }
-        match uns_ {
-            None => {
-                self.uns.drop();
-            }
-            Some(uns) => {
-                let container = self.file.create_group("uns")?;
-                let elem = ElemCollection::try_from(container)?;
-                for (key, data) in uns.into_iter() {
-                    elem.add_data(&key, data)?;
-                }
-                self.uns.insert(elem.extract().unwrap());
-            }
-        }
-        Ok(())
-    }
-
     pub fn new<P: AsRef<Path>>(filename: P, n_obs: usize, n_vars: usize) -> Result<Self> {
-        let file = hdf5::File::create(filename)?;
+        let file = B::create(filename)?;
         let n_obs = Arc::new(Mutex::new(n_obs));
         let n_vars = Arc::new(Mutex::new(n_vars));
-        let obsm = {
-            let container = file.create_group("obsm")?;
-            InnerAxisArrays::new(container, Axis::Row, n_obs.clone())
-        };
-        let obsp = {
-            let container = file.create_group("obsp")?;
-            InnerAxisArrays::new(container, Axis::Both, n_obs.clone())
-        };
-        let varm = {
-            let container = file.create_group("varm")?;
-            InnerAxisArrays::new(container, Axis::Row, n_vars.clone())
-        };
-        let varp = {
-            let container = file.create_group("varp")?;
-            InnerAxisArrays::new(container, Axis::Both, n_vars.clone())
-        };
-        let uns = {
-            let container = file.create_group("uns")?;
-            ElemCollection::try_from(container)?
-        };
         Ok(Self {
             file,
             n_obs,
             n_vars,
             x: Slot::empty(),
-            uns: uns,
+            uns: ElemCollection::empty(),
             obs: Slot::empty(),
-            obsm: Slot::new(obsm),
-            obsp: Slot::new(obsp),
+            obsm: AxisArrays::empty(),
+            obsp: AxisArrays::empty(),
             var: Slot::empty(),
-            varm: Slot::new(varm),
-            varp: Slot::new(varp),
+            varm: AxisArrays::empty(),
+            varp: AxisArrays::empty(),
         })
     }
 
-    pub fn filename(&self) -> String {
-        self.file.filename()
+    pub fn filename(&self) -> PathBuf{
+        B::filename(&self.file)
     }
 
     pub fn close(self) -> Result<()> {
         macro_rules! close {
             ($($name:ident),*) => {
                 $(
-                self.$name.inner().0.as_ref().map(|x| x.values().for_each(|x| x.drop()));
+                self.$name.lock().as_ref().map(|x| x.values().for_each(|x| x.drop()));
                 self.$name.drop();
                 )*
             };
@@ -257,38 +214,45 @@ impl AnnData {
         self.x.drop();
         self.obs.drop();
         self.var.drop();
-        self.uns.drop();
-        close!(obsm, obsp, varm, varp);
-        self.file.close()?;
-        Ok(())
+        close!(obsm, obsp, varm, varp, uns);
+        B::close(self.file)
     }
 
-    pub fn subset(&self, obs_idx: Option<&[usize]>, var_idx: Option<&[usize]>) -> Result<()> {
-        if !self.x.is_empty() {
-            self.x.subset(obs_idx, var_idx)?;
-        }
-        if let Some(i) = obs_idx {
-            self.obs.subset_rows(i)?;
-            self.obsm.subset(i)?;
-            self.obsp.subset(i)?;
-            *self.n_obs.lock() = i.len();
-        }
-        if let Some(j) = var_idx {
-            self.var.subset_rows(j)?;
-            self.varm.subset(j)?;
-            self.varp.subset(j)?;
-            *self.n_vars.lock() = j.len();
-        }
+    pub fn subset<S, E>(&self, selection: S) -> Result<()>
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        self.x.lock().as_mut().map(|x| x.subset(&selection)).transpose()?;
+
+        selection.as_ref().get(0).map(|i| {
+            self.obs.lock().as_mut().map(|x| x.subset_rows(i)).transpose()?;
+            self.obsm.lock().as_ref().map(|obsm| obsm.subset(i)).transpose()?;
+            self.obsp.lock().as_ref().map(|obsp| obsp.subset(i)).transpose()?;
+            let mut n_obs = self.n_obs.lock();
+            *n_obs = i.as_ref().output_len(*n_obs);
+            Ok::<(), anyhow::Error>(())
+        }).transpose()?;
+
+        selection.as_ref().get(1).map(|i| {
+            self.var.lock().as_mut().map(|x| x.subset_rows(i)).transpose()?;
+            self.varm.lock().as_ref().map(|varm| varm.subset(i)).transpose()?;
+            self.varp.lock().as_ref().map(|varp| varp.subset(i)).transpose()?;
+            let mut n_vars = self.n_vars.lock();
+            *n_vars = i.as_ref().output_len(*n_vars);
+            Ok::<(), anyhow::Error>(())
+        }).transpose()?;
         Ok(())
     }
 }
 
+/*
 pub struct StackedAnnData {
     anndatas: IndexMap<String, AnnData>,
     index: Arc<Mutex<VecVecIndex>>,
     n_obs: Arc<Mutex<usize>>,
     n_vars: Arc<Mutex<usize>>,
-    x: StackedMatrixElem,
+    x: StackedArrayElem,
     pub obs: StackedDataFrame,
     obsm: StackedAxisArrays,
 }
@@ -328,7 +292,7 @@ impl StackedAnnData {
         let index = Arc::new(Mutex::new(index_));
         let n_vars = adatas.values().next().unwrap().n_vars.clone();
 
-        let x = StackedMatrixElem::new(
+        let x = StackedArrayElem::new(
             adatas.values().map(|x| x.get_x().clone()).collect(),
             n_obs.clone(),
             n_vars.clone(),
@@ -367,7 +331,7 @@ impl StackedAnnData {
         }))
     }
 
-    pub fn get_x(&self) -> &StackedMatrixElem {
+    pub fn get_x(&self) -> &StackedArrayElem {
         &self.x
     }
     pub fn get_obsm(&self) -> &StackedAxisArrays {
@@ -693,13 +657,13 @@ impl AnnDataSet {
         &self.annotation.var
     }
 
-    pub fn get_x(&self) -> StackedMatrixElem {
+    pub fn get_x(&self) -> StackedArrayElem {
         self.anndatas.inner().x.clone()
     }
 
     def_accessor!(
         AxisArrays,
-        Option<HashMap<String, Box<dyn MatrixData>>>,
+        Option<HashMap<String, Box<dyn ArrayData>>>,
         { obsm, obsp, varm, varp }
     );
 
@@ -883,11 +847,12 @@ impl AnnDataSet {
         Ok(())
     }
 }
+*/
 
 pub trait AnnDataOp {
     /// Reading/writing the 'X' element.
-    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>>;
-    fn set_x<D: MatrixData>(&self, data_: Option<D>) -> Result<()>;
+    fn read_x(&self) -> Result<Option<ArrayData>>;
+    fn set_x<D: WriteArrayData + Into<ArrayData>>(&self, data_: Option<D>) -> Result<()>;
 
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
@@ -923,21 +888,22 @@ pub trait AnnDataOp {
     fn varm_keys(&self) -> Vec<String>;
     fn varp_keys(&self) -> Vec<String>;
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>>;
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>>;
+    fn read_uns_item(&self, key: &str) -> Result<Option<Data>>;
+    fn read_obsm_item(&self, key: &str) -> Result<Option<ArrayData>>;
+    fn read_obsp_item(&self, key: &str) -> Result<Option<ArrayData>>;
+    fn read_varm_item(&self, key: &str) -> Result<Option<ArrayData>>;
+    fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>>;
 
-    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()>;
+    fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsm_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsp_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varm_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varp_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
 }
 
+/*
 impl AnnDataOp for AnnData {
-    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_x(&self) -> Result<Option<Box<dyn ArrayData>>> {
         let x = self.get_x();
         if x.is_empty() {
             Ok(None)
@@ -945,7 +911,7 @@ impl AnnDataOp for AnnData {
             x.read(None, None).map(Option::Some)
         }
     }
-    fn set_x<D: MatrixData>(&self, data_: Option<D>) -> Result<()> {
+    fn set_x<D: ArrayData>(&self, data_: Option<D>) -> Result<()> {
         match data_ {
             Some(data) => {
                 self.set_n_obs(data.nrows());
@@ -954,7 +920,7 @@ impl AnnDataOp for AnnData {
                     self.file.unlink("X")?;
                 }
                 self.x
-                    .insert(InnerMatrixElem::try_from(data.write(&self.file, "X")?)?);
+                    .insert(InnerArrayElem::try_from(data.write(&self.file, "X")?)?);
             }
             None => {
                 if !self.x.is_empty() {
@@ -1140,7 +1106,7 @@ impl AnnDataOp for AnnData {
             .map(|x| x.read())
             .transpose()
     }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.get_obsm()
             .lock()
             .as_mut()
@@ -1148,7 +1114,7 @@ impl AnnDataOp for AnnData {
             .map(|x| x.read(None, None))
             .transpose()
     }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.get_obsp()
             .lock()
             .as_mut()
@@ -1156,7 +1122,7 @@ impl AnnDataOp for AnnData {
             .map(|x| x.read(None, None))
             .transpose()
     }
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.get_varm()
             .lock()
             .as_mut()
@@ -1164,7 +1130,7 @@ impl AnnDataOp for AnnData {
             .map(|x| x.read(None, None))
             .transpose()
     }
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.get_varp()
             .lock()
             .as_mut()
@@ -1176,22 +1142,22 @@ impl AnnDataOp for AnnData {
     fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
         self.get_uns().add_data(key, data)
     }
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.get_obsm().add_data(key, data)
     }
-    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.get_obsp().add_data(key, data)
     }
-    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.get_varm().add_data(key, data)
     }
-    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.get_varp().add_data(key, data)
     }
 }
 
 impl AnnDataOp for AnnDataSet {
-    fn read_x(&self) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_x(&self) -> Result<Option<Box<dyn ArrayData>>> {
         let adatas = &self.anndatas;
         if adatas.is_empty() {
             Ok(None)
@@ -1199,7 +1165,7 @@ impl AnnDataOp for AnnDataSet {
             adatas.inner().x.read(None, None).map(Option::Some)
         }
     }
-    fn set_x<D: MatrixData>(&self, _: Option<D>) -> Result<()> {
+    fn set_x<D: ArrayData>(&self, _: Option<D>) -> Result<()> {
         bail!("cannot set X in AnnDataSet")
     }
 
@@ -1261,32 +1227,33 @@ impl AnnDataOp for AnnDataSet {
     fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> {
         self.annotation.read_uns_item(key)
     }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.annotation.read_obsm_item(key)
     }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.annotation.read_obsp_item(key)
     }
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.annotation.read_varm_item(key)
     }
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn MatrixData>>> {
+    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
         self.annotation.read_varp_item(key)
     }
 
     fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
         self.annotation.add_uns_item(key, data)
     }
-    fn add_obsm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.annotation.add_obsm_item(key, data)
     }
-    fn add_obsp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.annotation.add_obsp_item(key, data)
     }
-    fn add_varm_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.annotation.add_varm_item(key, data)
     }
-    fn add_varp_item<D: MatrixData>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
         self.annotation.add_varp_item(key, data)
     }
 }
+*/

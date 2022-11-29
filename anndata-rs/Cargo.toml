@@ -12,6 +12,7 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
 flate2 = "1.0"
+either = "1.8.0"
 indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
 hdf5 = "0.8"
@@ -23,6 +24,7 @@ downcast-rs = "1.2"
 polars = { version = "0.25", features = ["decompress", "ndarray", "dtype-full"] }
 paste = "1.0"
 parking_lot = "0.12"
+replace_with = "0.1"
 anyhow = "1.0"
 rayon = "1.5"
 

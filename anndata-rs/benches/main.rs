@@ -1,5 +1,5 @@
 use anndata_rs::anndata::{AnnData, AnnDataSet};
-use anndata_rs::anndata_trait::*;
+use anndata_rs::data::*;
 
 use criterion::BenchmarkId;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -110,7 +110,7 @@ fn criterion_multi_threading(c: &mut Criterion) {
     let n: usize = 10000;
     let m: usize = 10000;
     let nnz: usize = 1000000;
-    let mat: Box<dyn DataPartialIO> = {
+    let mat: Box<dyn MatrixData> = {
         let values: Vec<i64> = vec![1; nnz];
         let (row_indices, col_indices) = (0..nnz)
             .map(|_| (rng.gen_range(0..n), rng.gen_range(0..m)))
