@@ -147,7 +147,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         *self.size.lock()
     }
 
-    pub fn add_data<D: WriteArrayData + ReadArrayData + Into<ArrayData>>(
+    pub fn add_data<D: WriteArrayData + ArrayOp + Into<ArrayData>>(
         &mut self,
         key: &str,
         data: D,

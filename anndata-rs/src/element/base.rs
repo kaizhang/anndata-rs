@@ -79,6 +79,12 @@ impl<T> Slot<T> {
     pub fn drop(&self) {
         let _ = self.extract();
     }
+
+    pub fn swap(&self, other: &Self) {
+        let mut self_lock = self.0.lock();
+        let mut other_lock = other.0.lock();
+        std::mem::swap(self_lock.deref_mut(), other_lock.deref_mut());
+    }
 }
 
 pub struct Inner<'a, T>(pub MutexGuard<'a, Option<T>>);
@@ -121,8 +127,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = df.write::<B>(location, name)?;
-        index.write::<B>(container.as_group()?, &index.index_name)?;
+        let container = index.overwrite(df.write::<B>(location, name)?)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -144,6 +149,16 @@ impl<B: Backend> InnerDataFrameElem<B> {
         self.index.len()
     }
 
+    pub fn set_index(&mut self, index: DataFrameIndex) -> Result<()> {
+        ensure!(
+            self.index.len() == index.len(),
+            "cannot change the index as the lengths differ"
+        );
+        self.index = index;
+        replace_with::replace_with_or_abort(&mut self.container, |x| self.index.overwrite(x).unwrap());
+        Ok(())
+    }
+
     pub fn data(&mut self) -> Result<DataFrame> {
         match self.element {
             Some(ref df) => Ok(df.clone()),
@@ -160,8 +175,21 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        let container = df.write::<B>(location, name)?;
-        self.index.write::<B>(container.as_group()?, &self.index.index_name)?;
+        self.index.overwrite(df.write::<B>(location, name)?)?;
+        Ok(())
+    }
+
+    pub fn save(&mut self, data: DataFrame) -> Result<()> {
+        let num_recs = data.height();
+        ensure!(
+            num_recs == 0 || self.index.len() == num_recs,
+            "cannot update dataframe as lengths differ"
+        );
+        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        self.column_names = data.get_column_names_owned().into_iter().collect();
+        if self.element.is_some() {
+            self.element = Some(data);
+        }
         Ok(())
     }
 
@@ -197,42 +225,12 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
 
 /*
 
-    pub fn update(&self, data: DataFrame) -> Result<()> {
-        ensure!(!self.is_empty(), "cannot update an empty DataFrameElem");
-        let num_recs = data.height();
-        let mut inner = self.inner();
-        ensure!(
-            num_recs == 0 || inner.index.len() == num_recs,
-            "cannot update dataframe as lengths differ"
-        );
-        inner.container = data.overwrite(&inner.container)?; // Note updating the container removes the index
-        // FIXME
-        inner.index.overwrite(&inner.container)?; // So we need to add back the index here
-        inner.column_names = data.get_column_names_owned().into_iter().collect();
-        if inner.element.is_some() {
-            inner.element = Some(data);
-        }
-        Ok(())
-    }
-
     pub fn column(&self, name: &str) -> Result<Series> {
         self.with_data_ref(|x| x.unwrap().1.column(name).unwrap().clone())
     }
 
     pub fn get_column_names(&self) -> Option<IndexSet<String>> {
         self.lock().as_ref().map(|x| x.column_names.clone())
-    }
-
-    pub fn set_index(&self, index: DataFrameIndex) -> Result<()> {
-        let mut inner = self.inner();
-        ensure!(
-            inner.index.len() == index.len(),
-            "cannot change the index as the lengths differ"
-        );
-        inner.index = index;
-        // FIXME
-        inner.index.overwrite(&inner.container)?;
-        Ok(())
     }
 
     pub fn subset_rows(&self, idx: &[usize]) -> Result<()> {

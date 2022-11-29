@@ -1,6 +1,6 @@
 use crate::{
     data::*,
-    element::*,
+    element::{*, collection::InnerElemCollection},
     element::{
         base::{InnerDataFrameElem},
         collection::{AxisArrays, InnerAxisArrays},
@@ -852,7 +852,7 @@ impl AnnDataSet {
 pub trait AnnDataOp {
     /// Reading/writing the 'X' element.
     fn read_x(&self) -> Result<Option<ArrayData>>;
-    fn set_x<D: WriteArrayData + Into<ArrayData>>(&self, data_: Option<D>) -> Result<()>;
+    fn set_x<D: WriteData + Into<ArrayData> + ArrayOp>(&self, data_: Option<D>) -> Result<()>;
 
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
@@ -895,36 +895,37 @@ pub trait AnnDataOp {
     fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>>;
 
     fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsm_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsp_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varm_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varp_item<D: WriteArrayData + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
 }
 
-/*
-impl AnnDataOp for AnnData {
-    fn read_x(&self) -> Result<Option<Box<dyn ArrayData>>> {
+impl<B: Backend> AnnDataOp for AnnData<B> {
+    fn read_x(&self) -> Result<Option<ArrayData>> {
         let x = self.get_x();
         if x.is_empty() {
             Ok(None)
         } else {
-            x.read(None, None).map(Option::Some)
+            x.inner().data().map(Option::Some)
         }
     }
-    fn set_x<D: ArrayData>(&self, data_: Option<D>) -> Result<()> {
+    fn set_x<D: WriteData + Into<ArrayData> + ArrayOp>(&self, data_: Option<D>) -> Result<()> {
         match data_ {
             Some(data) => {
-                self.set_n_obs(data.nrows());
-                self.set_n_vars(data.ncols());
+                let shape = data.shape();
+                self.set_n_obs(shape[0]);
+                self.set_n_vars(shape[1]);
                 if !self.x.is_empty() {
-                    self.file.unlink("X")?;
+                    self.x.inner().save(data)?;
+                } else {
+                    let new_elem = ArrayElem::try_from(data.write::<B>(&self.file, "X")?)?;
+                    self.x.swap(&new_elem);
                 }
-                self.x
-                    .insert(InnerArrayElem::try_from(data.write(&self.file, "X")?)?);
             }
             None => {
                 if !self.x.is_empty() {
-                    self.file.unlink("X")?;
+                    B::delete(&self.file, "X")?;
                     self.x.drop();
                 }
             }
@@ -940,28 +941,20 @@ impl AnnDataOp for AnnData {
     }
 
     fn obs_names(&self) -> Vec<String> {
-        if self.obs.is_empty() {
-            Vec::new()
-        } else {
-            self.obs.inner().index.names.clone()
-        }
+        self.obs.lock().as_ref().map_or(Vec::new(), |obs| obs.index.names.clone())
     }
 
     fn var_names(&self) -> Vec<String> {
-        if self.var.is_empty() {
-            Vec::new()
-        } else {
-            self.var.inner().index.names.clone()
-        }
+        self.var.lock().as_ref().map_or(Vec::new(), |var| var.index.names.clone())
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         self.set_n_obs(index.len());
         if self.obs.is_empty() {
-            let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(self.file.deref(), "obs", index, &DataFrame::empty())?;
             self.obs.insert(df);
         } else {
-            self.obs.set_index(index)?;
+            self.obs.inner().set_index(index)?;
         }
         Ok(())
     }
@@ -969,10 +962,10 @@ impl AnnDataOp for AnnData {
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         self.set_n_vars(index.len());
         if self.var.is_empty() {
-            let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(self.file.deref(), "var", index, &DataFrame::empty())?;
             self.var.insert(df);
         } else {
-            self.var.set_index(index)?;
+            self.var.inner().set_index(index)?;
         }
         Ok(())
     }
@@ -1004,59 +997,52 @@ impl AnnDataOp for AnnData {
     }
 
     fn read_obs(&self) -> Result<DataFrame> {
-        self.get_obs().read()
+        self.get_obs().lock().as_mut().map_or(Ok(DataFrame::empty()), |x| x.data())
     }
     fn read_var(&self) -> Result<DataFrame> {
-        self.get_var().read()
+        self.get_var().lock().as_mut().map_or(Ok(DataFrame::empty()), |x| x.data())
     }
     fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
-        match obs_ {
-            None => {
-                if !self.obs.is_empty() {
-                    self.file.unlink("obs")?;
-                    self.obs.drop();
-                }
+        if let Some(obs) = obs_ {
+            let nrows = obs.height();
+            if nrows != 0 { self.set_n_obs(nrows); }
+            if self.obs.is_empty() {
+                self.obs.insert(InnerDataFrameElem::new(
+                    self.file.deref(),
+                    "obs",
+                    DataFrameIndex::from(nrows),
+                    &obs,
+                )?);
+            } else {
+                self.obs.inner().save(obs)?;
             }
-            Some(obs) => {
-                let nrows = obs.nrows();
-                if nrows != 0 {
-                    self.set_n_obs(nrows);
-                }
-                if self.obs.is_empty() {
-                    self.obs.insert(InnerDataFrameElem::new(
-                        &self.file,
-                        "obs",
-                        DataFrameIndex::from(nrows),
-                        &obs,
-                    )?);
-                } else {
-                    self.obs.update(obs)?;
-                }
+        } else {
+            if !self.obs.is_empty() {
+                B::delete(&self.file, "obs")?;
+                self.obs.drop();
             }
         }
         Ok(())
     }
 
     fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
-        match var_ {
-            None => {
-                if !self.var.is_empty() {
-                    self.file.unlink("var")?;
-                    self.var.drop();
-                }
+        if let Some(var) = var_ {
+            let nrows = var.height();
+            if nrows != 0 { self.set_n_vars(nrows); }
+            if self.var.is_empty() {
+                self.var.insert(InnerDataFrameElem::new(
+                    self.file.deref(),
+                    "var",
+                    DataFrameIndex::from(nrows),
+                    &var,
+                )?);
+            } else {
+                self.var.inner().save(var)?;
             }
-            Some(var) => {
-                let nrows = var.nrows();
-                if nrows != 0 {
-                    self.set_n_vars(nrows);
-                }
-                if self.var.is_empty() {
-                    let index = (0..nrows).into_iter().map(|x| x.to_string()).collect();
-                    let df = InnerDataFrameElem::new(&self.file, "var", index, &var)?;
-                    self.var.insert(df);
-                } else {
-                    self.var.update(var)?;
-                }
+        } else {
+            if !self.var.is_empty() {
+                B::delete(&self.file, "var")?;
+                self.var.drop();
             }
         }
         Ok(())
@@ -1098,64 +1084,89 @@ impl AnnDataOp for AnnData {
             .unwrap_or(Vec::new())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> {
+    fn read_uns_item(&self, key: &str) -> Result<Option<Data>> {
         self.get_uns()
             .lock()
             .as_mut()
             .and_then(|x| x.get_mut(key))
-            .map(|x| x.read())
+            .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
+    fn read_obsm_item(&self, key: &str) -> Result<Option<ArrayData>> {
         self.get_obsm()
             .lock()
             .as_mut()
             .and_then(|x| x.get_mut(key))
-            .map(|x| x.read(None, None))
+            .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
+    fn read_obsp_item(&self, key: &str) -> Result<Option<ArrayData>> {
         self.get_obsp()
             .lock()
             .as_mut()
             .and_then(|x| x.get_mut(key))
-            .map(|x| x.read(None, None))
+            .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
+    fn read_varm_item(&self, key: &str) -> Result<Option<ArrayData>> {
         self.get_varm()
             .lock()
             .as_mut()
             .and_then(|x| x.get_mut(key))
-            .map(|x| x.read(None, None))
+            .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
+    fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>> {
         self.get_varp()
             .lock()
             .as_mut()
             .and_then(|x| x.get_mut(key))
-            .map(|x| x.read(None, None))
+            .map(|x| x.inner().data())
             .transpose()
     }
 
-    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
-        self.get_uns().add_data(key, data)
+    fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
+        if self.get_uns().is_empty() {
+            let collection = ElemCollection::new(B::create_group(&self.file, "uns")?)?;
+            self.uns.swap(&collection);
+        }
+        self.get_uns().inner().add_data(key, data)
     }
-    fn add_obsm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.get_obsm().add_data(key, data)
+    fn add_obsm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+        if self.get_obsm().is_empty() {
+            let group = B::create_group(&self.file, "obsm")?;
+            let arrays = AxisArrays::new(group, Axis::Row, self.n_obs.clone())?;
+            self.obsm.swap(&arrays);
+        }
+        self.get_obsm().inner().add_data(key, data)
     }
-    fn add_obsp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.get_obsp().add_data(key, data)
+    fn add_obsp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+        if self.get_obsp().is_empty() {
+            let group = B::create_group(&self.file, "obsp")?;
+            let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_obs.clone())?;
+            self.obsp.swap(&arrays);
+        }
+        self.get_obsp().inner().add_data(key, data)
     }
-    fn add_varm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.get_varm().add_data(key, data)
+    fn add_varm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+        if self.get_varm().is_empty() {
+            let group = B::create_group(&self.file, "varm")?;
+            let arrays = AxisArrays::new(group, Axis::Row, self.n_vars.clone())?;
+            self.varm.swap(&arrays);
+        }
+        self.varm.inner().add_data(key, data)
     }
-    fn add_varp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.get_varp().add_data(key, data)
+    fn add_varp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+        if self.get_varp().is_empty() {
+            let group = B::create_group(&self.file, "varp")?;
+            let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_vars.clone())?;
+            self.varp.swap(&arrays);
+        }
+        self.varp.inner().add_data(key, data)
     }
 }
 
+/*
 impl AnnDataOp for AnnDataSet {
     fn read_x(&self) -> Result<Option<Box<dyn ArrayData>>> {
         let adatas = &self.anndatas;

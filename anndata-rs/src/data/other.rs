@@ -163,7 +163,11 @@ impl ReadData for DynScalar {
 
 impl WriteData for DataFrame {
     fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        let group = B::create_group(location, name)?;
+        let group = if B::exists(location, name)? {
+            B::open_group(location, name)?
+        } else {
+            B::create_group(location, name)?
+        };
         B::write_str_attr(&group, "encoding-type", "dataframe")?;
         B::write_str_attr(&group, "encoding-version", "0.2.0")?;
 
@@ -368,11 +372,24 @@ impl DataFrameIndex {
 
 impl WriteData for DataFrameIndex {
     fn write<B: Backend>(&self, location: &B::Group, name: &str) -> Result<DataContainer<B>> {
-        B::write_str_attr(location, "_index", name)?;
+        let group = if B::exists(location, name)? {
+            B::open_group(location, name)?
+        } else {
+            B::create_group(location, name)?
+        };
+        B::write_str_attr(&group, "_index", &self.index_name)?;
+        let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
+        let dataset = String::write_arr_data::<B, _, _, _>(location, &self.index_name, &data, Selection::All)?;
+        Ok(DataContainer::Group(group))
+    }
+    fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
+        let index_name = B::read_str_attr(&container, "_index")?;
+        B::delete(container.as_group()?, &index_name)?;
+        B::write_str_attr(&container, "_index", &self.index_name)?;
 
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        let dataset = String::write_arr_data::<B, _, _, _>(location, name, &data, Selection::All)?;
-        Ok(DataContainer::Dataset(dataset))
+        let dataset = String::write_arr_data::<B, _, _, _>(container.as_group()?, &self.index_name, &data, Selection::All)?;
+        Ok(container)
     }
 }
 
