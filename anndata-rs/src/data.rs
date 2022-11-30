@@ -1,7 +1,7 @@
 mod array;
 mod other;
 
-pub use array::{Shape, SelectInfo, SelectInfoElem, ArrayOp, WriteArrayData, ReadArrayData, DynArray, DynCsrMatrix, select_all, SLICE_FULL};
+pub use array::{Shape, SelectInfo, SelectInfoElem, HasShape, ArrayOp, WriteArrayData, ReadArrayData, DynArray, DynCsrMatrix, select_all, SLICE_FULL};
 pub use other::{WriteData, ReadData, DynScalar, Mapping, DataFrameIndex};
 use crate::backend::{Backend, GroupOp, DataContainer, DataType};
 
@@ -15,6 +15,12 @@ pub enum ArrayData {
     Array(DynArray),
     CsrMatrix(DynCsrMatrix),
     //CscMatrix(DynCscMatrix),
+}
+
+impl<T: Clone + Into<ArrayData>> From<&T> for ArrayData {
+    fn from(data: &T) -> Self {
+        data.clone().into()
+    }
 }
 
 impl From<DynArray> for ArrayData {
@@ -69,14 +75,16 @@ impl ReadData for ArrayData {
     }
 }
 
-impl ArrayOp for ArrayData {
+impl HasShape for ArrayData {
     fn shape(&self) -> Shape {
         match self {
             ArrayData::Array(data) => data.shape(),
             ArrayData::CsrMatrix(data) => data.shape(),
         }
     }
+}
 
+impl ArrayOp for ArrayData {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         match self {
             ArrayData::Array(data) => data.get(index),
@@ -109,67 +117,360 @@ impl WriteArrayData for ArrayData {}
 
 #[derive(Debug, Clone)]
 pub enum Data {
-    Matrix(ArrayData),
+    ArrayData(ArrayData),
     Scalar(DynScalar),
     DataFrame(DataFrame),
     Mapping(Mapping),
 }
 
-impl<T: Into<ArrayData>> From<T> for Data {
-    fn from(data: T) -> Self {
-        Data::Matrix(data.into())
-    }
-}
-
-impl From<DynScalar> for Data {
-    fn from(data: DynScalar) -> Self {
-        Data::Scalar(data)
-    }
-}
-
-impl From<DataFrame> for Data {
-    fn from(data: DataFrame) -> Self {
-        Data::DataFrame(data)
-    }
-}
-
-impl From<Mapping> for Data {
-    fn from(data: Mapping) -> Self {
-        Data::Mapping(data)
+/// Types that can be converted to Data
+impl<T: Clone + Into<Data>> From<&T> for Data {
+    fn from(data: &T) -> Self {
+        data.clone().into()
     }
 }
 
 macro_rules! impl_into_data {
-    ($(($from_type:ty, $from_type_wrap:ident, $to_type:ident, $to_type_wrap:ident)),*) => {
-        $(
-            impl From<$from_type> for Data {
-                fn from(data: $from_type) -> Self {
-                    Data::$to_type_wrap($from_type_wrap::$to_type(data))
-                }
+    ($from_type:ty, $to_type:ident) => {
+        impl From<$from_type> for Data {
+            fn from(data: $from_type) -> Self {
+                Data::Scalar(DynScalar::$to_type(data))
             }
-        )*
+        }
+        impl From<ArrayD<$from_type>> for Data {
+            fn from(data: ArrayD<$from_type>) -> Self {
+                Data::ArrayData(ArrayData::Array(DynArray::$to_type(data)))
+            }
+        }
+        impl From<CsrMatrix<$from_type>> for Data {
+            fn from(data: CsrMatrix<$from_type>) -> Self {
+                Data::ArrayData(ArrayData::CsrMatrix(DynCsrMatrix::$to_type(data)))
+            }
+        }
     };
 }
 
-impl_into_data!(
-    (i8, DynScalar, I8, Scalar),
-    (i16, DynScalar, I16, Scalar),
-    (i32, DynScalar, I32, Scalar),
-    (i64, DynScalar, I64, Scalar),
-    (u8, DynScalar, U8, Scalar),
-    (u16, DynScalar, U16, Scalar),
-    (u32, DynScalar, U32, Scalar),
-    (u64, DynScalar, U64, Scalar),
-    (f32, DynScalar, F32, Scalar),
-    (f64, DynScalar, F64, Scalar),
-    (bool, DynScalar, Bool, Scalar),
-    (String, DynScalar, String, Scalar)
-);
+impl_into_data!(i8, I8);
+impl_into_data!(i16, I16);
+impl_into_data!(i32, I32);
+impl_into_data!(i64, I64);
+impl_into_data!(u8, U8);
+impl_into_data!(u16, U16);
+impl_into_data!(u32, U32);
+impl_into_data!(u64, U64);
+impl_into_data!(f32, F32);
+impl_into_data!(f64, F64);
+impl_into_data!(bool, Bool);
+impl_into_data!(String, String);
+
+macro_rules! impl_into_data2 {
+    ($from_type:ty, $to_type:ident) => {
+        impl From<$from_type> for Data {
+            fn from(data: $from_type) -> Self {
+                Data::$to_type(data)
+            }
+        }
+    };
+}
+
+impl_into_data2!(DynScalar, Scalar);
+impl_into_data2!(ArrayData, ArrayData);
+impl_into_data2!(DataFrame, DataFrame);
+impl_into_data2!(Mapping, Mapping);
+
+
+/// Types that can be converted from Data
+impl TryInto<i8> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i8> {
+        match self {
+            Data::Scalar(DynScalar::I8(data)) => Ok(data),
+            _ => bail!("Cannot convert data to i8"),
+        }
+    }
+}
+
+impl TryInto<i16> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i16> {
+        match self {
+            Data::Scalar(DynScalar::I16(data)) => Ok(data),
+            _ => bail!("Cannot convert data to i16"),
+        }
+    }
+}
+
+impl TryInto<i32> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i32> {
+        match self {
+            Data::Scalar(DynScalar::I32(data)) => Ok(data),
+            _ => bail!("Cannot convert data to i32"),
+        }
+    }
+}
+
+impl TryInto<i64> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i64> {
+        match self {
+            Data::Scalar(DynScalar::I64(data)) => Ok(data),
+            _ => bail!("Cannot convert data to i64"),
+        }
+    }
+}
+
+impl TryInto<u8> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u8> {
+        match self {
+            Data::Scalar(DynScalar::U8(data)) => Ok(data),
+            _ => bail!("Cannot convert data to u8"),
+        }
+    }
+}
+
+impl TryInto<u16> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u16> {
+        match self {
+            Data::Scalar(DynScalar::U16(data)) => Ok(data),
+            _ => bail!("Cannot convert data to u16"),
+        }
+    }
+}
+
+impl TryInto<u32> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u32> {
+        match self {
+            Data::Scalar(DynScalar::U32(data)) => Ok(data),
+            _ => bail!("Cannot convert data to u32"),
+        }
+    }
+}
+
+impl TryInto<u64> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u64> {
+        match self {
+            Data::Scalar(DynScalar::U64(data)) => Ok(data),
+            _ => bail!("Cannot convert data to u64"),
+        }
+    }
+}
+
+impl TryInto<f32> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<f32> {
+        match self {
+            Data::Scalar(DynScalar::F32(data)) => Ok(data),
+            _ => bail!("Cannot convert data to f32"),
+        }
+    }
+}
+
+impl TryInto<f64> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<f64> {
+        match self {
+            Data::Scalar(DynScalar::F64(data)) => Ok(data),
+            _ => bail!("Cannot convert data to f64"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<i8>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<i8>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::I8(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<i8>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<i16>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<i16>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::I16(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<i16>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<i32>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<i32>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::I32(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<i32>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<i64>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<i64>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::I64(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<i64>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<u8>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<u8>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::U8(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<u8>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<u16>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<u16>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::U16(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<u16>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<u32>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<u32>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::U32(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<u32>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<u64>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<u64>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::U64(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<u64>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<f32>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<f32>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::F32(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<f32>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<f64>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<f64>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::F64(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<f64>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<bool>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<bool>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::Bool(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<bool>"),
+        }
+    }
+}
+
+impl TryInto<ArrayD<String>> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<ArrayD<String>> {
+        match self {
+            Data::ArrayData(ArrayData::Array(DynArray::String(data))) => Ok(data),
+            _ => bail!("Cannot convert data to ArrayD<String>"),
+        }
+    }
+}
+
+impl TryInto<bool> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<bool> {
+        match self {
+            Data::Scalar(DynScalar::Bool(data)) => Ok(data),
+            _ => bail!("Cannot convert data to bool"),
+        }
+    }
+}
+
+impl TryInto<String> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<String> {
+        match self {
+            Data::Scalar(DynScalar::String(data)) => Ok(data),
+            _ => bail!("Cannot convert data to String"),
+        }
+    }
+}
+
+impl TryInto<DataFrame> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<DataFrame> {
+        match self {
+            Data::DataFrame(data) => Ok(data),
+            _ => bail!("Cannot convert data to DataFrame"),
+        }
+    }
+}
+
+impl TryInto<Mapping> for Data {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Mapping> {
+        match self {
+            Data::Mapping(data) => Ok(data),
+            _ => bail!("Cannot convert data to Mapping"),
+        }
+    }
+}
+
 
 impl WriteData for Data {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
-            Data::Matrix(data) => data.write(location, name),
+            Data::ArrayData(data) => data.write(location, name),
             Data::Scalar(data) => data.write(location, name),
             Data::DataFrame(data) => data.write(location, name),
             Data::Mapping(data) => data.write(location, name),
@@ -180,8 +481,8 @@ impl WriteData for Data {
 impl ReadData for Data {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container.encoding_type()? {
-            DataType::Categorical | DataType::Array(_) => DynArray::read(container).map(|x| x.into()),
-            DataType::CsrMatrix(_) => DynCsrMatrix::read(container).map(|x| x.into()),
+            DataType::Categorical | DataType::Array(_) => DynArray::read(container).map(|x| ArrayData::from(x).into()),
+            DataType::CsrMatrix(_) => DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into()),
             DataType::CscMatrix(_) => todo!(),
             DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
             DataType::DataFrame => DataFrame::read(container).map(|x| x.into()),

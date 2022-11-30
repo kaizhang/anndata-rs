@@ -105,6 +105,27 @@ impl From<String> for DynScalar {
     }
 }
 
+/*
+macro_rules! impl_writedata_scalar {
+    ($($t:ty), *) => {
+        $(
+            impl WriteData for $t {
+                fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+                    let dataset = location.write_scalar(name, self)?;
+                    let container = DataContainer::Dataset(dataset);
+                    container.write_str_attr("encoding-type", "numeric-scalar")?;
+                    container.write_str_attr("encoding-version", "0.2.0")?;
+                    Ok(container)
+                }
+            }
+        )*
+    };
+}
+
+impl_writedata_scalar!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool,
+    &i8, &i16, &i32, &i64, &u8, &u16, &u32, &u64, &f32, &f64, &bool);
+    */
+
 impl<T: BackendData> WriteData for T {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         let dataset = location.write_scalar(name, self)?;
@@ -112,7 +133,7 @@ impl<T: BackendData> WriteData for T {
         let encoding_type = if T::DTYPE == ScalarType::String {
             "string"
         } else {
-            "numeric_scalar"
+            "numeric-scalar"
         };
         container.write_str_attr("encoding-type", encoding_type)?;
         container.write_str_attr("encoding-version", "0.2.0")?;
@@ -324,19 +345,19 @@ fn write_series<B: Backend>(
 
 fn read_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
     match DynArray::read(container)? {
-        DynArray::ArrayI8(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayI16(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayI32(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayI64(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayU8(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayU16(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayU32(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayU64(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayF32(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayF64(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayBool(x) => Ok(x.iter().collect::<Series>()),
-        DynArray::ArrayString(x) => Ok(x.iter().map(|x| x.as_str()).collect::<Series>()),
-        DynArray::ArrayCategorical(arr) => {
+        DynArray::I8(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::I16(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::I32(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::I64(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::U8(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::U16(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::U32(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::U64(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::F32(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::F64(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::Bool(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::String(x) => Ok(x.iter().map(|x| x.as_str()).collect::<Series>()),
+        DynArray::Categorical(arr) => {
             let mut builder = CategoricalChunkedBuilder::new("", arr.codes.len());
             builder.drain_iter(
                 arr.codes
@@ -377,7 +398,7 @@ impl WriteData for DataFrameIndex {
         };
         group.write_str_attr("_index", &self.index_name)?;
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        let dataset = location.write_array(&self.index_name, &data, Selection::All)?;
+        location.write_array(&self.index_name, &data, Selection::All)?;
         Ok(DataContainer::Group(group))
     }
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
@@ -386,7 +407,7 @@ impl WriteData for DataFrameIndex {
         container.write_str_attr("_index", &self.index_name)?;
 
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        let dataset = container.as_group()?.write_array(&self.index_name, &data, Selection::All)?;
+        container.as_group()?.write_array(&self.index_name, &data, Selection::All)?;
         Ok(container)
     }
 }

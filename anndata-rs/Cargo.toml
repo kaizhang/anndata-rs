@@ -33,6 +33,7 @@ tempfile = "3.2"
 criterion = "0.3"
 proptest = "1"
 rand = "0.8.5"
+ndarray-rand = "0.14"
 
 [features]
 static = ["dep:hdf5-sys", "dep:libz-sys"]

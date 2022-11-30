@@ -320,7 +320,7 @@ impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
         Ok(())
     }
 
-    pub fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
+    pub(crate) fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
         if self.element.is_some() {
             self.element = Some(data.into());
@@ -367,7 +367,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
         }
     }
 
-    pub fn subset<S, E>(&mut self, selection: S) -> Result<()>
+    pub(crate) fn subset<S, E>(&mut self, selection: S) -> Result<()>
     where
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,

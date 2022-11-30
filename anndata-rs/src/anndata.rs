@@ -852,7 +852,8 @@ impl AnnDataSet {
 pub trait AnnDataOp {
     /// Reading/writing the 'X' element.
     fn read_x(&self) -> Result<Option<ArrayData>>;
-    fn set_x<D: WriteData + Into<ArrayData> + ArrayOp>(&self, data_: Option<D>) -> Result<()>;
+    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()>;
+    fn del_x(&self) -> Result<()>;
 
     /// Return the number of observations (rows).
     fn n_obs(&self) -> usize;
@@ -895,10 +896,10 @@ pub trait AnnDataOp {
     fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>>;
 
     fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_varp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_varp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()>;
 }
 
 impl<B: Backend> AnnDataOp for AnnData<B> {
@@ -910,25 +911,22 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             x.inner().data().map(Option::Some)
         }
     }
-    fn set_x<D: WriteData + Into<ArrayData> + ArrayOp>(&self, data_: Option<D>) -> Result<()> {
-        match data_ {
-            Some(data) => {
-                let shape = data.shape();
-                self.set_n_obs(shape[0]);
-                self.set_n_vars(shape[1]);
-                if !self.x.is_empty() {
-                    self.x.inner().save(data)?;
-                } else {
-                    let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
-                    self.x.swap(&new_elem);
-                }
-            }
-            None => {
-                if !self.x.is_empty() {
-                    self.file.delete("X")?;
-                    self.x.drop();
-                }
-            }
+    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
+        let shape = data.shape();
+        self.set_n_obs(shape[0]);
+        self.set_n_vars(shape[1]);
+        if !self.x.is_empty() {
+            self.x.inner().save(data)?;
+        } else {
+            let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
+            self.x.swap(&new_elem);
+        }
+        Ok(())
+    }
+    fn del_x(&self) -> Result<()> {
+        if !self.x.is_empty() {
+            self.file.delete("X")?;
+            self.x.drop();
         }
         Ok(())
     }
@@ -1132,7 +1130,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.get_uns().inner().add_data(key, data)
     }
-    fn add_obsm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_obsm().is_empty() {
             let group = self.file.create_group("obsm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_obs.clone())?;
@@ -1140,7 +1138,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.get_obsm().inner().add_data(key, data)
     }
-    fn add_obsp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_obsp().is_empty() {
             let group = self.file.create_group("obsp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_obs.clone())?;
@@ -1148,7 +1146,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.get_obsp().inner().add_data(key, data)
     }
-    fn add_varm_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_varm().is_empty() {
             let group = self.file.create_group("varm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_vars.clone())?;
@@ -1156,7 +1154,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.varm.inner().add_data(key, data)
     }
-    fn add_varp_item<D: WriteArrayData + ArrayOp + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_varp().is_empty() {
             let group = self.file.create_group("varp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_vars.clone())?;

@@ -147,7 +147,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         *self.size.lock()
     }
 
-    pub fn add_data<D: WriteArrayData + ArrayOp + Into<ArrayData>>(
+    pub fn add_data<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &mut self,
         key: &str,
         data: D,
@@ -210,7 +210,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         }
     }
 
-    pub fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
+    pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
         match self.axis {
             Axis::Row => {
                 let s = vec![selection.as_ref()];

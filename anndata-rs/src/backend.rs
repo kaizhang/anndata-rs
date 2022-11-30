@@ -1,10 +1,10 @@
 pub mod hdf5;
 
-use crate::data::DynScalar;
+use crate::data::{DynScalar, DynArray};
 
 use anyhow::{bail, Result};
-use ndarray::{Array, Array2, ArrayView, Dimension};
-use std::{ops::Deref, path::{Path, PathBuf}};
+use ndarray::{ArrayD, Array, Array2, ArrayView, Dimension};
+use std::path::{Path, PathBuf};
 use core::fmt::{Display, Formatter};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -147,10 +147,10 @@ impl<B: Backend> DataContainer<B> {
     pub fn encoding_type(&self) -> Result<DataType> {
         let enc = match self {
             DataContainer::Group(group) => {
-                group.read_str_attr("encoding_type").unwrap_or("mapping".to_string())
+                group.read_str_attr("encoding-type").unwrap_or("mapping".to_string())
             }
             DataContainer::Dataset(dataset) => {
-                dataset.read_str_attr("encoding_type").unwrap_or("numeric-scalar".to_string())
+                dataset.read_str_attr("encoding-type").unwrap_or("numeric-scalar".to_string())
             }
         };
         let ty = match enc.as_str() {
@@ -246,7 +246,8 @@ pub trait DatasetOp {
         selection: S,
     ) -> Result<Array<T, D>>
     where
-        S: Into<Selection>;
+        S: Into<Selection>,
+        D: Dimension;
 }
 
 pub trait Backend {
@@ -281,6 +282,7 @@ pub trait BackendData: Send + Sync + Clone + 'static {
     fn into_dyn(&self) -> DynScalar;
     fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D>;
     fn from_dyn(x: DynScalar) -> Result<Self>;
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>>;
 }
 
 impl BackendData for i8 {
@@ -299,6 +301,14 @@ impl BackendData for i8 {
             Ok(x)
         } else {
             bail!("Expecting i8")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::I8(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i8 array")
         }
     }
 }
@@ -321,6 +331,14 @@ impl BackendData for i16 {
             bail!("Expecting i16")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::I16(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i16 array")
+        }
+    }
 }
 
 impl BackendData for i32 {
@@ -339,6 +357,14 @@ impl BackendData for i32 {
             Ok(x)
         } else {
             bail!("Expecting i32")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::I32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i32 array")
         }
     }
 }
@@ -361,6 +387,14 @@ impl BackendData for i64 {
             bail!("Expecting i64")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::I64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting i64 array")
+        }
+    }
 }
 
 impl BackendData for u8 {
@@ -379,6 +413,14 @@ impl BackendData for u8 {
             Ok(x)
         } else {
             bail!("Expecting u8")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::U8(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u8 array")
         }
     }
 }
@@ -401,6 +443,14 @@ impl BackendData for u16 {
             bail!("Expecting u16")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::U16(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u16 array")
+        }
+    }
 }
 
 impl BackendData for u32 {
@@ -419,6 +469,14 @@ impl BackendData for u32 {
             Ok(x)
         } else {
             bail!("Expecting u32")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::U32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u32 array")
         }
     }
 }
@@ -441,6 +499,14 @@ impl BackendData for u64 {
             bail!("Expecting u64")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::U64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting u64 array")
+        }
+    }
 }
 
 impl BackendData for f32 {
@@ -459,6 +525,14 @@ impl BackendData for f32 {
             Ok(x)
         } else {
             bail!("Expecting f32")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::F32(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting f32 array")
         }
     }
 }
@@ -481,6 +555,14 @@ impl BackendData for f64 {
             bail!("Expecting f64")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::F64(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting f64 array")
+        }
+    }
 }
 
 impl BackendData for String {
@@ -501,6 +583,14 @@ impl BackendData for String {
             bail!("Expecting string")
         }
     }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::String(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting string array")
+        }
+    }
 }
 
 impl BackendData for bool {
@@ -519,6 +609,14 @@ impl BackendData for bool {
             Ok(x)
         } else {
             bail!("Expecting bool")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::Bool(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting bool array")
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::{
     backend::{
         Backend, BackendData, DatasetOp, FileOp, GroupOp, LocationOp, ScalarType, Selection, DynArrayView,
     },
-    data::DynScalar,
+    data::{DynScalar, DynArray},
 };
 
 use anyhow::{bail, Result};
@@ -12,8 +12,7 @@ use hdf5::{
     types::IntSize::*, 
     File, Group, H5Type, Location,
 };
-use ndarray::{Array, Array2, ArrayView, Dimension};
-use polars::prelude::VarAggSeries;
+use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl};
 use std::{
     fmt::write,
     ops::Deref,
@@ -73,14 +72,10 @@ impl LocationOp for Group {
         A: Into<ArrayView<'a, String, D>>,
         D: ndarray::Dimension,
     {
-        let array_view = value.into();
-        let value_ = Array::<VarLenUnicode, D>::from_shape_vec(
-            array_view.dim(),
-            array_view.iter().map(|x| x.parse().unwrap()).collect(),
-        )?;
         let attr = self
             .attr(name)
             .or(self.new_attr::<VarLenUnicode>().create(name))?;
+        let value_: Array<VarLenUnicode, D> = value.into().map(|s| s.parse().unwrap());
         attr.write(&value_)?;
         Ok(())
     }
@@ -131,15 +126,11 @@ impl LocationOp for Dataset {
         A: Into<ArrayView<'a, String, D>>,
         D: Dimension,
     {
-        let array_view = value.into();
-        let value_ = Array::<VarLenUnicode, D>::from_shape_vec(
-            array_view.dim(),
-            array_view.iter().map(|x| x.parse().unwrap()).collect(),
-        )?;
-        let attr = self
+        let value_: Array<VarLenUnicode, D> = value.into().map(|x| x.parse().unwrap());
+        self
             .attr(name)
-            .or(self.new_attr::<VarLenUnicode>().create(name))?;
-        attr.write(&value_)?;
+            .or(self.new_attr::<VarLenUnicode>().create(name))?
+            .write(&value_)?;
         Ok(())
     }
 
@@ -301,8 +292,9 @@ impl DatasetOp for Dataset {
     fn read_array<T: BackendData, S, D>(&self, selection: S) -> Result<Array<T, D>>
     where
         S: Into<Selection>,
+        D: Dimension,
     {
-        todo!()
+        read_array(self, selection)
     }
 }
 
@@ -325,6 +317,32 @@ fn read_scalar<T: BackendData>(dataset: &Dataset) -> Result<T> {
         }
     };
     BackendData::from_dyn(val)
+}
+
+fn read_array<T: BackendData, S, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
+where
+    S: Into<Selection>,
+    D: Dimension,
+{
+    let array: DynArray = match T::DTYPE {
+        ScalarType::I8 => hdf5::Container::read::<i8, IxDyn>(dataset)?.into(),
+        ScalarType::I16 => hdf5::Container::read::<i16, IxDyn>(dataset)?.into(),
+        ScalarType::I32 => hdf5::Container::read::<i32, IxDyn>(dataset)?.into(),
+        ScalarType::I64 => hdf5::Container::read::<i64, IxDyn>(dataset)?.into(),
+        ScalarType::U8 => hdf5::Container::read::<u8, IxDyn>(dataset)?.into(),
+        ScalarType::U16 => hdf5::Container::read::<u16, IxDyn>(dataset)?.into(),
+        ScalarType::U32 => hdf5::Container::read::<u32, IxDyn>(dataset)?.into(),
+        ScalarType::U64 => hdf5::Container::read::<u64, IxDyn>(dataset)?.into(),
+        ScalarType::F32 => hdf5::Container::read::<f32, IxDyn>(dataset)?.into(),
+        ScalarType::F64 => hdf5::Container::read::<f64, IxDyn>(dataset)?.into(),
+        ScalarType::Bool => hdf5::Container::read::<bool, IxDyn>(dataset)?.into(),
+        ScalarType::String => {
+            let s = hdf5::Container::read::<VarLenUnicode, IxDyn>(dataset)?;
+            let s = s.map(|s| s.to_string());
+            s.into()
+        }
+    };
+    Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
 }
 
 
@@ -448,10 +466,7 @@ where
         DynArrayView::F64(x) => write_array_impl(group, name, x, selection),
         DynArrayView::Bool(x) => write_array_impl(group, name, x, selection),
         DynArrayView::String(x) => {
-            let data = Array::<VarLenUnicode, Dim>::from_shape_vec(
-                x.dim(),
-                x.iter().map(|x| x.parse().unwrap()).collect(),
-            )?;
+            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap());
             write_array_impl(group, name, data.view(), selection)
         }
     }
