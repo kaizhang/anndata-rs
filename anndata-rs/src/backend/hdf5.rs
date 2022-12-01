@@ -1,15 +1,16 @@
 use crate::{
     backend::{
-        Backend, BackendData, DatasetOp, FileOp, GroupOp, LocationOp, ScalarType, SelectInfo, SelectInfoElem, DynArrayView,
+        Backend, BackendData, DatasetOp, DynArrayView, FileOp, GroupOp, LocationOp, ScalarType,
+        SelectInfoElem,
     },
-    data::{Shape, DynScalar, DynArray, BoundedSelectInfo},
+    data::{BoundedSelectInfo, DynArray, DynScalar, Shape},
 };
 
 use anyhow::{bail, Result};
 use hdf5::{
     dataset::Dataset,
+    types::IntSize::*,
     types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
-    types::IntSize::*, 
     File, Group, H5Type, Selection,
 };
 use ndarray::{Array, ArrayView, Dimension, IxDyn, SliceInfo};
@@ -122,8 +123,7 @@ impl LocationOp for Dataset {
         D: Dimension,
     {
         let value_: Array<VarLenUnicode, D> = value.into().map(|x| x.parse().unwrap());
-        self
-            .attr(name)
+        self.attr(name)
             .or(self.new_attr::<VarLenUnicode>().create(name))?
             .write(&value_)?;
         Ok(())
@@ -339,7 +339,6 @@ where
     Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
 }
 
-
 fn write_scalar<D: BackendData>(group: &Group, name: &str, data: &D) -> Result<Dataset> {
     match data.into_dyn() {
         DynScalar::U8(x) => {
@@ -405,11 +404,7 @@ fn write_scalar<D: BackendData>(group: &Group, name: &str, data: &D) -> Result<D
     }
 }
 
-fn write_array<'a, A, D, Dim>(
-    group: &Group,
-    name: &str,
-    data: A,
-) -> Result<Dataset>
+fn write_array<'a, A, D, Dim>(group: &Group, name: &str, data: A) -> Result<Dataset>
 where
     A: Into<ArrayView<'a, D, Dim>>,
     D: BackendData,

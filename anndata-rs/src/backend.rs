@@ -1,21 +1,20 @@
 pub mod hdf5;
 
-use crate::data::{SelectInfo, SelectInfoElem, Shape, DynScalar, DynArray};
+use crate::data::{DynArray, DynScalar, SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
-use ndarray::{ArrayD, Array2, Array, ArrayView, Dimension, SliceInfoElem, SliceInfo, IxDyn};
-use std::path::{Path, PathBuf};
 use core::fmt::{Display, Formatter};
-use itertools::Itertools;
+use ndarray::{Array, ArrayD, ArrayView, Dimension};
+use std::path::{Path, PathBuf};
 
 pub trait Backend {
     type File: FileOp<Backend = Self> + GroupOp<Backend = Self>;
 
     /// Groups work like dictionaries.
-    type Group: GroupOp<Backend = Self> + LocationOp<Backend=Self>;
+    type Group: GroupOp<Backend = Self> + LocationOp<Backend = Self>;
 
     /// datasets contain arrays.
-    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend=Self>;
+    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend = Self>;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
 }
@@ -33,11 +32,15 @@ pub trait GroupOp {
     fn list(&self) -> Result<Vec<String>>;
     fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
     fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
-    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>; 
+    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>;
     fn delete(&self, name: &str) -> Result<()>;
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<Self::Backend as Backend>::Dataset>;
+    fn write_scalar<D: BackendData>(
+        &self,
+        name: &str,
+        data: &D,
+    ) -> Result<<Self::Backend as Backend>::Dataset>;
 
     fn write_array<'a, A, D, Dim>(
         &self,
@@ -81,16 +84,12 @@ pub trait DatasetOp {
         self.read_array_slice(SelectInfo::all())
     }
 
-    fn read_array_slice<T: BackendData, S, E, D>(
-        &self,
-        selection: S,
-    ) -> Result<Array<T, D>>
+    fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
     where
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
         D: Dimension;
 }
-
 
 /// All data types that can be stored in an AnnData object.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -152,7 +151,7 @@ impl Display for ScalarType {
             ScalarType::String => write!(f, "string"),
         }
     }
-}   
+}
 
 pub enum DataContainer<B: Backend> {
     Group(B::Group),
@@ -209,7 +208,8 @@ impl<B: Backend> LocationOp for DataContainer<B> {
 impl<B: Backend> DataContainer<B> {
     pub fn open(group: &B::Group, name: &str) -> Result<Self> {
         if group.exists(name)? {
-            group.open_dataset(name)
+            group
+                .open_dataset(name)
                 .map(DataContainer::Dataset)
                 .or(group.open_group(name).map(DataContainer::Group))
         } else {
@@ -227,12 +227,12 @@ impl<B: Backend> DataContainer<B> {
 
     pub fn encoding_type(&self) -> Result<DataType> {
         let enc = match self {
-            DataContainer::Group(group) => {
-                group.read_str_attr("encoding-type").unwrap_or("mapping".to_string())
-            }
-            DataContainer::Dataset(dataset) => {
-                dataset.read_str_attr("encoding-type").unwrap_or("numeric-scalar".to_string())
-            }
+            DataContainer::Group(group) => group
+                .read_str_attr("encoding-type")
+                .unwrap_or("mapping".to_string()),
+            DataContainer::Dataset(dataset) => dataset
+                .read_str_attr("encoding-type")
+                .unwrap_or("numeric-scalar".to_string()),
         };
         let ty = match enc.as_str() {
             "string" => DataType::Scalar(ScalarType::String),
@@ -244,7 +244,7 @@ impl<B: Backend> DataContainer<B> {
             "csr_matrix" => {
                 let ty = self.as_group()?.open_dataset("data")?.dtype()?;
                 DataType::CsrMatrix(ty)
-            },
+            }
             "dataframe" => DataType::DataFrame,
             "mapping" | "dict" => DataType::Mapping,
             ty => bail!("Unsupported type '{}'", ty),
@@ -477,7 +477,7 @@ impl BackendData for u64 {
     fn into_dyn(&self) -> DynScalar {
         DynScalar::U64(*self)
     }
-    
+
     fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
         DynArrayView::U64(arr)
     }
@@ -626,10 +626,11 @@ pub enum DynArrayView<'a, D> {
     Bool(ArrayView<'a, bool, D>),
 }
 
-pub fn iter_containers<B: Backend>(group: &B::Group) -> impl Iterator<Item = (String, DataContainer<B>)> + '_{
+pub fn iter_containers<B: Backend>(
+    group: &B::Group,
+) -> impl Iterator<Item = (String, DataContainer<B>)> + '_ {
     group.list().unwrap().into_iter().map(|x| {
         let container = DataContainer::open(group, &x).unwrap();
         (x, container)
     })
 }
-

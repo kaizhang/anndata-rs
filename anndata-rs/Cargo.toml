@@ -29,7 +29,7 @@ rayon = "1.5"
 
 [dev-dependencies]
 tempfile = "3.2"
-criterion = "0.3"
+criterion = "0.4"
 proptest = "1"
 rand = "0.8.5"
 ndarray-rand = "0.14"

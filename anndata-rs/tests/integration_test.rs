@@ -5,12 +5,11 @@ use anndata_rs::data::*;
 use proptest::prelude::*;
 
 use anyhow::Result;
-use ndarray::{s, Array, Array2, Array3, ArrayD};
+use ndarray::{s, Array, Array3};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use std::fmt::Debug;
 use tempfile::tempdir;
-use hdf5::File;
 use std::path::PathBuf;
 
 pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
@@ -20,14 +19,7 @@ pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
 }
 
 fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
-    with_tmp_dir(|dir| func(dir.join("foo.h5")))
-}
-
-fn with_tmp_file<T, F: Fn(File) -> T>(func: F) -> T {
-    with_tmp_path(|path| {
-        let file = File::create(&path).unwrap();
-        func(file)
-    })
+    with_tmp_dir(|dir| func(dir.join("temp.h5")))
 }
 
 fn uns_io<T>(input: T)

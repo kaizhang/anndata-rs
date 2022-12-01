@@ -1,8 +1,12 @@
-use anndata_rs::anndata::{AnnData, AnnDataSet};
+use anndata_rs::anndata::{AnnData, AnnDataOp};
+use anndata_rs::backend::hdf5::H5;
 use anndata_rs::data::*;
 
+use ndarray_rand::RandomExt;
+use ndarray_rand::rand_distr::Uniform;
+use ndarray::{s, Array, Array2, Array3, ArrayD, SliceInfo};
 use criterion::BenchmarkId;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hdf5::*;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
@@ -16,17 +20,44 @@ pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     func(path)
 }
 
-fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+fn with_tmp_path<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     with_tmp_dir(|dir| func(dir.join("foo.h5")))
 }
 
-fn with_tmp_file<T, F: Fn(File) -> T>(func: F) -> T {
+fn with_tmp_file<T, F: FnMut(File) -> T>(mut func: F) -> T {
     with_tmp_path(|path| {
         let file = File::create(&path).unwrap();
         func(file)
     })
 }
 
+fn bench_array_io(c: &mut Criterion) {
+    with_tmp_path(|file| {
+        let mut group = c.benchmark_group("Array IO");
+
+        // Prepare data
+        let adata: AnnData<H5> = AnnData::new(file, 0, 0).unwrap();
+        let arr: Array3<i32> = Array::random((200, 300, 10), Uniform::new(0, 100));
+        adata.set_x(&arr).unwrap();
+        let selection = s![3..33, 4..44, ..].as_ref().iter().collect::<SelectInfo>();
+
+        group.bench_function(
+            BenchmarkId::new("read full", "200 x 300 x 10"),
+            |b| b.iter(|| adata.read_x().unwrap().unwrap()),
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("read slice", "30 x 40 x 10"),
+            &selection,
+            |b, i| b.iter(|| 
+                adata.read_x_slice(i).unwrap().unwrap())
+        );
+
+        group.finish();
+    })
+}
+
+/*
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Read_CSR");
     group.sample_size(10);
@@ -141,6 +172,7 @@ fn criterion_multi_threading(c: &mut Criterion) {
 
     group.finish();
 }
+*/
 
-criterion_group!(benches, criterion_benchmark, criterion_multi_threading);
+criterion_group!(benches, bench_array_io);
 criterion_main!(benches);
