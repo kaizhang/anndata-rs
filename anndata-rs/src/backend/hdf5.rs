@@ -1,8 +1,8 @@
 use crate::{
     backend::{
-        Backend, BackendData, DatasetOp, FileOp, GroupOp, LocationOp, ScalarType, Selection, DynArrayView,
+        Backend, BackendData, DatasetOp, FileOp, GroupOp, LocationOp, ScalarType, SelectInfo, SelectInfoElem, DynArrayView,
     },
-    data::{DynScalar, DynArray},
+    data::{Shape, DynScalar, DynArray, BoundedSelectInfo},
 };
 
 use anyhow::{bail, Result};
@@ -10,15 +10,10 @@ use hdf5::{
     dataset::Dataset,
     types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
     types::IntSize::*, 
-    File, Group, H5Type, Location,
+    File, Group, H5Type, Selection,
 };
-use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl};
-use std::{
-    fmt::write,
-    ops::Deref,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use ndarray::{Array, ArrayView, Dimension, IxDyn, SliceInfo};
+use std::path::{Path, PathBuf};
 
 pub struct H5;
 
@@ -191,19 +186,17 @@ impl GroupOp for Group {
         write_scalar(self, name, data)
     }
 
-    fn write_array<'a, A, S, D, Dim>(
+    fn write_array<'a, A, D, Dim>(
         &self,
         name: &str,
         data: A,
-        selection: S,
     ) -> Result<<Self::Backend as Backend>::Dataset>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        S: Into<Selection>,
         Dim: Dimension,
     {
-        write_array(self, name, data, selection)
+        write_array(self, name, data)
     }
 }
 
@@ -242,19 +235,17 @@ impl GroupOp for File {
         write_scalar(self, name, data)
     }
 
-    fn write_array<'a, A, S, D, Dim>(
+    fn write_array<'a, A, D, Dim>(
         &self,
         name: &str,
         data: A,
-        selection: S,
     ) -> Result<<Self::Backend as Backend>::Dataset>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        S: Into<Selection>,
         Dim: Dimension,
     {
-        write_array(self, name, data, selection)
+        write_array(self, name, data)
     }
 }
 
@@ -281,17 +272,18 @@ impl DatasetOp for Dataset {
         Ok(ty)
     }
 
-    fn shape(&self) -> Result<Vec<usize>> {
-        Ok(hdf5::Container::shape(self))
+    fn shape(&self) -> Result<Shape> {
+        Ok(hdf5::Container::shape(self).into())
     }
 
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
         read_scalar(self)
     }
 
-    fn read_array<T: BackendData, S, D>(&self, selection: S) -> Result<Array<T, D>>
+    fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
     where
-        S: Into<Selection>,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
         D: Dimension,
     {
         read_array(self, selection)
@@ -319,25 +311,27 @@ fn read_scalar<T: BackendData>(dataset: &Dataset) -> Result<T> {
     BackendData::from_dyn(val)
 }
 
-fn read_array<T: BackendData, S, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
+fn read_array<T: BackendData, S, E, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
 where
-    S: Into<Selection>,
+    S: AsRef<[E]>,
+    E: AsRef<SelectInfoElem>,
     D: Dimension,
 {
+    let select = into_selection(selection, &dataset.shape()?);
     let array: DynArray = match T::DTYPE {
-        ScalarType::I8 => hdf5::Container::read::<i8, IxDyn>(dataset)?.into(),
-        ScalarType::I16 => hdf5::Container::read::<i16, IxDyn>(dataset)?.into(),
-        ScalarType::I32 => hdf5::Container::read::<i32, IxDyn>(dataset)?.into(),
-        ScalarType::I64 => hdf5::Container::read::<i64, IxDyn>(dataset)?.into(),
-        ScalarType::U8 => hdf5::Container::read::<u8, IxDyn>(dataset)?.into(),
-        ScalarType::U16 => hdf5::Container::read::<u16, IxDyn>(dataset)?.into(),
-        ScalarType::U32 => hdf5::Container::read::<u32, IxDyn>(dataset)?.into(),
-        ScalarType::U64 => hdf5::Container::read::<u64, IxDyn>(dataset)?.into(),
-        ScalarType::F32 => hdf5::Container::read::<f32, IxDyn>(dataset)?.into(),
-        ScalarType::F64 => hdf5::Container::read::<f64, IxDyn>(dataset)?.into(),
-        ScalarType::Bool => hdf5::Container::read::<bool, IxDyn>(dataset)?.into(),
+        ScalarType::I8 => hdf5::Container::read_slice::<i8, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::I16 => hdf5::Container::read_slice::<i16, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::I32 => hdf5::Container::read_slice::<i32, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::I64 => hdf5::Container::read_slice::<i64, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::U8 => hdf5::Container::read_slice::<u8, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::U16 => hdf5::Container::read_slice::<u16, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::U32 => hdf5::Container::read_slice::<u32, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::U64 => hdf5::Container::read_slice::<u64, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::F32 => hdf5::Container::read_slice::<f32, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::F64 => hdf5::Container::read_slice::<f64, _, IxDyn>(dataset, select)?.into(),
+        ScalarType::Bool => hdf5::Container::read_slice::<bool, _, IxDyn>(dataset, select)?.into(),
         ScalarType::String => {
-            let s = hdf5::Container::read::<VarLenUnicode, IxDyn>(dataset)?;
+            let s = hdf5::Container::read_slice::<VarLenUnicode, _, IxDyn>(dataset, select)?;
             let s = s.map(|s| s.to_string());
             s.into()
         }
@@ -411,27 +405,23 @@ fn write_scalar<D: BackendData>(group: &Group, name: &str, data: &D) -> Result<D
     }
 }
 
-fn write_array<'a, A, S, D, Dim>(
+fn write_array<'a, A, D, Dim>(
     group: &Group,
     name: &str,
     data: A,
-    selection: S,
 ) -> Result<Dataset>
 where
     A: Into<ArrayView<'a, D, Dim>>,
     D: BackendData,
-    S: Into<Selection>,
     Dim: Dimension,
 {
-    fn write_array_impl<'a, S, D, Dim>(
+    fn write_array_impl<'a, D, Dim>(
         group: &Group,
         name: &str,
         arr: ArrayView<'a, D, Dim>,
-        selection: S,
     ) -> Result<Dataset>
     where
         D: H5Type,
-        S: Into<Selection>,
         Dim: Dimension,
     {
         let shape = arr.shape();
@@ -454,20 +444,38 @@ where
     }
 
     match BackendData::into_dyn_arr(data.into()) {
-        DynArrayView::U8(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::U16(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::U32(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::U64(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::I8(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::I16(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::I32(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::I64(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::F32(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::F64(x) => write_array_impl(group, name, x, selection),
-        DynArrayView::Bool(x) => write_array_impl(group, name, x, selection),
+        DynArrayView::U8(x) => write_array_impl(group, name, x),
+        DynArrayView::U16(x) => write_array_impl(group, name, x),
+        DynArrayView::U32(x) => write_array_impl(group, name, x),
+        DynArrayView::U64(x) => write_array_impl(group, name, x),
+        DynArrayView::I8(x) => write_array_impl(group, name, x),
+        DynArrayView::I16(x) => write_array_impl(group, name, x),
+        DynArrayView::I32(x) => write_array_impl(group, name, x),
+        DynArrayView::I64(x) => write_array_impl(group, name, x),
+        DynArrayView::F32(x) => write_array_impl(group, name, x),
+        DynArrayView::F64(x) => write_array_impl(group, name, x),
+        DynArrayView::Bool(x) => write_array_impl(group, name, x),
         DynArrayView::String(x) => {
             let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap());
-            write_array_impl(group, name, data.view(), selection)
+            write_array_impl(group, name, data.view())
+        }
+    }
+}
+
+fn into_selection<S, E>(selection: S, shape: &Shape) -> Selection
+where
+    S: AsRef<[E]>,
+    E: AsRef<SelectInfoElem>,
+{
+    if selection.as_ref().into_iter().all(|x| x.as_ref().is_full()) {
+        Selection::All
+    } else {
+        let bounded_selection = BoundedSelectInfo::new(&selection, shape).unwrap();
+        if let Some(idx) = bounded_selection.try_into_indices() {
+            Selection::from(idx)
+        } else {
+            let slice: SliceInfo<_, _, _> = bounded_selection.try_into().unwrap();
+            Selection::try_from(slice).unwrap()
         }
     }
 }

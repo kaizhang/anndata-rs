@@ -1,7 +1,7 @@
 use crate::data::array::{CategoricalArray, DynArray};
 use crate::data::Data;
 
-use crate::backend::{Backend, GroupOp, LocationOp, DatasetOp, BackendData, DataContainer, ScalarType, Selection};
+use crate::backend::{Backend, GroupOp, LocationOp, DatasetOp, BackendData, DataContainer, ScalarType};
 use anyhow::{bail, Result, Ok};
 use ndarray::Array1;
 use polars::{
@@ -398,7 +398,7 @@ impl WriteData for DataFrameIndex {
         };
         group.write_str_attr("_index", &self.index_name)?;
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        location.write_array(&self.index_name, &data, Selection::All)?;
+        location.write_array(&self.index_name, &data, )?;
         Ok(DataContainer::Group(group))
     }
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
@@ -407,7 +407,7 @@ impl WriteData for DataFrameIndex {
         container.write_str_attr("_index", &self.index_name)?;
 
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        container.as_group()?.write_array(&self.index_name, &data, Selection::All)?;
+        container.as_group()?.write_array(&self.index_name, &data)?;
         Ok(container)
     }
 }
@@ -416,7 +416,7 @@ impl ReadData for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let index_name = container.read_str_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
-        let data = dataset.read_array(Selection::All)?;
+        let data = dataset.read_array()?;
         let mut index: DataFrameIndex = data.to_vec().into();
         index.index_name = index_name;
         Ok(index)

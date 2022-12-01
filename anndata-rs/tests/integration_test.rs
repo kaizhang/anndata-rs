@@ -5,7 +5,7 @@ use anndata_rs::data::*;
 use proptest::prelude::*;
 
 use anyhow::Result;
-use ndarray::Array;
+use ndarray::{s, Array, Array2, Array3, ArrayD};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use std::fmt::Debug;
@@ -65,6 +65,22 @@ fn test_basic() -> Result<()> {
         Ok(())
     })
 }
+
+#[test]
+fn test_subset() -> Result<()> {
+    with_tmp_path(|file| -> Result<()> {
+        let adata: AnnData<H5> = AnnData::new(file, 0, 0)?;
+
+        let arr: Array3<i32> = Array::random((40, 50, 10), Uniform::new(0, 100));
+        adata.set_x(&arr)?;
+        let slice = s![3..33, 4..44, ..];
+        let selection = slice.as_ref().iter().collect::<SelectInfo>();
+        let x: Array3<i32> = adata.read_x_slice(selection)?.unwrap().try_into()?;
+        assert_eq!(x, arr.slice(slice).to_owned());
+        Ok(())
+    })
+}
+
 
 #[test]
 fn test_uns_io_array() {

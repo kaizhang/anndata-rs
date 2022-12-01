@@ -1,12 +1,98 @@
 pub mod hdf5;
 
-use crate::data::{DynScalar, DynArray};
+use crate::data::{SelectInfo, SelectInfoElem, Shape, DynScalar, DynArray};
 
 use anyhow::{bail, Result};
-use ndarray::{ArrayD, Array, Array2, ArrayView, Dimension};
+use ndarray::{ArrayD, Array2, Array, ArrayView, Dimension, SliceInfoElem, SliceInfo, IxDyn};
 use std::path::{Path, PathBuf};
 use core::fmt::{Display, Formatter};
+use itertools::Itertools;
 
+pub trait Backend {
+    type File: FileOp<Backend = Self> + GroupOp<Backend = Self>;
+
+    /// Groups work like dictionaries.
+    type Group: GroupOp<Backend = Self> + LocationOp<Backend=Self>;
+
+    /// datasets contain arrays.
+    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend=Self>;
+
+    fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
+}
+
+pub trait FileOp {
+    type Backend: Backend;
+
+    fn filename(&self) -> PathBuf;
+    fn close(self) -> Result<()>;
+}
+
+pub trait GroupOp {
+    type Backend: Backend;
+
+    fn list(&self) -> Result<Vec<String>>;
+    fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+    fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>; 
+    fn delete(&self, name: &str) -> Result<()>;
+    fn exists(&self, name: &str) -> Result<bool>;
+
+    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<Self::Backend as Backend>::Dataset>;
+
+    fn write_array<'a, A, D, Dim>(
+        &self,
+        name: &str,
+        data: A,
+    ) -> Result<<Self::Backend as Backend>::Dataset>
+    where
+        A: Into<ArrayView<'a, D, Dim>>,
+        D: BackendData,
+        Dim: Dimension;
+}
+
+pub trait LocationOp {
+    type Backend: Backend;
+
+    fn file(&self) -> Result<<Self::Backend as Backend>::File>;
+    fn path(&self) -> PathBuf;
+
+    fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
+    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
+    where
+        A: Into<ArrayView<'a, String, D>>,
+        D: ndarray::Dimension;
+
+    fn read_str_attr(&self, name: &str) -> Result<String>;
+    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>>;
+}
+
+pub trait DatasetOp {
+    type Backend: Backend;
+
+    fn dtype(&self) -> Result<ScalarType>;
+    fn shape(&self) -> Result<Shape>;
+
+    fn read_scalar<T: BackendData>(&self) -> Result<T>;
+
+    fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
+    where
+        D: Dimension,
+    {
+        self.read_array_slice(SelectInfo::all())
+    }
+
+    fn read_array_slice<T: BackendData, S, E, D>(
+        &self,
+        selection: S,
+    ) -> Result<Array<T, D>>
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        D: Dimension;
+}
+
+
+/// All data types that can be stored in an AnnData object.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DataType {
     Array(ScalarType),
@@ -32,6 +118,7 @@ impl Display for DataType {
     }
 }
 
+/// All scalar types that are supported in an AnnData object.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ScalarType {
     I8,
@@ -66,12 +153,6 @@ impl Display for ScalarType {
         }
     }
 }   
-
-/// A selection used for reading and writing to a Container.
-pub enum Selection {
-    All,
-    Points(Array2<usize>),
-}
 
 pub enum DataContainer<B: Backend> {
     Group(B::Group),
@@ -184,97 +265,6 @@ impl<B: Backend> DataContainer<B> {
             _ => bail!("Expecting Dataset"),
         }
     }
-}
-
-pub trait FileOp {
-    type Backend: Backend;
-
-    fn filename(&self) -> PathBuf;
-    fn close(self) -> Result<()>;
-}
-
-pub trait GroupOp {
-    type Backend: Backend;
-
-    fn list(&self) -> Result<Vec<String>>;
-    fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
-    fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
-    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>; 
-    fn delete(&self, name: &str) -> Result<()>;
-    fn exists(&self, name: &str) -> Result<bool>;
-
-    fn write_scalar<D: BackendData>(&self, name: &str, data: &D) -> Result<<Self::Backend as Backend>::Dataset>;
-    fn write_array<'a, A, S, D, Dim>(
-        &self,
-        name: &str,
-        data: A,
-        selection: S,
-    ) -> Result<<Self::Backend as Backend>::Dataset>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        S: Into<Selection>,
-        Dim: Dimension;
-}
-
-pub trait LocationOp {
-    type Backend: Backend;
-
-    fn file(&self) -> Result<<Self::Backend as Backend>::File>;
-    fn path(&self) -> PathBuf;
-
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
-    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, String, D>>,
-        D: ndarray::Dimension;
-
-    fn read_str_attr(&self, name: &str) -> Result<String>;
-    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>>;
-}
-
-pub trait DatasetOp {
-    type Backend: Backend;
-
-    fn dtype(&self) -> Result<ScalarType>;
-    fn shape(&self) -> Result<Vec<usize>>;
-
-    fn read_scalar<T: BackendData>(&self) -> Result<T>;
-
-    fn read_array<T: BackendData, S, D>(
-        &self,
-        selection: S,
-    ) -> Result<Array<T, D>>
-    where
-        S: Into<Selection>,
-        D: Dimension;
-}
-
-pub trait Backend {
-    type File: FileOp<Backend = Self> + GroupOp<Backend = Self>;
-
-    /// Groups work like dictionaries.
-    type Group: GroupOp<Backend = Self> + LocationOp<Backend=Self>;
-
-    /// datasets contain arrays.
-    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend=Self>;
-
-    fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
-}
-
-pub enum DynArrayView<'a, D> {
-    I8(ArrayView<'a, i8, D>),
-    I16(ArrayView<'a, i16, D>),
-    I32(ArrayView<'a, i32, D>),
-    I64(ArrayView<'a, i64, D>),
-    U8(ArrayView<'a, u8, D>),
-    U16(ArrayView<'a, u16, D>),
-    U32(ArrayView<'a, u32, D>),
-    U64(ArrayView<'a, u64, D>),
-    F32(ArrayView<'a, f32, D>),
-    F64(ArrayView<'a, f64, D>),
-    String(ArrayView<'a, String, D>),
-    Bool(ArrayView<'a, bool, D>),
 }
 
 pub trait BackendData: Send + Sync + Clone + 'static {
@@ -621,9 +611,25 @@ impl BackendData for bool {
     }
 }
 
+pub enum DynArrayView<'a, D> {
+    I8(ArrayView<'a, i8, D>),
+    I16(ArrayView<'a, i16, D>),
+    I32(ArrayView<'a, i32, D>),
+    I64(ArrayView<'a, i64, D>),
+    U8(ArrayView<'a, u8, D>),
+    U16(ArrayView<'a, u16, D>),
+    U32(ArrayView<'a, u32, D>),
+    U64(ArrayView<'a, u64, D>),
+    F32(ArrayView<'a, f32, D>),
+    F64(ArrayView<'a, f64, D>),
+    String(ArrayView<'a, String, D>),
+    Bool(ArrayView<'a, bool, D>),
+}
+
 pub fn iter_containers<B: Backend>(group: &B::Group) -> impl Iterator<Item = (String, DataContainer<B>)> + '_{
     group.list().unwrap().into_iter().map(|x| {
         let container = DataContainer::open(group, &x).unwrap();
         (x, container)
     })
 }
+

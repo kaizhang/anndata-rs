@@ -230,7 +230,7 @@ impl<B: Backend> AnnData<B> {
             self.obsm.lock().as_ref().map(|obsm| obsm.subset(i)).transpose()?;
             self.obsp.lock().as_ref().map(|obsp| obsp.subset(i)).transpose()?;
             let mut n_obs = self.n_obs.lock();
-            *n_obs = i.as_ref().output_len(*n_obs);
+            *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs).unwrap().len();
             Ok::<(), anyhow::Error>(())
         }).transpose()?;
 
@@ -239,7 +239,7 @@ impl<B: Backend> AnnData<B> {
             self.varm.lock().as_ref().map(|varm| varm.subset(i)).transpose()?;
             self.varp.lock().as_ref().map(|varp| varp.subset(i)).transpose()?;
             let mut n_vars = self.n_vars.lock();
-            *n_vars = i.as_ref().output_len(*n_vars);
+            *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars).unwrap().len();
             Ok::<(), anyhow::Error>(())
         }).transpose()?;
         Ok(())
@@ -852,6 +852,7 @@ impl AnnDataSet {
 pub trait AnnDataOp {
     /// Reading/writing the 'X' element.
     fn read_x(&self) -> Result<Option<ArrayData>>;
+    fn read_x_slice<S: AsRef<[SelectInfoElem]>>(&self, select: S) -> Result<Option<ArrayData>>;
     fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()>;
     fn del_x(&self) -> Result<()>;
 
@@ -911,6 +912,16 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             x.inner().data().map(Option::Some)
         }
     }
+
+    fn read_x_slice<S: AsRef<[SelectInfoElem]>>(&self, select: S) -> Result<Option<ArrayData>> {
+        let x = self.get_x();
+        if x.is_empty() {
+            Ok(None)
+        } else {
+            x.inner().select(select).map(Option::Some)
+        }
+    }
+
     fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
         let shape = data.shape();
         self.set_n_obs(shape[0]);

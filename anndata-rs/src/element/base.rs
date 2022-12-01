@@ -5,15 +5,12 @@ use crate::{
 };
 
 use anyhow::{bail, ensure, Ok, Result};
-use either::Either;
 use indexmap::set::IndexSet;
-use itertools::Itertools;
-use ndarray::{Ix1, Array1};
+use ndarray::Ix1;
 use parking_lot::{Mutex, MutexGuard};
-use polars::{frame::DataFrame, series::Series};
+use polars::frame::DataFrame;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{
-    boxed::Box,
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -329,7 +326,7 @@ impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
     }
 }
 
-impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
+impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<B, T> {
     pub fn shape(&self) -> &Shape {
         self.shape.as_ref().unwrap()
     }
@@ -339,7 +336,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
     {
-        if select_all(&selection) {
+        if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
             self.data()
         } else {
             match self.element.as_ref() {
@@ -359,7 +356,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerElem<B, T> {
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
     {
-        if select_all(&selection) {
+        if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
             self.export(location, name)
         } else {
             self.select(selection)?.write(location, name)?;

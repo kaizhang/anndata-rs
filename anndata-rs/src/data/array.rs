@@ -1,82 +1,25 @@
-use crate::backend::{
-    Backend, BackendData, DataContainer, DatasetOp, GroupOp, LocationOp, ScalarType, Selection,
-};
-use crate::data::other::{DynScalar, ReadData, WriteData};
+use crate::backend::*;
+use crate::data::{SelectInfoElem, DynScalar, ReadData, WriteData};
+use crate::data::slice::BoundedSelectInfoElem;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
-use ndarray::{ArrayView, Array, Array1, ArrayD, Axis, Dimension, SliceInfoElem};
+use ndarray::{ArrayView, Array, Array1, ArrayD, Dimension};
 use std::collections::HashMap;
 use std::ops::Index;
-
-#[derive(Debug)]
-pub struct SelectInfo(Vec<SelectInfoElem>);
-
-impl AsRef<[SelectInfoElem]> for SelectInfo {
-    fn as_ref(&self) -> &[SelectInfoElem] {
-        &self.0
-    }
-}
-
-#[derive(Debug)]
-pub enum SelectInfoElem {
-    Index(Vec<usize>),
-    Slice(SliceInfoElem),
-}
-
-impl AsRef<SelectInfoElem> for SelectInfoElem {
-    fn as_ref(&self) -> &SelectInfoElem {
-        self
-    }
-}
-
-impl SelectInfoElem {
-    pub fn output_len(&self, n: usize) -> usize {
-        match self {
-            SelectInfoElem::Index(idx) => idx.len(),
-            SelectInfoElem::Slice(slice) => todo!(),
-        }
-    }
-
-    pub fn is_index(&self) -> bool {
-        matches!(self, SelectInfoElem::Index(_))
-    }
-
-    pub fn is_full_slice(&self) -> bool {
-        matches!(
-            self,
-            SelectInfoElem::Slice(SliceInfoElem::Slice {
-                start: 0,
-                end: None,
-                step: 1
-            })
-        )
-    }
-}
-
-pub const SLICE_FULL: SliceInfoElem = SliceInfoElem::Slice {
-    start: 0,
-    end: None,
-    step: 1,
-};
-
-pub fn select_all<S, E>(selection: S) -> bool
-where
-    S: AsRef<[E]>,
-    E: AsRef<SelectInfoElem>,
-{
-    selection
-        .as_ref()
-        .into_iter()
-        .all(|x| x.as_ref().is_full_slice())
-}
 
 /// TODO: consider using smallvec
 pub struct Shape(Vec<usize>);
 
-impl From<Vec<usize>> for Shape {
-    fn from(shape: Vec<usize>) -> Self {
-        Self(shape)
+impl Shape {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl AsRef<[usize]> for Shape {
+    fn as_ref(&self) -> &[usize] {
+        &self.0
     }
 }
 
@@ -87,6 +30,13 @@ impl Index<usize> for Shape {
         &self.0[index]
     }
 }
+
+impl From<Vec<usize>> for Shape {
+    fn from(shape: Vec<usize>) -> Self {
+        Self(shape)
+    }
+}
+
 
 pub trait HasShape {
     fn shape(&self) -> Shape;
@@ -102,7 +52,7 @@ pub trait ArrayOp: HasShape {
 
 pub trait WriteArrayData: WriteData {}
 
-pub trait ReadArrayData: ReadData + ArrayOp {
+pub trait ReadArrayData: ReadData {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape>;
 
     fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
@@ -110,69 +60,11 @@ pub trait ReadArrayData: ReadData + ArrayOp {
         B: Backend,
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
-        Self: Sized,
-    {
-        Self::read(container).map(|data| data.select(info))
-    }
+        Self: Sized;
+        //Self::read(container).map(|data| data.select(info))
 }
 
-#[derive(Debug, Clone)]
-pub struct CategoricalArray {
-    pub codes: ArrayD<u32>,
-    pub categories: Array1<String>,
-}
-
-impl<'a> FromIterator<&'a str> for CategoricalArray {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = &'a str>,
-    {
-        let mut str_to_id = HashMap::new();
-        let mut counter = 0;
-        let codes: Array1<u32> = iter
-            .into_iter()
-            .map(|x| {
-                let str = x.to_string();
-                match str_to_id.get(&str) {
-                    Some(v) => *v,
-                    None => {
-                        let v = counter;
-                        str_to_id.insert(str, v);
-                        counter += 1;
-                        v
-                    }
-                }
-            })
-            .collect();
-        let mut categories = str_to_id.drain().collect::<Vec<_>>();
-        categories.sort_by_key(|x| x.1);
-        CategoricalArray {
-            codes: codes.into_dyn(),
-            categories: categories.into_iter().map(|x| x.0).collect(),
-        }
-    }
-}
-
-impl WriteData for CategoricalArray {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        let group = location.create_group(name)?;
-        group.write_str_attr("encoding-type", "categorical")?;
-        group.write_str_attr("encoding-version", "0.2.0")?;
-
-        group.write_array("codes", &self.codes, Selection::All)?;
-        group.write_array("categories", &self.categories, Selection::All)?;
-
-        Ok(DataContainer::Group(group))
-    }
-}
-
-impl WriteArrayData for CategoricalArray {}
-
-/// Untyped array.
+/// A dynamic-typed array.
 #[derive(Debug, Clone)]
 pub enum DynArray {
     I8(ArrayD<i8>),
@@ -190,131 +82,38 @@ pub enum DynArray {
     Categorical(CategoricalArray),
 }
 
-macro_rules! impl_into_dyn_array {
+macro_rules! impl_dyn_array_convert {
     ($from_type:ty, $to_type:ident) => {
         impl From<$from_type> for DynArray {
             fn from(data: $from_type) -> Self {
                 DynArray::$to_type(data)
             }
         }
+        impl TryInto<$from_type> for DynArray {
+            type Error = anyhow::Error;
+            fn try_into(self) -> Result<$from_type, Self::Error> {
+                match self {
+                    DynArray::$to_type(data) => Ok(data),
+                    _ => bail!("Cannot convert DynArray to $from_type"),
+                }
+            }
+        }
     };
 }
 
-impl_into_dyn_array!(ArrayD<i8>, I8);
-impl_into_dyn_array!(ArrayD<i16>, I16);
-impl_into_dyn_array!(ArrayD<i32>, I32);
-impl_into_dyn_array!(ArrayD<i64>, I64);
-impl_into_dyn_array!(ArrayD<u8>, U8);
-impl_into_dyn_array!(ArrayD<u16>, U16);
-impl_into_dyn_array!(ArrayD<u32>, U32);
-impl_into_dyn_array!(ArrayD<u64>, U64);
-impl_into_dyn_array!(ArrayD<f32>, F32);
-impl_into_dyn_array!(ArrayD<f64>, F64);
-impl_into_dyn_array!(ArrayD<bool>, Bool);
-impl_into_dyn_array!(ArrayD<String>, String);
-impl_into_dyn_array!(CategoricalArray, Categorical);
-
-impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        let dataset = location.write_array(name, self, Selection::All)?;
-        let encoding_type = if T::DTYPE == ScalarType::String {
-            "string-array"
-        } else {
-            "array"
-        };
-        let container = DataContainer::<B>::Dataset(dataset);
-        container.write_str_attr("encoding-type", encoding_type)?;
-        container.write_str_attr("encoding-version", "0.2.0")?;
-        Ok(container)
-    }
-}
-
-impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        self.view().write(location, name)
-    }
-}
-
-impl<T: BackendData, D: Dimension> WriteData for &Array<T, D> {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        self.view().write(location, name)
-    }
-}
-
-impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
-    fn shape(&self) -> Shape {
-        self.shape().to_vec().into()
-    }
-}
-
-impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
-    fn shape(&self) -> Shape {
-        self.shape().to_vec().into()
-    }
-}
-
-impl<T: BackendData, D: Dimension> HasShape for &Array<T, D> {
-    fn shape(&self) -> Shape {
-        (*self).shape().to_vec().into()
-    }
-}
-
-
-impl<T: BackendData> ArrayOp for ArrayD<T> {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        self.get(index).map(|x| x.into_dyn())
-    }
-
-    fn select<S, E>(&self, info: S) -> Self
-    where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
-    {
-        // Perform slice operation on the array.
-        let slice_info: Vec<_> = info
-            .as_ref()
-            .iter()
-            .map(|x| match x.as_ref() {
-                SelectInfoElem::Index(_) => SLICE_FULL,
-                SelectInfoElem::Slice(s) => s.clone(),
-            })
-            .collect();
-        let arr = self.slice(slice_info.as_slice());
-
-        // Perform selection on the array.
-        info.as_ref()
-            .iter()
-            .enumerate()
-            .fold(None::<ArrayD<T>>, |acc, (axis, sel)| {
-                if let SelectInfoElem::Index(indices) = sel.as_ref() {
-                    if let Some(acc) = acc {
-                        Some(acc.select(Axis(axis), indices.as_slice()))
-                    } else {
-                        Some(arr.select(Axis(axis), indices.as_slice()))
-                    }
-                } else {
-                    acc
-                }
-            })
-            .unwrap_or(arr.to_owned())
-    }
-}
-
-impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
-impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
-impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
+impl_dyn_array_convert!(ArrayD<i8>, I8);
+impl_dyn_array_convert!(ArrayD<i16>, I16);
+impl_dyn_array_convert!(ArrayD<i32>, I32);
+impl_dyn_array_convert!(ArrayD<i64>, I64);
+impl_dyn_array_convert!(ArrayD<u8>, U8);
+impl_dyn_array_convert!(ArrayD<u16>, U16);
+impl_dyn_array_convert!(ArrayD<u32>, U32);
+impl_dyn_array_convert!(ArrayD<u64>, U64);
+impl_dyn_array_convert!(ArrayD<f32>, F32);
+impl_dyn_array_convert!(ArrayD<f64>, F64);
+impl_dyn_array_convert!(ArrayD<bool>, Bool);
+impl_dyn_array_convert!(ArrayD<String>, String);
+impl_dyn_array_convert!(CategoricalArray, Categorical);
 
 impl WriteData for DynArray {
     fn write<B: Backend, G: GroupOp<Backend = B>>(
@@ -344,26 +143,21 @@ impl ReadData for DynArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
             DataContainer::Dataset(dataset) => match dataset.dtype()? {
-                ScalarType::I8 => Ok(Self::I8(dataset.read_array(Selection::All)?)),
-                ScalarType::I16 => Ok(Self::I16(dataset.read_array(Selection::All)?)),
-                ScalarType::I32 => Ok(Self::I32(dataset.read_array(Selection::All)?)),
-                ScalarType::I64 => Ok(Self::I64(dataset.read_array(Selection::All)?)),
-                ScalarType::U8 => Ok(Self::U8(dataset.read_array(Selection::All)?)),
-                ScalarType::U16 => Ok(Self::U16(dataset.read_array(Selection::All)?)),
-                ScalarType::U32 => Ok(Self::U32(dataset.read_array(Selection::All)?)),
-                ScalarType::U64 => Ok(Self::U64(dataset.read_array(Selection::All)?)),
-                ScalarType::F32 => Ok(Self::F32(dataset.read_array(Selection::All)?)),
-                ScalarType::F64 => Ok(Self::F64(dataset.read_array(Selection::All)?)),
-                ScalarType::Bool => Ok(Self::Bool(dataset.read_array(Selection::All)?)),
-                ScalarType::String => Ok(Self::String(dataset.read_array(Selection::All)?)),
+                ScalarType::I8 => Ok(Self::I8(dataset.read_array()?)),
+                ScalarType::I16 => Ok(Self::I16(dataset.read_array()?)),
+                ScalarType::I32 => Ok(Self::I32(dataset.read_array()?)),
+                ScalarType::I64 => Ok(Self::I64(dataset.read_array()?)),
+                ScalarType::U8 => Ok(Self::U8(dataset.read_array()?)),
+                ScalarType::U16 => Ok(Self::U16(dataset.read_array()?)),
+                ScalarType::U32 => Ok(Self::U32(dataset.read_array()?)),
+                ScalarType::U64 => Ok(Self::U64(dataset.read_array()?)),
+                ScalarType::F32 => Ok(Self::F32(dataset.read_array()?)),
+                ScalarType::F64 => Ok(Self::F64(dataset.read_array()?)),
+                ScalarType::Bool => Ok(Self::Bool(dataset.read_array()?)),
+                ScalarType::String => Ok(Self::String(dataset.read_array()?)),
             },
-            DataContainer::Group(group) => {
-                let codes = group.open_dataset("codes")?.read_array(Selection::All)?;
-                let categories = group
-                    .open_dataset("categories")?
-                    .read_array(Selection::All)?;
-                Ok(Self::Categorical(CategoricalArray { codes, categories }))
-            }
+            DataContainer::Group(_) =>
+                Ok(Self::Categorical(CategoricalArray::read(container)?)),
         }
     }
 }
@@ -443,7 +237,273 @@ impl ReadArrayData for DynArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container.as_dataset()?.shape()?.into())
     }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    where
+        B: Backend,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        match container {
+            DataContainer::Dataset(dataset) => match dataset.dtype()? {
+                ScalarType::I8 => Ok(Self::I8(dataset.read_array_slice(info)?)),
+                ScalarType::I16 => Ok(Self::I16(dataset.read_array_slice(info)?)),
+                ScalarType::I32 => Ok(Self::I32(dataset.read_array_slice(info)?)),
+                ScalarType::I64 => Ok(Self::I64(dataset.read_array_slice(info)?)),
+                ScalarType::U8 => Ok(Self::U8(dataset.read_array_slice(info)?)),
+                ScalarType::U16 => Ok(Self::U16(dataset.read_array_slice(info)?)),
+                ScalarType::U32 => Ok(Self::U32(dataset.read_array_slice(info)?)),
+                ScalarType::U64 => Ok(Self::U64(dataset.read_array_slice(info)?)),
+                ScalarType::F32 => Ok(Self::F32(dataset.read_array_slice(info)?)),
+                ScalarType::F64 => Ok(Self::F64(dataset.read_array_slice(info)?)),
+                ScalarType::Bool => Ok(Self::Bool(dataset.read_array_slice(info)?)),
+                ScalarType::String => Ok(Self::String(dataset.read_array_slice(info)?)),
+            },
+            DataContainer::Group(_) =>
+                Ok(Self::Categorical(CategoricalArray::read_select(container, info)?)),
+        }
+    }
+ 
 }
+
+impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>> {
+        let dataset = location.write_array(name, self)?;
+        let encoding_type = if T::DTYPE == ScalarType::String {
+            "string-array"
+        } else {
+            "array"
+        };
+        let container = DataContainer::<B>::Dataset(dataset);
+        container.write_str_attr("encoding-type", encoding_type)?;
+        container.write_str_attr("encoding-version", "0.2.0")?;
+        Ok(container)
+    }
+}
+
+impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>> {
+        self.view().write(location, name)
+    }
+}
+
+impl<T: BackendData, D: Dimension> WriteData for &Array<T, D> {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>> {
+        self.view().write(location, name)
+    }
+}
+
+impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
+    fn shape(&self) -> Shape {
+        self.shape().to_vec().into()
+    }
+}
+
+impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
+    fn shape(&self) -> Shape {
+        self.shape().to_vec().into()
+    }
+}
+
+impl<T: BackendData, D: Dimension> HasShape for &Array<T, D> {
+    fn shape(&self) -> Shape {
+        (*self).shape().to_vec().into()
+    }
+}
+
+impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
+    fn get(&self, index: &[usize]) -> Option<DynScalar> {
+        self.view().into_dyn().get(index).map(|x| x.into_dyn())
+    }
+
+    fn select<S, E>(&self, info: S) -> Self
+    where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+    {
+        let arr = self.view().into_dyn();
+        let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
+            SelectInfoElem::Slice(slice) => Some(slice.clone()),
+            _ => None,
+        }).collect::<Option<Vec<_>>>();
+        if let Some(slices) = slices {
+            arr.slice(slices.as_slice()).into_owned()
+        } else {
+            let shape = self.shape();
+            let select: Vec<_> = info.as_ref().into_iter().zip(shape)
+                .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n).unwrap()).collect();
+            let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
+            ArrayD::from_shape_fn(new_shape, |idx| {
+                let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();
+                arr.index(new_idx.as_slice()).clone()
+            })
+        }.into_dimensionality::<D>().unwrap()
+        /*
+        // Perform slice operation on the array.
+        let slice_info: Vec<_> = info
+            .as_ref()
+            .iter()
+            .map(|x| match x.as_ref() {
+                SelectInfoElem::Index(_) => SLICE_FULL,
+                SelectInfoElem::Slice(s) => s.clone(),
+            })
+            .collect();
+        let arr = self.slice(slice_info.as_slice());
+
+        // Perform selection on the array.
+        info.as_ref()
+            .iter()
+            .enumerate()
+            .fold(None::<ArrayD<T>>, |acc, (axis, sel)| {
+                if let SelectInfoElem::Index(indices) = sel.as_ref() {
+                    if let Some(acc) = acc {
+                        Some(acc.select(Axis(axis), indices.as_slice()))
+                    } else {
+                        Some(arr.select(Axis(axis), indices.as_slice()))
+                    }
+                } else {
+                    acc
+                }
+            })
+            .unwrap_or(arr.to_owned())
+        */
+    }
+
+}
+
+impl<T: BackendData, D: Dimension> ReadData for Array<T, D> {
+    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+        Ok(container.as_dataset()?.read_array::<T, D>()?)
+    }
+}
+
+impl<T: BackendData, D: Dimension> ReadArrayData for Array<T, D> {
+    fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
+        Ok(container.as_dataset()?.shape()?.into())
+    }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+        where
+            B: Backend,
+            S: AsRef<[E]>,
+            E: AsRef<SelectInfoElem>,
+    {
+        container.as_dataset()?.read_array_slice(info)
+    }
+}
+
+
+impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
+impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
+impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
+
+#[derive(Debug, Clone)]
+pub struct CategoricalArray {
+    pub codes: ArrayD<u32>,
+    pub categories: Array1<String>,
+}
+
+impl<'a> FromIterator<&'a str> for CategoricalArray {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = &'a str>,
+    {
+        let mut str_to_id = HashMap::new();
+        let mut counter = 0;
+        let codes: Array1<u32> = iter
+            .into_iter()
+            .map(|x| {
+                let str = x.to_string();
+                match str_to_id.get(&str) {
+                    Some(v) => *v,
+                    None => {
+                        let v = counter;
+                        str_to_id.insert(str, v);
+                        counter += 1;
+                        v
+                    }
+                }
+            })
+            .collect();
+        let mut categories = str_to_id.drain().collect::<Vec<_>>();
+        categories.sort_by_key(|x| x.1);
+        CategoricalArray {
+            codes: codes.into_dyn(),
+            categories: categories.into_iter().map(|x| x.0).collect(),
+        }
+    }
+}
+
+impl WriteData for CategoricalArray {
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>> {
+        let group = location.create_group(name)?;
+        group.write_str_attr("encoding-type", "categorical")?;
+        group.write_str_attr("encoding-version", "0.2.0")?;
+
+        group.write_array("codes", &self.codes)?;
+        group.write_array("categories", &self.categories)?;
+
+        Ok(DataContainer::Group(group))
+    }
+}
+
+impl HasShape for CategoricalArray {
+    fn shape(&self) -> Shape {
+        self.codes.shape().to_vec().into()
+    }
+}
+
+impl WriteArrayData for CategoricalArray {}
+
+impl ReadData for CategoricalArray {
+    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+        let group = container.as_group()?;
+        let codes = group.open_dataset("codes")?.read_array()?;
+        let categories = group
+            .open_dataset("categories")?
+            .read_array()?;
+        Ok(CategoricalArray { codes, categories })
+    }
+}
+
+impl ReadArrayData for CategoricalArray {
+    fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
+        let group = container.as_group()?;
+        let codes = group.open_dataset("codes")?.shape()?;
+        Ok(codes.into())
+    }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+        where
+            B: Backend,
+            S: AsRef<[E]>,
+            E: AsRef<SelectInfoElem>,
+    {
+        let group = container.as_group()?;
+        let codes = group.open_dataset("codes")?.read_array_slice(info)?;
+        let categories = group
+            .open_dataset("categories")?
+            .read_array()?;
+        Ok(CategoricalArray { codes, categories })
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub enum DynCsrMatrix {
@@ -564,4 +624,15 @@ impl ReadArrayData for DynCsrMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         todo!()
     }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+        where
+            B: Backend,
+            S: AsRef<[E]>,
+            E: AsRef<SelectInfoElem>,
+            Self: Sized {
+        todo!()
+    }
 }
+
+

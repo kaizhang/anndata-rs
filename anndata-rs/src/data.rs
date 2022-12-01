@@ -1,13 +1,16 @@
 mod array;
 mod other;
+mod slice;
 
-pub use array::{Shape, SelectInfo, SelectInfoElem, HasShape, ArrayOp, WriteArrayData, ReadArrayData, DynArray, DynCsrMatrix, select_all, SLICE_FULL};
+pub use array::{Shape, HasShape, ArrayOp, WriteArrayData, ReadArrayData, DynArray, DynCsrMatrix};
 pub use other::{WriteData, ReadData, DynScalar, Mapping, DataFrameIndex};
-use crate::backend::{Backend, GroupOp, DataContainer, DataType};
+pub use slice::{SelectInfo, SelectInfoElem, SLICE_FULL, BoundedSelectInfoElem, BoundedSelectInfo};
+
+use crate::backend::*;
 
 use polars::frame::DataFrame;
 use anyhow::{bail, Result};
-use ndarray::ArrayD;
+use ndarray::{Array, ArrayD, Dimension};
 use nalgebra_sparse::csr::CsrMatrix;
 
 #[derive(Debug, Clone)]
@@ -39,9 +42,9 @@ impl From<DynCsrMatrix> for ArrayData {
 macro_rules! impl_into_matrix_data {
     ($($ty:ty),*) => {
         $(
-            impl From<ArrayD<$ty>> for ArrayData {
-                fn from(data: ArrayD<$ty>) -> Self {
-                    ArrayData::Array(data.into())
+            impl<D: Dimension> From<Array<$ty, D>> for ArrayData {
+                fn from(data: Array<$ty, D>) -> Self {
+                    ArrayData::Array(data.into_dyn().into())
                 }
             }
             impl From<CsrMatrix<$ty>> for ArrayData {
@@ -49,11 +52,24 @@ macro_rules! impl_into_matrix_data {
                     ArrayData::CsrMatrix(data.into())
                 }
             }
+            impl<D: Dimension> TryInto<Array<$ty, D>> for ArrayData {
+                type Error = anyhow::Error;
+                fn try_into(self) -> Result<Array<$ty, D>> {
+                    match self {
+                        ArrayData::Array(data) => {
+                            let arr: ArrayD<$ty> = data.try_into()?;
+                            Ok(arr.into_dimensionality::<D>()?)
+                        }
+                        _ => bail!("Cannot convert {:?} to ArrayD<$ty>", self),
+                    }
+                }
+            }
         )*
     };
 }
 
 impl_into_matrix_data!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
+
 
 impl WriteData for ArrayData {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
@@ -111,6 +127,19 @@ impl ReadArrayData for ArrayData {
             DataType::CsrMatrix(_) => DynCsrMatrix::get_shape(container),
             ty => bail!("Cannot read shape information from type '{}'", ty),
         }
+    }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+        where
+            B: Backend,
+            S: AsRef<[E]>,
+            E: AsRef<SelectInfoElem>,
+            Self: Sized {
+        match container.encoding_type()? {
+            DataType::Categorical | DataType::Array(_) => DynArray::read_select(container, info).map(ArrayData::Array),
+            DataType::CsrMatrix(_) => DynCsrMatrix::read_select(container, info).map(ArrayData::CsrMatrix),
+            ty => bail!("Cannot read type '{:?}' as matrix data", ty),
+        }   
     }
 }
 impl WriteArrayData for ArrayData {}

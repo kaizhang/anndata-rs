@@ -1,15 +1,13 @@
 use crate::{
-    backend::{Backend, DataContainer, iter_containers},
+    backend::{Backend, iter_containers},
     data::*,
     element::base::*,
 };
 
-use either::Either;
-use anyhow::{anyhow, ensure, Result};
-use itertools::Itertools;
+use anyhow::{ensure, Result};
 use parking_lot::Mutex;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -190,12 +188,12 @@ impl<B: Backend> InnerAxisArrays<B> {
     where
         S: AsRef<SelectInfoElem>,
     {
-        if selection.as_ref().is_full_slice() {
+        if selection.as_ref().is_full() {
             self.export(location)
         } else {
             match self.axis {
                 Axis::Row => {
-                    let s = vec![selection.as_ref()];
+                    let s = vec![selection];
                     self
                         .iter()
                         .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
