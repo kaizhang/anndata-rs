@@ -295,28 +295,7 @@ impl<B: Backend, T> InnerElem<B, T> {
     }
 }
 
-impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
-    pub fn data(&mut self) -> Result<T> {
-        match self.element.as_ref() {
-            Some(data) => Ok(data.clone()),
-            None => {
-                let data = T::read(&self.container)?;
-                if self.cache_enabled {
-                    self.element = Some(data.clone());
-                }
-                Ok(data)
-            }
-        }
-    }
-
-    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
-        match self.element.as_ref() {
-            Some(data) => data.write(location, name)?,
-            None => T::read(&self.container)?.write(location, name)?,
-        };
-        Ok(())
-    }
-
+impl<B: Backend, T> InnerElem<B, T> {
     pub(crate) fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
         if self.element.is_some() {
@@ -326,26 +305,59 @@ impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
     }
 }
 
-impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<B, T> {
+impl<B: Backend, T: Clone> InnerElem<B, T> {
+    pub fn data<D>(&mut self) -> Result<D>
+    where
+        D: Into<T> + ReadData + Clone + TryFrom<T>,
+        <D as TryFrom<T>>::Error: Into<anyhow::Error>,
+    {
+        match self.element.as_ref() {
+            Some(data) => Ok(data.clone().try_into().map_err(Into::into)?),
+            None => {
+                let data = D::read(&self.container)?;
+                if self.cache_enabled {
+                    self.element = Some(data.clone().into());
+                }
+                Ok(data)
+            }
+        }
+    }
+}
+
+impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
+    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
+        match self.element.as_ref() {
+            Some(data) => data.write(location, name)?,
+            None => T::read(&self.container)?.write(location, name)?,
+        };
+        Ok(())
+    }
+}
+
+impl<B: Backend, T: ArrayOp + Clone> InnerElem<B, T> {
     pub fn shape(&self) -> &Shape {
         self.shape.as_ref().unwrap()
     }
 
-    pub fn select<S, E>(&mut self, selection: S) -> Result<T>
+    pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
     where
+        D: Into<T> + TryFrom<T> + ReadArrayData + Clone,
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
+        <D as TryFrom<T>>::Error: Into<anyhow::Error>,
     {
         if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
             self.data()
         } else {
             match self.element.as_ref() {
-                Some(data) => Ok(data.select(selection)),
-                None => T::read_select(&self.container, selection),
+                Some(data) => Ok(data.select(selection).try_into().map_err(Into::into)?),
+                None => D::read_select(&self.container, selection),
             }
         }
     }
+}
 
+impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<B, T> {
     pub fn export_select<S, E>(
         &mut self,
         selection: S,
@@ -359,7 +371,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<
         if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
             self.export(location, name)
         } else {
-            self.select(selection)?.write(location, name)?;
+            self.select::<T, _, _>(selection)?.write(location, name)?;
             Ok(())
         }
     }
@@ -382,6 +394,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<
         Ok(())
     }
 }
+
 
 pub type Elem<B> = Slot<InnerElem<B, Data>>;
 

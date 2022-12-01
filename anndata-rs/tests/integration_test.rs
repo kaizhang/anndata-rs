@@ -1,11 +1,10 @@
-use anndata_rs::anndata::{AnnData, AnnDataOp};
+use anndata_rs::*;
 use anndata_rs::backend::hdf5::H5;
-use anndata_rs::data::*;
 
 use proptest::prelude::*;
 
 use anyhow::Result;
-use ndarray::{s, Array, Array3};
+use ndarray::{Array, Array1, Array2, Array3};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use std::fmt::Debug;
@@ -59,16 +58,45 @@ fn test_basic() -> Result<()> {
 }
 
 #[test]
-fn test_subset() -> Result<()> {
+fn test_slice() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<H5> = AnnData::new(file, 0, 0)?;
 
         let arr: Array3<i32> = Array::random((40, 50, 10), Uniform::new(0, 100));
         adata.set_x(&arr)?;
-        let slice = s![3..33, 4..44, ..];
-        let selection = slice.as_ref().iter().collect::<SelectInfo>();
-        let x: Array3<i32> = adata.read_x_slice(selection)?.unwrap().try_into()?;
-        assert_eq!(x, arr.slice(slice).to_owned());
+        let x: Array3<i32> = adata.read_x_slice(s![3..33, 4..44, ..])?.unwrap();
+        assert_eq!(x, arr.slice(ndarray::s![3..33, 4..44, ..]).to_owned());
+        Ok(())
+    })
+}
+
+#[test]
+fn test_fancy_index() -> Result<()> {
+    with_tmp_path(|file| -> Result<()> {
+        let adata: AnnData<H5> = AnnData::new(file, 0, 0)?;
+
+        {
+            let arr: Array2<i32> = Array::random((40, 1), Uniform::new(0, 100));
+            adata.set_x(&arr)?;
+
+            let idx  = vec![1, 3, 5, 7, 9];
+            let expected = arr.select(ndarray::Axis(0), idx.as_slice());
+            let actual: Array2<i32> = adata.read_x_slice(s![idx, ..])?.unwrap();
+            assert_eq!(expected, actual);
+        }
+
+        adata.del_x()?;
+
+        {
+            let arr: Array3<i32> = Array::random((40, 50, 10), Uniform::new(0, 100));
+            let idx: Array1<usize> = Array::random((100,), Uniform::new(0, 39));
+            adata.set_x(&arr)?;
+
+            let expected = arr.select(ndarray::Axis(0), idx.as_slice().unwrap());
+            let actual: Array3<i32> = adata.read_x_slice(s![idx, .., ..])?.unwrap();
+            assert_eq!(expected, actual);
+        }
+
         Ok(())
     })
 }

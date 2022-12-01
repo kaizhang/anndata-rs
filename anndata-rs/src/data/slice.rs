@@ -1,12 +1,13 @@
 use crate::data::Shape;
 
-use ndarray::{Array2, SliceInfoElem, SliceInfo, IxDyn};
+use ndarray::{Array1, Array2, SliceInfoElem, SliceInfo, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
+use std::ops::{RangeFull, Range};
 
 /// A multi-dimensional selection used for reading and writing to a Container.
-#[derive(Debug)]
-pub struct SelectInfo(Vec<SelectInfoElem>);
+#[derive(Debug, PartialEq, Eq)]
+pub struct SelectInfo(pub Vec<SelectInfoElem>);
 
 impl AsRef<[SelectInfoElem]> for SelectInfo {
     fn as_ref(&self) -> &[SelectInfoElem] {
@@ -55,10 +56,58 @@ impl SelectInfo {
 
 
 /// A selection used for reading and writing to a Container.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectInfoElem {
     Index(Vec<usize>),
     Slice(SliceInfoElem),
+}
+
+impl From<&[usize]> for SelectInfoElem {
+    fn from(x: &[usize]) -> Self {
+        Self::Index(x.into_iter().map(|x| *x).collect())
+    }
+}
+
+impl From<Vec<usize>> for SelectInfoElem {
+    fn from(x: Vec<usize>) -> Self {
+        Self::Index(x)
+    }
+}
+
+impl From<Array1<usize>> for SelectInfoElem {
+    fn from(x: Array1<usize>) -> Self {
+        Self::Index(x.to_vec())
+    }
+}
+
+impl From<&Array1<usize>> for SelectInfoElem {
+    fn from(x: &Array1<usize>) -> Self {
+        Self::Index(x.to_vec())
+    }
+}
+
+impl From<Range<usize>> for SelectInfoElem {
+    fn from(x: Range<usize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<Range<isize>> for SelectInfoElem {
+    fn from(x: Range<isize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<Range<i32>> for SelectInfoElem {
+    fn from(x: Range<i32>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeFull> for SelectInfoElem {
+    fn from(x: RangeFull) -> Self {
+        Self::Slice(x.into())
+    }
 }
 
 impl AsRef<SelectInfoElem> for SelectInfoElem {
@@ -87,13 +136,16 @@ impl SelectInfoElem {
         )
     }
 }
-pub struct BoundedSelectInfo<'a>(Vec<BoundedSelectInfoElem<'a>>);
+pub struct BoundedSelectInfo<'a> {
+    input_shape: Shape,
+    select: Vec<BoundedSelectInfoElem<'a>>,
+}
 
 impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for BoundedSelectInfo<'a>{
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> {
-        let elems: Result<Vec<_>> = self.0.into_iter().map(|e| match e {
+        let elems: Result<Vec<_>> = self.select.into_iter().map(|e| match e {
             BoundedSelectInfoElem::Slice(s) => Ok(s.into()),
             _ => bail!("Cannot convert SelectInfo to SliceInfo"),
         }).collect();
@@ -112,43 +164,82 @@ impl<'a> BoundedSelectInfo<'a> {
         let res: Option<Vec<_>> = select.as_ref().iter().zip(shape.as_ref()).map(|(sel, dim)|
             BoundedSelectInfoElem::new(sel.as_ref(), *dim)
         ).collect();
-        res.map(Self)
+        res.map(|x| Self {
+            input_shape: shape.clone(),
+            select: x,
+        })
     }
 
-    pub fn shape(&self) -> Shape {
-        Shape::from(self.0.iter().map(|x| x.len()).collect::<Vec<_>>())
+    pub fn in_shape(&self) -> Shape {
+        self.input_shape.clone()
+    }
+
+    pub fn out_shape(&self) -> Shape {
+        Shape::from(self.select.iter().map(|x| x.len()).collect::<Vec<_>>())
     }
 
     pub fn size(&self) -> usize {
-        self.shape().as_ref().iter().product()
+        self.out_shape().as_ref().iter().product()
     }
 
     pub fn ndim(&self) -> usize {
-        self.0.len()
+        self.select.len()
     }
+
+    /// Convert to a new slice that contain only the unique indices. A mapping for
+    /// getting back the original indices is also returned.
+    /*
+    pub fn to_unique(&self) -> (Self, Self) {
+        let out_shape = self.out_shape();
+        let (unique, mapping): (Vec<_>, Vec<_>) = self.select.iter().zip(out_shape.as_ref())
+            .map(|(sel, dim)| match sel {
+                BoundedSelectInfoElem::Index(x) => {
+                    let (unique, mapping) = unique_indices(x, *dim);
+                    (unique.into(), mapping.into())
+            }
+            BoundedSelectInfoElem::Slice(x) => todo!(),
+        }).unzip();
+        todo!()
+    }
+    */
 
     /// Convert into indices. Fail if elements are all slices.
     pub fn try_into_indices(&self) -> Option<Array2<usize>> {
-        if self.0.iter().all(|e| matches!(e, BoundedSelectInfoElem::Slice(_))) {
+        if self.select.iter().all(|e| matches!(e, BoundedSelectInfoElem::Slice(_))) {
             return None;
         }
 
-        fn slice_to_vec(start: usize, end: usize, step: isize) -> Vec<usize> {
-            if step > 0 {
-                (start..end).step_by(step as usize).collect()
-            } else {
-                (start..end).step_by(-step as usize).rev().collect()
+        let shape = self.out_shape();
+        let ncols = self.ndim();
+        let nrows = self.size();
+
+        let mut result: Array2<usize> = Array2::zeros((nrows, ncols));
+
+        for c in 0..ncols {
+            let n_repeat = shape.as_ref()[(c+1)..].iter().product();
+            match self.select[c] {
+                BoundedSelectInfoElem::Index(ref x) => {
+                    let mut values = x.iter().flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
+                    for r in 0..nrows {
+                        result[[r, c]] = *values.next().unwrap();
+                    }
+                },
+                BoundedSelectInfoElem::Slice(BoundedSliceInfoElem { start, end, step }) => {
+                    if step > 0 {
+                        let mut values = (start..end).step_by(step as usize).flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
+                        for r in 0..nrows {
+                            result[[r, c]] = values.next().unwrap();
+                        }
+                    } else {
+                        let mut values = (start..end).step_by(step.abs() as usize).rev().flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
+                        for r in 0..nrows {
+                            result[[r, c]] = values.next().unwrap();
+                        }
+                    }
+                },
             }
         }
-
-        // TODO: pre-allocate the array to improve performance
-        let vec: Vec<_> = self.0.iter().map(|sel| match sel {
-            BoundedSelectInfoElem::Slice(BoundedSliceInfoElem { start, end, step }) => 
-                slice_to_vec(*start, *end, *step),
-            BoundedSelectInfoElem::Index(indices) => indices.iter().map(|x| *x).collect(),
-        }).multi_cartesian_product().flatten().collect();
-        let indices = Array2::from_shape_vec((vec.len() / self.ndim(), self.ndim()), vec).unwrap();
-        Some(indices)
+        Some(result)
     }
 }
 
@@ -245,68 +336,36 @@ pub const SLICE_FULL: SliceInfoElem = SliceInfoElem::Slice {
     step: 1,
 };
 
+/// find unique indices and return the mapping
+fn unique_indices(indices: &[usize], upper_bound: usize) -> (Vec<usize>, Vec<usize>) {
+    let mut mask = vec![upper_bound; upper_bound];
+    // Set the mask for the present indices
+    for i in indices {
+        mask[*i] = *i;
+    }
+    let unique = mask.iter().filter(|x| **x != upper_bound).map(|x| *x).collect();
+
+    // Find the new order
+    mask.iter_mut().fold(0, |acc, x| {
+        if *x == upper_bound {
+            *x = acc;
+            acc + 1
+        } else {
+            acc
+        }
+    });
+
+    // Get the mapping
+    let mapping = indices.iter().map(|x| mask[*x]).collect();
+    (unique, mapping)
+}
 
 /// Slice argument constructor.
 ///
 /// `s![]` takes a list of ranges/slices/indices/new-axes, separated by comma,
 /// with optional step sizes that are separated from the range by a semicolon.
-/// It is converted into a [`SliceInfo`] instance.
-///
-/// Each range/slice/index uses signed indices, where a negative value is
-/// counted from the end of the axis. Step sizes are also signed and may be
-/// negative, but must not be zero.
-///
-/// The syntax is `s![` *[ elem [, elem [ , ... ] ] ]* `]`, where *elem* is any
-/// of the following:
-///
-/// * *index*: an index to use for taking a subview with respect to that axis.
-///   (The index is selected. The axis is removed except with
-///   [`.slice_collapse()`].)
-/// * *range*: a range with step size 1 to use for slicing that axis.
-/// * *range* `;` *step*: a range with step size *step* to use for slicing that axis.
-/// * *slice*: a [`Slice`] instance to use for slicing that axis.
-/// * *slice* `;` *step*: a range constructed from a [`Slice`] instance,
-///   multiplying the step size by *step*, to use for slicing that axis.
-/// * *new-axis*: a [`NewAxis`] instance that represents the creation of a new axis.
-///   (Except for [`.slice_collapse()`], which panics on [`NewAxis`] elements.)
-///
-/// The number of *elem*, not including *new-axis*, must match the
-/// number of axes in the array. *index*, *range*, *slice*, *step*, and
-/// *new-axis* can be expressions. *index* must be of type `isize`, `usize`, or
-/// `i32`. *range* must be of type `Range<I>`, `RangeTo<I>`, `RangeFrom<I>`, or
-/// `RangeFull` where `I` is `isize`, `usize`, or `i32`. *step* must be a type
-/// that can be converted to `isize` with the `as` keyword.
-///
-/// For example, `s![0..4;2, 6, 1..5, NewAxis]` is a slice of the first axis
-/// for 0..4 with step size 2, a subview of the second axis at index 6, a slice
-/// of the third axis for 1..5 with default step size 1, and a new axis of
-/// length 1 at the end of the shape. The input array must have 3 dimensions.
-/// The resulting slice would have shape `[2, 4, 1]` for [`.slice()`],
-/// [`.slice_mut()`], and [`.slice_move()`], while [`.slice_collapse()`] would
-/// panic. Without the `NewAxis`, i.e. `s![0..4;2, 6, 1..5]`,
-/// [`.slice_collapse()`] would result in an array of shape `[2, 1, 4]`.
-///
-/// [`.slice()`]: crate::ArrayBase::slice
-/// [`.slice_mut()`]: crate::ArrayBase::slice_mut
-/// [`.slice_move()`]: crate::ArrayBase::slice_move
-/// [`.slice_collapse()`]: crate::ArrayBase::slice_collapse
-///
-/// See also [*Slicing*](crate::ArrayBase#slicing).
 ///
 /// # Example
-///
-/// ```
-/// use ndarray::{s, Array2, ArrayView2};
-///
-/// fn laplacian(v: &ArrayView2<f32>) -> Array2<f32> {
-///     -4. * &v.slice(s![1..-1, 1..-1])
-///     + v.slice(s![ ..-2, 1..-1])
-///     + v.slice(s![1..-1,  ..-2])
-///     + v.slice(s![1..-1, 2..  ])
-///     + v.slice(s![2..  , 1..-1])
-/// }
-/// # fn main() { let _ = laplacian; }
-/// ```
 ///
 /// # Negative *step*
 ///
@@ -326,118 +385,23 @@ pub const SLICE_FULL: SliceInfoElem = SliceInfoElem::Slice {
 /// For example,
 ///
 /// ```
-/// # use ndarray::prelude::*;
+/// # use anndata_rs::s;
 /// #
 /// # fn main() {
-/// let arr = array![0, 1, 2, 3];
-/// assert_eq!(arr.slice(s![1..3;-1]), array![2, 1]);
-/// assert_eq!(arr.slice(s![1..;-2]), array![3, 1]);
-/// assert_eq!(arr.slice(s![0..4;-2]), array![3, 1]);
-/// assert_eq!(arr.slice(s![0..;-2]), array![3, 1]);
-/// assert_eq!(arr.slice(s![..;-2]), array![3, 1]);
+/// println!("{:?}", s![1..3 , ..]);
+/// println!("{:?}", s![vec![1, 10, 3], ..]);
 /// # }
 /// ```
 #[macro_export]
-macro_rules! s(
-    // convert a..b;c into @convert(a..b, c), final item
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr;$s:expr) => {
-        match $r {
-            r => {
-                let in_dim = $crate::SliceNextDim::next_in_dim(&r, $in_dim);
-                let out_dim = $crate::SliceNextDim::next_out_dim(&r, $out_dim);
-                #[allow(unsafe_code)]
-                unsafe {
-                    $crate::SliceInfo::new_unchecked(
-                        [$($stack)* $crate::s!(@convert r, $s)],
-                        in_dim,
-                        out_dim,
-                    )
-                }
-            }
-        }
-    };
-    // convert a..b into @convert(a..b), final item
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr) => {
-        match $r {
-            r => {
-                let in_dim = $crate::SliceNextDim::next_in_dim(&r, $in_dim);
-                let out_dim = $crate::SliceNextDim::next_out_dim(&r, $out_dim);
-                #[allow(unsafe_code)]
-                unsafe {
-                    $crate::SliceInfo::new_unchecked(
-                        [$($stack)* $crate::s!(@convert r)],
-                        in_dim,
-                        out_dim,
-                    )
-                }
-            }
-        }
-    };
-    // convert a..b;c into @convert(a..b, c), final item, trailing comma
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr;$s:expr ,) => {
-        $crate::s![@parse $in_dim, $out_dim, [$($stack)*] $r;$s]
-    };
-    // convert a..b into @convert(a..b), final item, trailing comma
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr ,) => {
-        $crate::s![@parse $in_dim, $out_dim, [$($stack)*] $r]
-    };
-    // convert a..b;c into @convert(a..b, c)
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr;$s:expr, $($t:tt)*) => {
-        match $r {
-            r => {
-                $crate::s![@parse
-                   $crate::SliceNextDim::next_in_dim(&r, $in_dim),
-                   $crate::SliceNextDim::next_out_dim(&r, $out_dim),
-                   [$($stack)* $crate::s!(@convert r, $s),]
-                   $($t)*
-                ]
-            }
-        }
-    };
-    // convert a..b into @convert(a..b)
-    (@parse $in_dim:expr, $out_dim:expr, [$($stack:tt)*] $r:expr, $($t:tt)*) => {
-        match $r {
-            r => {
-                $crate::s![@parse
-                   $crate::SliceNextDim::next_in_dim(&r, $in_dim),
-                   $crate::SliceNextDim::next_out_dim(&r, $out_dim),
-                   [$($stack)* $crate::s!(@convert r),]
-                   $($t)*
-                ]
-            }
-        }
-    };
-    // empty call, i.e. `s![]`
-    (@parse ::core::marker::PhantomData::<$crate::Ix0>, ::core::marker::PhantomData::<$crate::Ix0>, []) => {
+macro_rules! s{
+    ( $( $x:expr ),* ) => {
         {
-            #[allow(unsafe_code)]
-            unsafe {
-                $crate::SliceInfo::new_unchecked(
-                    [],
-                    ::core::marker::PhantomData::<$crate::Ix0>,
-                    ::core::marker::PhantomData::<$crate::Ix0>,
-                )
-            }
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($crate::data::SelectInfoElem::from($x));
+            )*
+            $crate::data::SelectInfo(temp_vec)
         }
+
     };
-    // Catch-all clause for syntax errors
-    (@parse $($t:tt)*) => { compile_error!("Invalid syntax in s![] call.") };
-    // convert range/index/new-axis into SliceInfoElem
-    (@convert $r:expr) => {
-        <$crate::SliceInfoElem as ::core::convert::From<_>>::from($r)
-    };
-    // convert range/index/new-axis and step into SliceInfoElem
-    (@convert $r:expr, $s:expr) => {
-        <$crate::SliceInfoElem as ::core::convert::From<_>>::from(
-            <$crate::Slice as ::core::convert::From<_>>::from($r).step_by($s as isize)
-        )
-    };
-    ($($t:tt)*) => {
-        $crate::s![@parse
-              ::core::marker::PhantomData::<$crate::Ix0>,
-              ::core::marker::PhantomData::<$crate::Ix0>,
-              []
-              $($t)*
-        ]
-    };
-);
+}

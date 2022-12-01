@@ -2,17 +2,18 @@ use crate::backend::*;
 use crate::data::{SelectInfoElem, DynScalar, ReadData, WriteData};
 use crate::data::slice::BoundedSelectInfoElem;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use ndarray::{ArrayView, Array, Array1, ArrayD, Dimension};
 use std::collections::HashMap;
 use std::ops::Index;
 
 /// TODO: consider using smallvec
+#[derive(Clone, Debug)]
 pub struct Shape(Vec<usize>);
 
 impl Shape {
-    pub fn len(&self) -> usize {
+    pub fn ndim(&self) -> usize {
         self.0.len()
     }
 }
@@ -82,38 +83,61 @@ pub enum DynArray {
     Categorical(CategoricalArray),
 }
 
+impl From<CategoricalArray> for DynArray {
+    fn from(cat: CategoricalArray) -> Self {
+        Self::Categorical(cat)
+    }
+}
+
+impl TryFrom<DynArray> for CategoricalArray {
+    type Error = anyhow::Error;
+
+    fn try_from(v: DynArray) -> Result<Self> {
+        match v {
+            DynArray::Categorical(cat) => Ok(cat),
+            _ => bail!("Cannot convert {:?} to CategoricalArray", v),
+        }
+    }
+}
+
 macro_rules! impl_dyn_array_convert {
     ($from_type:ty, $to_type:ident) => {
-        impl From<$from_type> for DynArray {
-            fn from(data: $from_type) -> Self {
-                DynArray::$to_type(data)
+        impl<D: Dimension> From<Array<$from_type, D>> for DynArray {
+            fn from(data: Array<$from_type, D>) -> Self {
+                DynArray::$to_type(data.into_dyn())
             }
         }
-        impl TryInto<$from_type> for DynArray {
+
+        impl<D: Dimension> TryFrom<DynArray> for Array<$from_type, D> {
             type Error = anyhow::Error;
-            fn try_into(self) -> Result<$from_type, Self::Error> {
-                match self {
-                    DynArray::$to_type(data) => Ok(data),
-                    _ => bail!("Cannot convert DynArray to $from_type"),
+            fn try_from(v: DynArray) -> Result<Self, Self::Error> {
+                match v {
+                    DynArray::$to_type(data) => {
+                        let arr: ArrayD<$from_type> = data.try_into()?;
+                        if let Some(n) = D::NDIM {
+                            ensure!(arr.ndim() == n, format!("Dimension mismatch: {} (in) != {} (out)", arr.ndim(), n));
+                        }
+                        Ok(arr.into_dimensionality::<D>()?)
+                    },
+                    _ => bail!("Cannot convert {:?} to ArrayD<$from_type>", v),
                 }
             }
         }
     };
 }
 
-impl_dyn_array_convert!(ArrayD<i8>, I8);
-impl_dyn_array_convert!(ArrayD<i16>, I16);
-impl_dyn_array_convert!(ArrayD<i32>, I32);
-impl_dyn_array_convert!(ArrayD<i64>, I64);
-impl_dyn_array_convert!(ArrayD<u8>, U8);
-impl_dyn_array_convert!(ArrayD<u16>, U16);
-impl_dyn_array_convert!(ArrayD<u32>, U32);
-impl_dyn_array_convert!(ArrayD<u64>, U64);
-impl_dyn_array_convert!(ArrayD<f32>, F32);
-impl_dyn_array_convert!(ArrayD<f64>, F64);
-impl_dyn_array_convert!(ArrayD<bool>, Bool);
-impl_dyn_array_convert!(ArrayD<String>, String);
-impl_dyn_array_convert!(CategoricalArray, Categorical);
+impl_dyn_array_convert!(i8, I8);
+impl_dyn_array_convert!(i16, I16);
+impl_dyn_array_convert!(i32, I32);
+impl_dyn_array_convert!(i64, I64);
+impl_dyn_array_convert!(u8, U8);
+impl_dyn_array_convert!(u16, U16);
+impl_dyn_array_convert!(u32, U32);
+impl_dyn_array_convert!(u64, U64);
+impl_dyn_array_convert!(f32, F32);
+impl_dyn_array_convert!(f64, F64);
+impl_dyn_array_convert!(bool, Bool);
+impl_dyn_array_convert!(String, String);
 
 impl WriteData for DynArray {
     fn write<B: Backend, G: GroupOp<Backend = B>>(

@@ -311,30 +311,46 @@ fn read_scalar<T: BackendData>(dataset: &Dataset) -> Result<T> {
     BackendData::from_dyn(val)
 }
 
-fn read_array<T: BackendData, S, E, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
+fn read_array<T, S, E, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
 where
+    T: BackendData,
     S: AsRef<[E]>,
     E: AsRef<SelectInfoElem>,
     D: Dimension,
 {
-    let select = into_selection(selection, &dataset.shape()?);
-    let array: DynArray = match T::DTYPE {
-        ScalarType::I8 => hdf5::Container::read_slice::<i8, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::I16 => hdf5::Container::read_slice::<i16, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::I32 => hdf5::Container::read_slice::<i32, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::I64 => hdf5::Container::read_slice::<i64, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::U8 => hdf5::Container::read_slice::<u8, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::U16 => hdf5::Container::read_slice::<u16, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::U32 => hdf5::Container::read_slice::<u32, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::U64 => hdf5::Container::read_slice::<u64, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::F32 => hdf5::Container::read_slice::<f32, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::F64 => hdf5::Container::read_slice::<f64, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::Bool => hdf5::Container::read_slice::<bool, _, IxDyn>(dataset, select)?.into(),
-        ScalarType::String => {
-            let s = hdf5::Container::read_slice::<VarLenUnicode, _, IxDyn>(dataset, select)?;
-            let s = s.map(|s| s.to_string());
-            s.into()
+    fn read_arr<T, S, E, D>(dataset: &Dataset, selection: S) -> Result<Array<T, D>>
+    where
+        T: H5Type,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        D: Dimension,
+    {
+        let (select, shape) = into_selection(selection, dataset.shape()?);
+        if matches!(select, Selection::Points(_)) {
+            let slice_1d = hdf5::Container::read_slice_1d::<T, _>(dataset, select)?;
+            Ok(slice_1d.into_shape(shape.as_ref())?.into_dimensionality::<D>()?)
+        } else {
+            Ok(hdf5::Container::read_slice::<T, _, D>(dataset, select)?)
         }
+    }
+
+    let array: DynArray = match T::DTYPE {
+        ScalarType::I8 => read_arr::<i8, _, _, D>(dataset, selection)?.into(),
+        ScalarType::I16 => read_arr::<i16, _, _, D>(dataset, selection)?.into(),
+        ScalarType::I32 => read_arr::<i32, _, _, D>(dataset, selection)?.into(),
+        ScalarType::I64 => read_arr::<i64, _, _, D>(dataset, selection)?.into(),
+        ScalarType::U8 => read_arr::<u8, _, _, D>(dataset, selection)?.into(),
+        ScalarType::U16 => read_arr::<u16, _, _, D>(dataset, selection)?.into(),
+        ScalarType::U32 => read_arr::<u32, _, _, D>(dataset, selection)?.into(),
+        ScalarType::U64 => read_arr::<u64, _, _, D>(dataset, selection)?.into(),
+        ScalarType::F32 => read_arr::<f32, _, _, D>(dataset, selection)?.into(),
+        ScalarType::F64 => read_arr::<f64, _, _, D>(dataset, selection)?.into(),
+        ScalarType::Bool => read_arr::<bool, _, _, D>(dataset, selection)?.into(),
+        ScalarType::String => {
+            let arr = read_arr::<VarLenUnicode, _, _, D>(dataset, selection)?;
+            let arr = arr.map(|s| s.to_string());
+            arr.into()
+        },
     };
     Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
 }
@@ -457,20 +473,21 @@ where
     }
 }
 
-fn into_selection<S, E>(selection: S, shape: &Shape) -> Selection
+fn into_selection<S, E>(selection: S, shape: Shape) -> (Selection, Shape)
 where
     S: AsRef<[E]>,
     E: AsRef<SelectInfoElem>,
 {
     if selection.as_ref().into_iter().all(|x| x.as_ref().is_full()) {
-        Selection::All
+        (Selection::All, shape)
     } else {
-        let bounded_selection = BoundedSelectInfo::new(&selection, shape).unwrap();
+        let bounded_selection = BoundedSelectInfo::new(&selection, &shape).unwrap();
+        let out_shape = bounded_selection.out_shape();
         if let Some(idx) = bounded_selection.try_into_indices() {
-            Selection::from(idx)
+            (Selection::from(idx), out_shape)
         } else {
             let slice: SliceInfo<_, _, _> = bounded_selection.try_into().unwrap();
-            Selection::try_from(slice).unwrap()
+            (Selection::try_from(slice).unwrap(), out_shape)
         }
     }
 }

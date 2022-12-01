@@ -1,10 +1,9 @@
-use anndata_rs::anndata::{AnnData, AnnDataOp};
+use anndata_rs::*;
 use anndata_rs::backend::hdf5::H5;
-use anndata_rs::data::*;
 
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
-use ndarray::{s, Array, Array2, Array3, ArrayD, SliceInfo};
+use ndarray::{Array, Array1, Array2, Array3};
 use criterion::BenchmarkId;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hdf5::*;
@@ -36,21 +35,28 @@ fn bench_array_io(c: &mut Criterion) {
         let mut group = c.benchmark_group("Array IO");
 
         // Prepare data
-        let adata: AnnData<H5> = AnnData::new(file, 0, 0).unwrap();
-        let arr: Array3<i32> = Array::random((200, 300, 10), Uniform::new(0, 100));
+        let n = 200;
+        let m = 300;
+        let z = 10;
+        let adata: AnnData<H5> = AnnData::new(file, n, m).unwrap();
+        let arr: Array3<i32> = Array::random((n, m, z), Uniform::new(-100, 100));
+        let fancy_d1: Array1<usize> = Array::random((30,), Uniform::new(0, n-1));
+        let fancy_d2: Array1<usize> = Array::random((40,), Uniform::new(0, m-1));
         adata.set_x(&arr).unwrap();
-        let selection = s![3..33, 4..44, ..].as_ref().iter().collect::<SelectInfo>();
 
         group.bench_function(
             BenchmarkId::new("read full", "200 x 300 x 10"),
-            |b| b.iter(|| adata.read_x().unwrap().unwrap()),
+            |b| b.iter(|| adata.read_x::<ArrayData>().unwrap().unwrap()),
         );
 
-        group.bench_with_input(
+        group.bench_function(
             BenchmarkId::new("read slice", "30 x 40 x 10"),
-            &selection,
-            |b, i| b.iter(|| 
-                adata.read_x_slice(i).unwrap().unwrap())
+            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![3..33, 4..44, ..]).unwrap().unwrap())
+        );
+
+        group.bench_function(
+            BenchmarkId::new("read fancy", "30 x 40 x 10"),
+            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
         );
 
         group.finish();
