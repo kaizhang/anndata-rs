@@ -11,6 +11,7 @@ repository = "https://github.com/kaizhang/anndata-rs"
 homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
+anyhow = "1.0"
 flate2 = "1.0"
 indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
@@ -20,11 +21,11 @@ libz-sys = { version = "1", features = ["zlib-ng"], default-features = false, op
 ndarray = "0.15"
 nalgebra-sparse = "0.8"
 downcast-rs = "1.2"
-polars = { version = "0.25", features = ["decompress", "ndarray", "dtype-full"] }
+polars = { version = "0.25", features = ["lazy", "decompress", "ndarray", "dtype-full"] }
 paste = "1.0"
 parking_lot = "0.12"
 replace_with = "0.1"
-anyhow = "1.0"
+smallvec = "1.10"
 rayon = "1.5"
 
 [dev-dependencies]

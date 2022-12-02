@@ -53,12 +53,21 @@ macro_rules! impl_into_array_data {
                 }
             }
 
-            impl<D: Dimension> TryFrom<ArrayData>  for Array<$ty, D> {
+            impl<D: Dimension> TryFrom<ArrayData> for Array<$ty, D> {
                 type Error = anyhow::Error;
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
                         ArrayData::Array(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to ArrayD<$ty>", value),
+                        _ => bail!("Cannot convert {:?} to $ty Array", value),
+                    }
+                }
+            }
+            impl TryFrom<ArrayData> for CsrMatrix<$ty> {
+                type Error = anyhow::Error;
+                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+                    match value {
+                        ArrayData::CsrMatrix(data) => data.try_into(),
+                        _ => bail!("Cannot convert {:?} to $ty CsrMatrix", value),
                     }
                 }
             }

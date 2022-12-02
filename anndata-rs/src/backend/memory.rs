@@ -7,24 +7,21 @@ use crate::{
 };
 
 use anyhow::{bail, Result};
-use hdf5::{
-    Location,
-    dataset::Dataset,
-    types::IntSize::*,
-    types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
-    File, Group, H5Type, Selection,
-};
 use ndarray::{Array, ArrayView, Dimension, SliceInfo};
 use std::path::{Path, PathBuf};
 
-pub struct H5;
+/// In-memory backend.
+pub struct Mem;
 
-impl Backend for H5 {
+pub struct File;
+pub struct Group;
+pub struct Dataset;
+
+impl Backend for Mem {
     type File = File;
 
     type Group = Group;
 
-    /// datasets contain arrays.
     type Dataset = Dataset;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File> {

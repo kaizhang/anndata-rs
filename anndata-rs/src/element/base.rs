@@ -4,17 +4,18 @@ use crate::{
     data::*,
 };
 
-use anyhow::{bail, ensure, Ok, Result};
+use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use ndarray::Ix1;
 use parking_lot::{Mutex, MutexGuard};
-use polars::frame::DataFrame;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use polars::{series::Series, frame::DataFrame, prelude::{IntoLazy, concat}};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
+use itertools::Itertools;
 use std::{
-    collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use smallvec::SmallVec;
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
 /// Encapsulating an object inside a slot allows us to drop the object from all references.
@@ -146,6 +147,14 @@ impl<B: Backend> InnerDataFrameElem<B> {
         self.index.len()
     }
 
+    pub fn column(&mut self, name: &str) -> Result<&Series> {
+        self.data().and_then(|x| Ok(x.column(name)?))
+    }
+
+    pub fn get_column_names(&self) -> &IndexSet<String> {
+        &self.column_names
+    }
+
     pub fn set_index(&mut self, index: DataFrameIndex) -> Result<()> {
         ensure!(
             self.index.len() == index.len(),
@@ -156,13 +165,13 @@ impl<B: Backend> InnerDataFrameElem<B> {
         Ok(())
     }
 
-    pub fn data(&mut self) -> Result<DataFrame> {
+    pub fn data(&mut self) -> Result<&DataFrame> {
         match self.element {
-            Some(ref df) => Ok(df.clone()),
+            Some(ref df) => Ok(df),
             None => {
                 let df = DataFrame::read(&self.container)?;
-                self.element = Some(df.clone());
-                Ok(df)
+                self.element = Some(df);
+                Ok(&self.element.as_ref().unwrap())
             }
         }
     }
@@ -206,7 +215,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
             DataType::DataFrame => {
                 //let grp = container.as_group()?;
                 let index = DataFrameIndex::read(&container)?;
-                let column_names = container.read_str_arr_attr::<Ix1>("column_order")?.into_raw_vec().into_iter().collect();
+                let column_names = container.read_arr_attr::<String, Ix1>("column_order")?.into_raw_vec().into_iter().collect();
                 let df = InnerDataFrameElem {
                     element: None,
                     container,
@@ -221,14 +230,6 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
 }
 
 /*
-
-    pub fn column(&self, name: &str) -> Result<Series> {
-        self.with_data_ref(|x| x.unwrap().1.column(name).unwrap().clone())
-    }
-
-    pub fn get_column_names(&self) -> Option<IndexSet<String>> {
-        self.lock().as_ref().map(|x| x.column_names.clone())
-    }
 
     pub fn subset_rows(&self, idx: &[usize]) -> Result<()> {
         let subset = self
@@ -439,13 +440,190 @@ pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
 }
 */
 
-/*
-/// This struct is used to perform index lookup for Vectors of Vectors.
-pub struct VecVecIndex(Vec<usize>);
+/// Horizontal concatenated dataframe elements. 
+#[derive(Clone)]
+pub struct StackedDataFrame<B: Backend> {
+    pub column_names: IndexSet<String>,
+    pub elems: Arc<Vec<DataFrameElem<B>>>,
+}
+
+impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "stacked dataframe with columns: '{}'",
+            self.column_names.iter().join("', '")
+        )
+    }
+}
+
+impl<B: Backend> StackedDataFrame<B> {
+    pub fn new(elems: Vec<DataFrameElem<B>>) -> Result<Self> {
+        if elems.iter().all(|x| x.is_empty())  {
+            Ok(Self { column_names: IndexSet::new(), elems: Arc::new(elems) })
+        } else if elems.iter().all(|x| !x.is_empty()) {
+            let column_names = elems
+                .iter()
+                .map(|x| x.inner().get_column_names().clone())
+                .reduce(|shared_keys, next_keys| {
+                    shared_keys
+                        .intersection(&next_keys)
+                        .map(|x| x.to_owned())
+                        .collect()
+                })
+                .unwrap_or(IndexSet::new());
+            Ok(Self {
+                column_names,
+                elems: Arc::new(elems),
+            })
+        } else {
+            bail!("slots must be either all empty or all full");
+        }
+    }
+        
+    pub fn data(&self) -> Result<DataFrame> {
+        let mut merged = DataFrame::empty();
+        self.elems.iter().try_for_each(|el| {
+            if let Some(el) = el.lock().as_mut() {
+                merged.vstack_mut(el.data()?)?;
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
+        merged.rechunk();
+        Ok(merged)
+    }
+
+    pub fn par_data(&self) -> Result<DataFrame> {
+        let dfs = self.elems.par_iter().flat_map(|el| 
+            el.lock().as_mut().map(|el| el.data().unwrap().clone().lazy())
+        ).collect::<Vec<_>>();
+        Ok(concat(&dfs, true, true)?.collect()?)
+    }
+
+    pub fn column(&self, name: &str) -> Result<Series> {
+        if self.column_names.contains(name) {
+            Ok(self.data()?.column(name)?.clone())
+        } else {
+            bail!("key is not present");
+        }
+    }
+}
+
+
+// TODO: remove Arc.
+#[derive(Clone)]
+pub struct StackedArrayElem<B: Backend> {
+    shape: Shape,
+    pub(crate) elems: Arc<Vec<ArrayElem<B>>>,
+    index: VecVecIndex,
+}
+
+impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.elems.len() == 0 {
+            write!(f, "empty stacked elements")
+        } else {
+            write!(
+                f,
+                "{} stacked elements ({}) with {}",
+                self.shape,
+                self.elems.len(),
+                self.elems[0].inner().dtype(),
+            )
+        }
+    }
+}
+
+impl<B: Backend> StackedArrayElem<B> {
+    pub(crate) fn new(elems: Vec<ArrayElem<B>>) -> Result<Self>
+    {
+        ensure!(elems.iter().map(|x| x.lock().as_ref().map(|x| x.dtype())).all_equal(),
+            "all elements must have the same dtype");
+
+        let shapes: Vec<_> = elems.iter().map(|x| x.inner().shape().clone()).collect();
+        ensure!(shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
+            "all elements must have the same shape except for the first axis");
+        let index: VecVecIndex = shapes.iter().map(|x| x[0]).collect();
+        let mut shape = shapes[0].clone();
+        shape[0] = index.len();
+        Ok(Self {
+            shape,
+            elems: Arc::new(elems),
+            index,
+        })
+    }
+
+    pub fn shape(&self) -> &Shape {
+        &self.shape
+    }
+
+    /*
+    pub fn read(
+        &self,
+        ridx_: Option<&[usize]>,
+        cidx: Option<&[usize]>,
+    ) -> Result<ArrayData> {
+        match ridx_ {
+            Some(ridx) => {
+                let index = self.index.lock();
+                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx
+                    .iter()
+                    .map(|x| index.ix(x))
+                    .enumerate()
+                    .sorted_by_key(|x| x.1 .0)
+                    .into_iter()
+                    .group_by(|x| x.1 .0)
+                    .into_iter()
+                    .map(|(key, grp)| {
+                        let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
+                        (
+                            ori_idx,
+                            self.elems[key].read(Some(inner_idx.as_slice()), cidx),
+                        )
+                    })
+                    .unzip();
+                Ok(rstack_with_index(
+                    ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
+                    rows.into_iter().collect::<Result<_>>()?,
+                )?)
+            }
+            None => {
+                let mats: Result<Vec<_>> =
+                    self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
+                Ok(rstack(mats?)?)
+            }
+        }
+    }
+    */
+}
+ 
+
+/// This struct is used to perform index lookup for nested Vectors (vectors of vectors).
+#[derive(Clone)]
+pub(crate) struct VecVecIndex(SmallVec<[usize; 96]>);
 
 impl VecVecIndex {
+    pub fn new<T>(vec_of_vec: &[Vec<T>]) -> Self {
+        vec_of_vec.iter().map(|x| x.len()).collect()
+    }
+
     /// Find the outer and inner index for a given index corresponding to the
     /// flattened view.
+    /// 
+    /// # Example
+    /// 
+    /// ```
+    /// let vec_of_vec = vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]];
+    /// let flatten_view = vec![0, 1, 2, 3, 4, 5, 6];
+    /// let index = VecVecIndex::new(vec_of_vec);
+    /// assert_eq!(index.ix(0), (0, 0));
+    /// assert_eq!(index.ix(1), (0, 1));
+    /// assert_eq!(index.ix(2), (0, 2));
+    /// assert_eq!(index.ix(3), (1, 0));
+    /// assert_eq!(index.ix(4), (1, 1));
+    /// assert_eq!(index.ix(5), (2, 0));
+    /// assert_eq!(index.ix(6), (2, 1));
+    /// ```
     pub fn ix(&self, i: &usize) -> (usize, usize) {
         let j = self.outer_ix(i);
         (j, i - self.0[j])
@@ -493,7 +671,7 @@ impl FromIterator<usize> for VecVecIndex {
     where
         T: IntoIterator<Item = usize>,
     {
-        let index: Vec<usize> = std::iter::once(0)
+        let index: SmallVec<_> = std::iter::once(0)
             .chain(iter.into_iter().scan(0, |state, x| {
                 *state = *state + x;
                 Some(*state)
@@ -502,117 +680,10 @@ impl FromIterator<usize> for VecVecIndex {
         VecVecIndex(index)
     }
 }
-*/
 
 /*
-impl<T> From<&[T]> for VecVecIndex {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = usize>,
-    {
-        let accum: Vec<usize> = std::iter::once(0).chain(
-            iter.into_iter().scan(0, |state, x| {
-                *state = *state + x;
-                Some(*state)
-            })
-        ).collect();
-        VecVecIndex(accum)
-    }
-}
-*/
-
 /*
-// TODO: remove Arc.
-#[derive(Clone)]
-pub struct StackedArrayElem<B: Backend> {
-    nrows: Arc<Mutex<usize>>,
-    ncols: Arc<Mutex<usize>>,
-    pub elems: Arc<Vec<ArrayElem<B>>>,
-    index: Arc<Mutex<VecVecIndex>>,
-}
-
-impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.elems.len() == 0 {
-            write!(f, "empty stacked elements")
-        } else {
-            write!(
-                f,
-                "{} x {} stacked elements ({}) with {}",
-                *self.nrows.lock(),
-                *self.ncols.lock(),
-                self.elems.len(),
-                self.elems[0].dtype().unwrap(),
-            )
-        }
-    }
-}
-
-/*
-impl<B: Backend> StackedArrayElem<B> {
-    pub(crate) fn new(
-        elems: Vec<ArrayElem<B>>,
-        nrows: Arc<Mutex<usize>>,
-        ncols: Arc<Mutex<usize>>,
-        index: Arc<Mutex<VecVecIndex>>,
-    ) -> Result<Self> {
-        if !elems.iter().map(|x| x.dtype()).all_equal() {
-            bail!("dtype not equal")
-        } else {
-            Ok(Self {
-                nrows,
-                ncols,
-                elems: Arc::new(elems),
-                index,
-            })
-        }
-    }
-
-    pub fn nrows(&self) -> usize {
-        *self.nrows.lock()
-    }
-    pub fn ncols(&self) -> usize {
-        *self.ncols.lock()
-    }
-
-    pub fn read(
-        &self,
-        ridx_: Option<&[usize]>,
-        cidx: Option<&[usize]>,
-    ) -> Result<ArrayData> {
-        match ridx_ {
-            Some(ridx) => {
-                let index = self.index.lock();
-                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx
-                    .iter()
-                    .map(|x| index.ix(x))
-                    .enumerate()
-                    .sorted_by_key(|x| x.1 .0)
-                    .into_iter()
-                    .group_by(|x| x.1 .0)
-                    .into_iter()
-                    .map(|(key, grp)| {
-                        let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
-                        (
-                            ori_idx,
-                            self.elems[key].read(Some(inner_idx.as_slice()), cidx),
-                        )
-                    })
-                    .unzip();
-                Ok(rstack_with_index(
-                    ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
-                    rows.into_iter().collect::<Result<_>>()?,
-                )?)
-            }
-            None => {
-                let mats: Result<Vec<_>> =
-                    self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
-                Ok(rstack(mats?)?)
-            }
-        }
-    }
-
-    pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
+   pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
         StackedChunkedMatrix::new(self.elems.iter().map(|x| x.clone()), chunk_size)
     }
 
@@ -622,63 +693,6 @@ impl<B: Backend> StackedArrayElem<B> {
 
     pub fn disable_cache(&self) {
         self.elems.iter().for_each(|x| x.disable_cache())
-    }
-}
-
-#[derive(Clone)]
-pub struct StackedDataFrame {
-    pub column_names: IndexSet<String>,
-    pub elems: Arc<Vec<DataFrameElem>>,
-}
-
-impl std::fmt::Display for StackedDataFrame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "stacked dataframe with columns: '{}'",
-            self.column_names.iter().join("', '")
-        )
-    }
-}
-
-impl StackedDataFrame {
-    pub fn new(elems: Vec<DataFrameElem>) -> Self {
-        let column_names = elems
-            .iter()
-            .map(|x| x.get_column_names().unwrap_or(IndexSet::new()))
-            .reduce(|shared_keys, next_keys| {
-                shared_keys
-                    .intersection(&next_keys)
-                    .map(|x| x.to_owned())
-                    .collect()
-            })
-            .unwrap_or(IndexSet::new());
-        Self {
-            column_names,
-            elems: Arc::new(elems),
-        }
-    }
-
-    pub fn read(&self) -> Result<DataFrame> {
-        let mut merged = DataFrame::empty();
-        self.elems.iter().for_each(|el| {
-            el.with_data_mut_ref(|x| {
-                if let Some((_, df)) = x {
-                    merged.vstack_mut(df).unwrap();
-                }
-            })
-            .unwrap();
-        });
-        merged.rechunk();
-        Ok(merged)
-    }
-
-    pub fn column(&self, name: &str) -> Result<Series> {
-        if self.column_names.contains(name) {
-            Ok(self.read()?.column(name)?.clone())
-        } else {
-            bail!("key is not present");
-        }
     }
 }
 

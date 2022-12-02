@@ -7,14 +7,15 @@ use core::fmt::{Display, Formatter};
 use ndarray::{Array, ArrayD, ArrayView, Dimension};
 use std::path::{Path, PathBuf};
 
-pub trait Backend {
-    type File: FileOp<Backend = Self> + GroupOp<Backend = Self>;
+pub trait Backend: Send {
+    /// File represents the root of the hierarchy.
+    type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send;
 
-    /// Groups work like dictionaries.
-    type Group: GroupOp<Backend = Self> + LocationOp<Backend = Self>;
+    /// Groups work like directories and can contain groups or datasets.
+    type Group: GroupOp<Backend = Self> + LocationOp<Backend = Self> + Send;
 
-    /// datasets contain arrays.
-    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend = Self>;
+    /// Datasets store multi-dimensional arrays.
+    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend = Self> + Send;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
 }
@@ -60,13 +61,14 @@ pub trait LocationOp {
     fn path(&self) -> PathBuf;
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
-    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
+    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
-        A: Into<ArrayView<'a, String, D>>,
-        D: ndarray::Dimension;
+        A: Into<ArrayView<'a, D, Dim>>,
+        D: BackendData,
+        Dim: Dimension;
 
     fn read_str_attr(&self, name: &str) -> Result<String>;
-    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>>;
+    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
 }
 
 pub trait DatasetOp {
@@ -128,6 +130,7 @@ pub enum ScalarType {
     U16,
     U32,
     U64,
+    Usize,
     F32,
     F64,
     Bool,
@@ -145,6 +148,7 @@ impl Display for ScalarType {
             ScalarType::U16 => write!(f, "u16"),
             ScalarType::U32 => write!(f, "u32"),
             ScalarType::U64 => write!(f, "u64"),
+            ScalarType::Usize => write!(f, "usize"),
             ScalarType::F32 => write!(f, "f32"),
             ScalarType::F64 => write!(f, "f64"),
             ScalarType::Bool => write!(f, "bool"),
@@ -174,20 +178,20 @@ impl<B: Backend> LocationOp for DataContainer<B> {
         }
     }
 
+    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+        where
+            A: Into<ArrayView<'a, D, Dim>>,
+            D: BackendData,
+            Dim: Dimension {
+        match self {
+            DataContainer::Group(g) => g.write_arr_attr(name, value),
+            DataContainer::Dataset(d) => d.write_arr_attr(name, value),
+        }   
+    }
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
         match self {
             DataContainer::Group(g) => g.write_str_attr(name, value),
             DataContainer::Dataset(d) => d.write_str_attr(name, value),
-        }
-    }
-    fn write_str_arr_attr<'a, A, D>(&self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, String, D>>,
-        D: ndarray::Dimension,
-    {
-        match self {
-            DataContainer::Group(g) => g.write_str_arr_attr(name, value),
-            DataContainer::Dataset(d) => d.write_str_arr_attr(name, value),
         }
     }
 
@@ -197,10 +201,10 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.read_str_attr(name),
         }
     }
-    fn read_str_arr_attr<D>(&self, name: &str) -> Result<Array<String, D>> {
+    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
-            DataContainer::Group(g) => g.read_str_arr_attr(name),
-            DataContainer::Dataset(d) => d.read_str_arr_attr(name),
+            DataContainer::Group(g) => g.read_arr_attr(name),
+            DataContainer::Dataset(d) => d.read_arr_attr(name),
         }
     }
 }
@@ -499,6 +503,34 @@ impl BackendData for u64 {
     }
 }
 
+impl BackendData for usize {
+    const DTYPE: ScalarType = ScalarType::Usize;
+
+    fn into_dyn(&self) -> DynScalar {
+        DynScalar::Usize(*self)
+    }
+
+    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
+        DynArrayView::Usize(arr)
+    }
+
+    fn from_dyn(x: DynScalar) -> Result<Self> {
+        if let DynScalar::Usize(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting usize")
+        }
+    }
+
+    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
+        if let DynArray::Usize(x) = x {
+            Ok(x)
+        } else {
+            bail!("Expecting usize array")
+        }
+    }
+}
+
 impl BackendData for f32 {
     const DTYPE: ScalarType = ScalarType::F32;
 
@@ -620,6 +652,7 @@ pub enum DynArrayView<'a, D> {
     U16(ArrayView<'a, u16, D>),
     U32(ArrayView<'a, u32, D>),
     U64(ArrayView<'a, u64, D>),
+    Usize(ArrayView<'a, usize, D>),
     F32(ArrayView<'a, f32, D>),
     F64(ArrayView<'a, f64, D>),
     String(ArrayView<'a, String, D>),

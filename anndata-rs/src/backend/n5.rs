@@ -19,7 +19,7 @@ pub struct N5;
 impl Backend for N5 {
     type File = N5Filesystem;
 
-    type Group = Group;
+    type Group = N5Filesystem;
 
     /// datasets contain arrays.
     type Dataset = Dataset;

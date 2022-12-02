@@ -53,29 +53,43 @@ pub trait AnnDataOp {
     fn varm_keys(&self) -> Vec<String>;
     fn varp_keys(&self) -> Vec<String>;
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Data>>;
-    fn read_obsm_item(&self, key: &str) -> Result<Option<ArrayData>>;
-    fn read_obsp_item(&self, key: &str) -> Result<Option<ArrayData>>;
-    fn read_varm_item(&self, key: &str) -> Result<Option<ArrayData>>;
-    fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>>;
-
-    fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(
+    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>;
+    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;  
+    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
+    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
         key: &str,
         data: D,
     ) -> Result<()>;
-    fn add_obsp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(
+    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
         key: &str,
         data: D,
     ) -> Result<()>;
-    fn add_varm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(
+    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
         key: &str,
         data: D,
     ) -> Result<()>;
-    fn add_varp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(
+    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
         key: &str,
         data: D,

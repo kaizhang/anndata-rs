@@ -1,24 +1,20 @@
 use crate::{
-    traits::AnnDataOp,
+    backend::{Backend, FileOp, GroupOp},
     data::*,
-    element::{*, collection::InnerElemCollection},
     element::{
-        base::{InnerDataFrameElem},
-        collection::{AxisArrays, InnerAxisArrays},
+        ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection, InnerDataFrameElem, Slot,
     },
-    backend::{Backend, GroupOp, FileOp},
+    traits::AnnDataOp,
 };
 
-use anyhow::{ensure, bail, Context, Result};
-use indexmap::map::IndexMap;
+use anyhow::{ensure, Context, Result};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use paste::paste;
-use polars::prelude::{DataFrame, NamedFrom, Series};
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+use polars::prelude::DataFrame;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
 };
-use std::{collections::HashMap, ops::Deref, path::{Path, PathBuf}, sync::Arc};
 
 pub struct AnnData<B: Backend> {
     pub(crate) file: B::File,
@@ -34,7 +30,6 @@ pub struct AnnData<B: Backend> {
     pub(crate) uns: ElemCollection<B>,
 }
 
-/*
 impl<B: Backend> std::fmt::Display for AnnData<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -42,14 +37,14 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
             "AnnData object with n_obs x n_vars = {} x {} backed at '{}'",
             self.n_obs(),
             self.n_vars(),
-            self.filename(),
+            self.filename().to_str().unwrap().to_string(),
         )?;
-        if let Some(obs) = self.obs.get_column_names() {
+        if let Some(obs) = self.obs.lock().as_ref().map(|x| x.get_column_names()) {
             if !obs.is_empty() {
                 write!(f, "\n    obs: '{}'", obs.into_iter().join("', '"))?;
             }
         }
-        if let Some(var) = self.var.get_column_names() {
+        if let Some(var) = self.var.lock().as_ref().map(|x| x.get_column_names()) {
             if !var.is_empty() {
                 write!(f, "\n    var: '{}'", var.into_iter().join("', '"))?;
             }
@@ -82,39 +77,6 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
         Ok(())
     }
 }
-*/
-
-/*
-macro_rules! anndata_setter {
-    ($(($field:ident, $ty:ty, $n:ident)),*) => {
-        paste! {
-            $(
-            pub fn [<set_ $field>](
-                &self,
-                data_: Option<HashMap<String, Box<dyn ArrayData>>>,
-            ) -> Result<()>
-            {
-                let mut guard = self.$field.inner();
-                let field = stringify!($field);
-                if guard.0.is_some() { self.file.unlink(field)?; }
-                match data_ {
-                    None => { *guard.0 = None; },
-                    Some(data) => {
-                        let container = self.file.create_group(field)?;
-                        let item = Slot::new(InnerAxisArrays::new(container, $ty, self.$n.clone()));
-                        for (key, val) in data.into_iter() {
-                            item.add_data(&key, val)?;
-                        }
-                        *guard.0 = Some(item.extract().unwrap());
-                    },
-                }
-                Ok(())
-            }
-            )*
-        }
-    }
-}
-*/
 
 impl<B: Backend> AnnData<B> {
     pub fn get_x(&self) -> &ArrayElem<B> {
@@ -145,7 +107,7 @@ impl<B: Backend> AnnData<B> {
     pub fn set_n_obs(&self, n: usize) {
         let mut n_obs = self.n_obs.lock();
         if *n_obs != n {
-            let obs_is_none= self.obs.is_empty()
+            let obs_is_none = self.obs.is_empty()
                 && self.x.is_empty()
                 && (self.obsm.is_empty() || self.obsm.inner().is_empty())
                 && (self.obsp.is_empty() || self.obsp.inner().is_empty());
@@ -164,7 +126,7 @@ impl<B: Backend> AnnData<B> {
     pub fn set_n_vars(&self, n: usize) {
         let mut n_vars = self.n_vars.lock();
         if *n_vars != n {
-            let var_is_none= self.var.is_empty()
+            let var_is_none = self.var.is_empty()
                 && self.x.is_empty()
                 && (self.varm.is_empty() || self.varm.inner().is_empty())
                 && (self.varp.is_empty() || self.varp.inner().is_empty());
@@ -199,7 +161,7 @@ impl<B: Backend> AnnData<B> {
         })
     }
 
-    pub fn filename(&self) -> PathBuf{
+    pub fn filename(&self) -> PathBuf {
         self.file.filename()
     }
 
@@ -224,25 +186,65 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
     {
-        self.x.lock().as_mut().map(|x| x.subset(&selection)).transpose()?;
+        self.x
+            .lock()
+            .as_mut()
+            .map(|x| x.subset(&selection))
+            .transpose()?;
 
-        selection.as_ref().get(0).map(|i| {
-            self.obs.lock().as_mut().map(|x| x.subset_rows(i)).transpose()?;
-            self.obsm.lock().as_ref().map(|obsm| obsm.subset(i)).transpose()?;
-            self.obsp.lock().as_ref().map(|obsp| obsp.subset(i)).transpose()?;
-            let mut n_obs = self.n_obs.lock();
-            *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs).unwrap().len();
-            Ok::<(), anyhow::Error>(())
-        }).transpose()?;
+        selection
+            .as_ref()
+            .get(0)
+            .map(|i| {
+                self.obs
+                    .lock()
+                    .as_mut()
+                    .map(|x| x.subset_rows(i))
+                    .transpose()?;
+                self.obsm
+                    .lock()
+                    .as_ref()
+                    .map(|obsm| obsm.subset(i))
+                    .transpose()?;
+                self.obsp
+                    .lock()
+                    .as_ref()
+                    .map(|obsp| obsp.subset(i))
+                    .transpose()?;
+                let mut n_obs = self.n_obs.lock();
+                *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs)
+                    .unwrap()
+                    .len();
+                Ok::<(), anyhow::Error>(())
+            })
+            .transpose()?;
 
-        selection.as_ref().get(1).map(|i| {
-            self.var.lock().as_mut().map(|x| x.subset_rows(i)).transpose()?;
-            self.varm.lock().as_ref().map(|varm| varm.subset(i)).transpose()?;
-            self.varp.lock().as_ref().map(|varp| varp.subset(i)).transpose()?;
-            let mut n_vars = self.n_vars.lock();
-            *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars).unwrap().len();
-            Ok::<(), anyhow::Error>(())
-        }).transpose()?;
+        selection
+            .as_ref()
+            .get(1)
+            .map(|i| {
+                self.var
+                    .lock()
+                    .as_mut()
+                    .map(|x| x.subset_rows(i))
+                    .transpose()?;
+                self.varm
+                    .lock()
+                    .as_ref()
+                    .map(|varm| varm.subset(i))
+                    .transpose()?;
+                self.varp
+                    .lock()
+                    .as_ref()
+                    .map(|varp| varp.subset(i))
+                    .transpose()?;
+                let mut n_vars = self.n_vars.lock();
+                *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars)
+                    .unwrap()
+                    .len();
+                Ok::<(), anyhow::Error>(())
+            })
+            .transpose()?;
         Ok(())
     }
 }
@@ -277,7 +279,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
         let shape = data.shape();
-        ensure!(shape.ndim() >= 2, "X must be a N dimensional array, where N >= 2");
+        ensure!(
+            shape.ndim() >= 2,
+            "X must be a N dimensional array, where N >= 2"
+        );
         self.set_n_obs(shape[0]);
         self.set_n_vars(shape[1]);
         if !self.x.is_empty() {
@@ -304,11 +309,17 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn obs_names(&self) -> Vec<String> {
-        self.obs.lock().as_ref().map_or(Vec::new(), |obs| obs.index.names.clone())
+        self.obs
+            .lock()
+            .as_ref()
+            .map_or(Vec::new(), |obs| obs.index.names.clone())
     }
 
     fn var_names(&self) -> Vec<String> {
-        self.var.lock().as_ref().map_or(Vec::new(), |var| var.index.names.clone())
+        self.var
+            .lock()
+            .as_ref()
+            .map_or(Vec::new(), |var| var.index.names.clone())
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
@@ -360,15 +371,23 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn read_obs(&self) -> Result<DataFrame> {
-        self.get_obs().lock().as_mut().map_or(Ok(DataFrame::empty()), |x| x.data())
+        self.get_obs()
+            .lock()
+            .as_mut()
+            .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
     }
     fn read_var(&self) -> Result<DataFrame> {
-        self.get_var().lock().as_mut().map_or(Ok(DataFrame::empty()), |x| x.data())
+        self.get_var()
+            .lock()
+            .as_mut()
+            .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
     }
     fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
         if let Some(obs) = obs_ {
             let nrows = obs.height();
-            if nrows != 0 { self.set_n_obs(nrows); }
+            if nrows != 0 {
+                self.set_n_obs(nrows);
+            }
             if self.obs.is_empty() {
                 self.obs.insert(InnerDataFrameElem::new(
                     &self.file,
@@ -391,7 +410,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
         if let Some(var) = var_ {
             let nrows = var.height();
-            if nrows != 0 { self.set_n_vars(nrows); }
+            if nrows != 0 {
+                self.set_n_vars(nrows);
+            }
             if self.var.is_empty() {
                 self.var.insert(InnerDataFrameElem::new(
                     &self.file,
@@ -447,7 +468,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .unwrap_or(Vec::new())
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Data>> {
+    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>
+    {
         self.get_uns()
             .lock()
             .as_mut()
@@ -455,7 +480,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<ArrayData>> {
+    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
         self.get_obsm()
             .lock()
             .as_mut()
@@ -463,7 +492,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<ArrayData>> {
+    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
         self.get_obsp()
             .lock()
             .as_mut()
@@ -471,7 +503,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_varm_item(&self, key: &str) -> Result<Option<ArrayData>> {
+    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
         self.get_varm()
             .lock()
             .as_mut()
@@ -479,7 +514,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|x| x.inner().data())
             .transpose()
     }
-    fn read_varp_item(&self, key: &str) -> Result<Option<ArrayData>> {
+    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
         self.get_varp()
             .lock()
             .as_mut()
@@ -488,14 +526,18 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .transpose()
     }
 
-    fn add_uns_item<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
         if self.get_uns().is_empty() {
             let collection = ElemCollection::new(self.file.create_group("uns")?)?;
             self.uns.swap(&collection);
         }
         self.get_uns().inner().add_data(key, data)
     }
-    fn add_obsm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
         if self.get_obsm().is_empty() {
             let group = self.file.create_group("obsm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_obs.clone())?;
@@ -503,7 +545,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.get_obsm().inner().add_data(key, data)
     }
-    fn add_obsp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
         if self.get_obsp().is_empty() {
             let group = self.file.create_group("obsp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_obs.clone())?;
@@ -511,7 +557,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.get_obsp().inner().add_data(key, data)
     }
-    fn add_varm_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
         if self.get_varm().is_empty() {
             let group = self.file.create_group("varm")?;
             let arrays = AxisArrays::new(group, Axis::Row, self.n_vars.clone())?;
@@ -519,7 +569,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.varm.inner().add_data(key, data)
     }
-    fn add_varp_item<D: WriteArrayData + HasShape + Into<ArrayData>>(&self, key: &str, data: D) -> Result<()> {
+    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
         if self.get_varp().is_empty() {
             let group = self.file.create_group("varp")?;
             let arrays = AxisArrays::new(group, Axis::RowColumn, self.n_vars.clone())?;

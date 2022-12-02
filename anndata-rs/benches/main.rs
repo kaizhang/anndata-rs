@@ -40,8 +40,8 @@ fn bench_array_io(c: &mut Criterion) {
         let z = 10;
         let adata: AnnData<H5> = AnnData::new(file, n, m).unwrap();
         let arr: Array3<i32> = Array::random((n, m, z), Uniform::new(-100, 100));
-        let fancy_d1: Array1<usize> = Array::random((30,), Uniform::new(0, n-1));
-        let fancy_d2: Array1<usize> = Array::random((40,), Uniform::new(0, m-1));
+        let mut fancy_d1: Vec<usize> = Array::random((30,), Uniform::new(0, n-1)).to_vec();
+        let mut fancy_d2: Vec<usize> = Array::random((40,), Uniform::new(0, m-1)).to_vec();
         adata.set_x(&arr).unwrap();
 
         group.bench_function(
@@ -56,6 +56,14 @@ fn bench_array_io(c: &mut Criterion) {
 
         group.bench_function(
             BenchmarkId::new("read fancy", "30 x 40 x 10"),
+            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
+        );
+
+        fancy_d1.sort();
+        fancy_d2.sort();
+
+        group.bench_function(
+            BenchmarkId::new("read fancy (sorted)", "30 x 40 x 10"),
             |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
         );
 

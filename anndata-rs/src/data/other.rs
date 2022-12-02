@@ -38,93 +38,50 @@ pub enum DynScalar {
     U16(u16),
     U32(u32),
     U64(u64),
+    Usize(usize),
     F32(f32),
     F64(f64),
     Bool(bool),
     String(String),
 }
 
-impl From<i8> for DynScalar {
-    fn from(v: i8) -> Self {
-        DynScalar::I8(v)
-    }
-}
-impl From<i16> for DynScalar {
-    fn from(v: i16) -> Self {
-        DynScalar::I16(v)
-    }
-}
-impl From<i32> for DynScalar {
-    fn from(v: i32) -> Self {
-        DynScalar::I32(v)
-    }
-}
-impl From<i64> for DynScalar {
-    fn from(v: i64) -> Self {
-        DynScalar::I64(v)
-    }
-}
-impl From<u8> for DynScalar {
-    fn from(v: u8) -> Self {
-        DynScalar::U8(v)
-    }
-}
-impl From<u16> for DynScalar {
-    fn from(v: u16) -> Self {
-        DynScalar::U16(v)
-    }
-}
-impl From<u32> for DynScalar {
-    fn from(v: u32) -> Self {
-        DynScalar::U32(v)
-    }
-}
-impl From<u64> for DynScalar {
-    fn from(v: u64) -> Self {
-        DynScalar::U64(v)
-    }
-}
-impl From<f32> for DynScalar {
-    fn from(v: f32) -> Self {
-        DynScalar::F32(v)
-    }
-}
-impl From<f64> for DynScalar {
-    fn from(v: f64) -> Self {
-        DynScalar::F64(v)
-    }
-}
-impl From<bool> for DynScalar {
-    fn from(v: bool) -> Self {
-        DynScalar::Bool(v)
-    }
-}
-impl From<String> for DynScalar {
-    fn from(v: String) -> Self {
-        DynScalar::String(v)
-    }
-}
-
-/*
-macro_rules! impl_writedata_scalar {
-    ($($t:ty), *) => {
+/// macro to implement `From` trait for `DynScalar`
+macro_rules! impl_from_dynscalar {
+    ($($from:ty, $to:ident),*) => {
         $(
-            impl WriteData for $t {
-                fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-                    let dataset = location.write_scalar(name, self)?;
-                    let container = DataContainer::Dataset(dataset);
-                    container.write_str_attr("encoding-type", "numeric-scalar")?;
-                    container.write_str_attr("encoding-version", "0.2.0")?;
-                    Ok(container)
+            impl From<$from> for DynScalar {
+                fn from(val: $from) -> Self {
+                    DynScalar::$to(val)
+                }
+            }
+            impl ReadData for $from {
+                fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+                    let dataset = container.as_dataset()?;
+                    match dataset.dtype()? {
+                        ScalarType::$to => Ok(dataset.read_scalar()?),
+                        _ => bail!("Cannot read $from"),
+                    }
                 }
             }
         )*
     };
 }
 
-impl_writedata_scalar!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool,
-    &i8, &i16, &i32, &i64, &u8, &u16, &u32, &u64, &f32, &f64, &bool);
-    */
+impl_from_dynscalar!(
+    i8, I8,
+    i16, I16,
+    i32, I32,
+    i64, I64,
+    u8, U8,
+    u16, U16,
+    u32, U32,
+    u64, U64,
+    usize, Usize,
+    f32, F32,
+    f64, F64,
+    bool, Bool,
+    String, String
+);
 
 impl<T: BackendData> WriteData for T {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
@@ -152,6 +109,7 @@ impl WriteData for DynScalar {
             DynScalar::U16(data) => data.write(location, name),
             DynScalar::U32(data) => data.write(location, name),
             DynScalar::U64(data) => data.write(location, name),
+            DynScalar::Usize(data) => data.write(location, name),
             DynScalar::F32(data) => data.write(location, name),
             DynScalar::F64(data) => data.write(location, name),
             DynScalar::Bool(data) => data.write(location, name),
@@ -172,6 +130,7 @@ impl ReadData for DynScalar {
             ScalarType::U16 => Ok(DynScalar::U16(dataset.read_scalar()?)),
             ScalarType::U32 => Ok(DynScalar::U32(dataset.read_scalar()?)),
             ScalarType::U64 => Ok(DynScalar::U64(dataset.read_scalar()?)),
+            ScalarType::Usize => Ok(DynScalar::Usize(dataset.read_scalar()?)),
             ScalarType::F32 => Ok(DynScalar::F32(dataset.read_scalar()?)),
             ScalarType::F64 => Ok(DynScalar::F64(dataset.read_scalar()?)),
             ScalarType::Bool => Ok(DynScalar::Bool(dataset.read_scalar()?)),
@@ -195,7 +154,7 @@ impl WriteData for DataFrame {
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        group.write_str_arr_attr("column-order", &columns)?;
+        group.write_arr_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| write_series::<B>(x, &group, x.name()).map(|_| ()))?;
 
@@ -217,7 +176,7 @@ impl WriteData for DataFrame {
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        container.write_str_arr_attr("column-order", &columns)?;
+        container.write_arr_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| write_series::<B>(x, container.as_group()?, x.name()).map(|_| ()))?;
 
@@ -227,7 +186,7 @@ impl WriteData for DataFrame {
 
 impl ReadData for DataFrame {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let columns: Array1<String> = container.read_str_arr_attr("column-order")?;
+        let columns: Array1<String> = container.read_arr_attr("column-order")?;
         columns
             .into_iter()
             .map(|x| {
@@ -353,6 +312,7 @@ fn read_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
         DynArray::U16(x) => Ok(x.iter().collect::<Series>()),
         DynArray::U32(x) => Ok(x.iter().collect::<Series>()),
         DynArray::U64(x) => Ok(x.iter().collect::<Series>()),
+        DynArray::Usize(x) => Ok(x.iter().map(|x| *x as u64).collect::<Series>()),
         DynArray::F32(x) => Ok(x.iter().collect::<Series>()),
         DynArray::F64(x) => Ok(x.iter().collect::<Series>()),
         DynArray::Bool(x) => Ok(x.iter().collect::<Series>()),

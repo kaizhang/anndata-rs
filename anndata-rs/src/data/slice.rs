@@ -74,6 +74,12 @@ impl From<Vec<usize>> for SelectInfoElem {
     }
 }
 
+impl From<&Vec<usize>> for SelectInfoElem {
+    fn from(x: &Vec<usize>) -> Self {
+        x.as_slice().into()
+    }
+}
+
 impl From<Array1<usize>> for SelectInfoElem {
     fn from(x: Array1<usize>) -> Self {
         Self::Index(x.to_vec())
