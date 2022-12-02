@@ -1,9 +1,49 @@
-use crate::data::Shape;
-
 use ndarray::{Array1, Array2, SliceInfoElem, SliceInfo, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
-use std::ops::{RangeFull, Range};
+use std::ops::{RangeFull, Range, Index, IndexMut};
+use smallvec::SmallVec;
+
+#[derive(Clone, Debug)]
+pub struct Shape(SmallVec<[usize; 3]>);
+
+impl Shape {
+    pub fn ndim(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl std::fmt::Display for Shape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.as_slice().iter().map(|x| x.to_string()).join(" x "))
+    }
+}
+
+impl AsRef<[usize]> for Shape {
+    fn as_ref(&self) -> &[usize] {
+        &self.0
+    }
+}
+
+impl Index<usize> for Shape {
+    type Output = usize;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IndexMut<usize> for Shape {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+impl From<Vec<usize>> for Shape {
+    fn from(shape: Vec<usize>) -> Self {
+        Self(SmallVec::from_vec(shape))
+    }
+}
 
 /// A multi-dimensional selection used for reading and writing to a Container.
 #[derive(Debug, PartialEq, Eq)]

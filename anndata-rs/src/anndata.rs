@@ -11,7 +11,7 @@ use crate::{
 
 use anyhow::{ensure, Context, Result};
 use itertools::Itertools;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use polars::prelude::DataFrame;
 use std::{
     path::{Path, PathBuf},
@@ -109,15 +109,20 @@ impl<B: Backend> AnnData<B> {
         &self.uns
     }
 
-    pub fn set_n_obs(&self, n: usize) {
+    /// Change the number of observations.
+    /// `n_obs` can be changed only if the number of observations in current object is 0.
+    /// When modified, it will return a lock guard of `n_obs` to prevent other
+    /// threads from modifying it.
+    fn set_n_obs(&self, n: usize) -> Option<MutexGuard<usize>> {
         let mut n_obs = self.n_obs.lock();
         if *n_obs != n {
-            let obs_is_none = self.obs.is_empty()
+            if self.obs.is_empty()
                 && self.x.is_empty()
                 && (self.obsm.is_empty() || self.obsm.inner().is_empty())
-                && (self.obsp.is_empty() || self.obsp.inner().is_empty());
-            if obs_is_none {
+                && (self.obsp.is_empty() || self.obsp.inner().is_empty())
+            {
                 *n_obs = n;
+                Some(n_obs)
             } else {
                 panic!(
                     "fail to set n_obs to {}: \
@@ -125,18 +130,25 @@ impl<B: Backend> AnnData<B> {
                     n,
                 );
             }
+        } else {
+            None
         }
     }
 
-    pub fn set_n_vars(&self, n: usize) {
+    /// Change the number of variables.
+    /// `n_vars` can be changed only if the number of variables in current object is 0.
+    /// When modified, it will return a lock guard of `n_vars` to prevent other
+    /// threads from modifying it.
+    fn set_n_vars(&self, n: usize) -> Option<MutexGuard<usize>> {
         let mut n_vars = self.n_vars.lock();
         if *n_vars != n {
-            let var_is_none = self.var.is_empty()
+            if self.var.is_empty()
                 && self.x.is_empty()
                 && (self.varm.is_empty() || self.varm.inner().is_empty())
-                && (self.varp.is_empty() || self.varp.inner().is_empty());
-            if var_is_none {
+                && (self.varp.is_empty() || self.varp.inner().is_empty())
+            {
                 *n_vars = n;
+                Some(n_vars)
             } else {
                 panic!(
                     "fail to set n_vars to {}: \
@@ -144,6 +156,8 @@ impl<B: Backend> AnnData<B> {
                     n,
                 );
             }
+        } else {
+            None
         }
     }
 
@@ -288,8 +302,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             shape.ndim() >= 2,
             "X must be a N dimensional array, where N >= 2"
         );
-        self.set_n_obs(shape[0]);
-        self.set_n_vars(shape[1]);
+        let _obs_lock = self.set_n_obs(shape[0]);
+        let _var_lock = self.set_n_vars(shape[1]);
         if !self.x.is_empty() {
             self.x.inner().save(data)?;
         } else {
@@ -328,7 +342,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.set_n_obs(index.len());
+        let _obs_lock = self.set_n_obs(index.len());
         if self.obs.is_empty() {
             let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
             self.obs.insert(df);
@@ -391,17 +405,17 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if let Some(obs) = obs_ {
             let nrows = obs.height();
             if nrows != 0 {
-                self.set_n_obs(nrows);
-            }
-            if self.obs.is_empty() {
-                self.obs.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "obs",
-                    DataFrameIndex::from(nrows),
-                    &obs,
-                )?);
-            } else {
-                self.obs.inner().save(obs)?;
+                let _obs_lock = self.set_n_obs(nrows);
+                if self.obs.is_empty() {
+                    self.obs.insert(InnerDataFrameElem::new(
+                        &self.file,
+                        "obs",
+                        DataFrameIndex::from(nrows),
+                        &obs,
+                    )?);
+                } else {
+                    self.obs.inner().save(obs)?;
+                }
             }
         } else {
             if !self.obs.is_empty() {
@@ -416,17 +430,17 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if let Some(var) = var_ {
             let nrows = var.height();
             if nrows != 0 {
-                self.set_n_vars(nrows);
-            }
-            if self.var.is_empty() {
-                self.var.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "var",
-                    DataFrameIndex::from(nrows),
-                    &var,
-                )?);
-            } else {
-                self.var.inner().save(var)?;
+                let _vars_lock = self.set_n_vars(nrows);
+                if self.var.is_empty() {
+                    self.var.insert(InnerDataFrameElem::new(
+                        &self.file,
+                        "var",
+                        DataFrameIndex::from(nrows),
+                        &var,
+                    )?);
+                } else {
+                    self.var.inner().save(var)?;
+                }
             }
         } else {
             if !self.var.is_empty() {

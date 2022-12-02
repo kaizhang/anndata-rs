@@ -179,14 +179,15 @@ impl<B: Backend> LocationOp for DataContainer<B> {
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
-        where
-            A: Into<ArrayView<'a, D, Dim>>,
-            D: BackendData,
-            Dim: Dimension {
+    where
+        A: Into<ArrayView<'a, D, Dim>>,
+        D: BackendData,
+        Dim: Dimension,
+    {
         match self {
             DataContainer::Group(g) => g.write_arr_attr(name, value),
             DataContainer::Dataset(d) => d.write_arr_attr(name, value),
-        }   
+        }
     }
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
         match self {
