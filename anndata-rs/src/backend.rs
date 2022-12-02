@@ -7,7 +7,7 @@ use core::fmt::{Display, Formatter};
 use ndarray::{Array, ArrayD, ArrayView, Dimension};
 use std::path::{Path, PathBuf};
 
-pub trait Backend: Send {
+pub trait Backend {
     /// File represents the root of the hierarchy.
     type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send;
 

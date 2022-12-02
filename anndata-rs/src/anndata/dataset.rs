@@ -1,4 +1,6 @@
+use crate::element::base::VecVecIndex;
 use crate::{
+    anndata::AnnData,
     traits::AnnDataOp,
     data::*,
     element::{*, collection::InnerElemCollection},
@@ -20,17 +22,22 @@ use rayon::iter::{
 };
 use std::{collections::HashMap, ops::Deref, path::{Path, PathBuf}, sync::Arc};
 
-pub struct StackedAnnData {
-    anndatas: IndexMap<String, AnnData>,
+pub struct AnnDataSet<B: Backend> {
+    annotation: AnnData<B>,
+    anndatas: Slot<StackedAnnData<B>>,
+}
+
+pub struct StackedAnnData<B: Backend> {
+    anndatas: IndexMap<String, AnnData<B>>,
     index: Arc<Mutex<VecVecIndex>>,
     n_obs: Arc<Mutex<usize>>,
     n_vars: Arc<Mutex<usize>>,
-    x: StackedArrayElem,
-    pub obs: StackedDataFrame,
-    obsm: StackedAxisArrays,
+    x: StackedArrayElem<B>,
+    pub obs: StackedDataFrame<B>,
+    obsm: StackedAxisArrays<B>,
 }
 
-impl std::fmt::Display for StackedAnnData {
+impl<B: Backend> std::fmt::Display for StackedAnnData<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stacked AnnData objects:")?;
         write!(
@@ -38,11 +45,12 @@ impl std::fmt::Display for StackedAnnData {
             "\n    obs: '{}'",
             self.obs.column_names.iter().join("', '")
         )?;
-        write!(f, "\n    obsm: '{}'", self.obsm.data.keys().join("', '"))?;
+        write!(f, "\n    obsm: '{}'", self.obsm.keys().join("', '"))?;
         Ok(())
     }
 }
 
+/*
 impl StackedAnnData {
     fn new(adatas: IndexMap<String, AnnData>) -> Result<Option<Self>> {
         if adatas.is_empty() {
@@ -213,11 +221,6 @@ impl StackedAnnData {
             .collect::<Option<Vec<_>>>()
             .map(|x| x.into_iter().flatten().collect()))
     }
-}
-
-pub struct AnnDataSet {
-    annotation: AnnData,
-    anndatas: Slot<StackedAnnData>,
 }
 
 impl std::fmt::Display for AnnDataSet {
@@ -723,4 +726,5 @@ impl AnnDataOp for AnnDataSet {
         self.annotation.add_varp_item(key, data)
     }
 }
+*/
 */

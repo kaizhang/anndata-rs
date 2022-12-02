@@ -1,21 +1,27 @@
 use crate::{
-    backend::{Backend, GroupOp, LocationOp, DataContainer, DataType, BackendData},
+    backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
+    utils::array::concat_array_data,
     //iterator::{ChunkedMatrix, StackedChunkedMatrix},
     data::*,
 };
 
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
-use ndarray::Ix1;
-use parking_lot::{Mutex, MutexGuard};
-use polars::{series::Series, frame::DataFrame, prelude::{IntoLazy, concat}};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
 use itertools::Itertools;
+use nalgebra_sparse::csr::CsrMatrix;
+use ndarray::{Array, Dimension, Ix1};
+use parking_lot::{Mutex, MutexGuard};
+use polars::{
+    frame::DataFrame,
+    prelude::{concat, IntoLazy},
+    series::Series,
+};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use smallvec::SmallVec;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use smallvec::SmallVec;
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
 /// Encapsulating an object inside a slot allows us to drop the object from all references.
@@ -161,7 +167,9 @@ impl<B: Backend> InnerDataFrameElem<B> {
             "cannot change the index as the lengths differ"
         );
         self.index = index;
-        replace_with::replace_with_or_abort(&mut self.container, |x| self.index.overwrite(x).unwrap());
+        replace_with::replace_with_or_abort(&mut self.container, |x| {
+            self.index.overwrite(x).unwrap()
+        });
         Ok(())
     }
 
@@ -204,7 +212,6 @@ impl<B: Backend> InnerDataFrameElem<B> {
     }
 }
 
-
 pub type DataFrameElem<B> = Slot<InnerDataFrameElem<B>>;
 
 impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
@@ -215,7 +222,11 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
             DataType::DataFrame => {
                 //let grp = container.as_group()?;
                 let index = DataFrameIndex::read(&container)?;
-                let column_names = container.read_arr_attr::<String, Ix1>("column_order")?.into_raw_vec().into_iter().collect();
+                let column_names = container
+                    .read_arr_attr::<String, Ix1>("column_order")?
+                    .into_raw_vec()
+                    .into_iter()
+                    .collect();
                 let df = InnerDataFrameElem {
                     element: None,
                     container,
@@ -223,7 +234,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
                     index,
                 };
                 Ok(Slot::new(df))
-            },
+            }
             ty => bail!("Expecting a dataframe but found: '{}'", ty),
         }
     }
@@ -396,7 +407,6 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<
     }
 }
 
-
 pub type Elem<B> = Slot<InnerElem<B, Data>>;
 
 impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
@@ -440,7 +450,7 @@ pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
 }
 */
 
-/// Horizontal concatenated dataframe elements. 
+/// Horizontal concatenated dataframe elements.
 #[derive(Clone)]
 pub struct StackedDataFrame<B: Backend> {
     pub column_names: IndexSet<String>,
@@ -459,8 +469,11 @@ impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
 
 impl<B: Backend> StackedDataFrame<B> {
     pub fn new(elems: Vec<DataFrameElem<B>>) -> Result<Self> {
-        if elems.iter().all(|x| x.is_empty())  {
-            Ok(Self { column_names: IndexSet::new(), elems: Arc::new(elems) })
+        if elems.iter().all(|x| x.is_empty()) {
+            Ok(Self {
+                column_names: IndexSet::new(),
+                elems: Arc::new(elems),
+            })
         } else if elems.iter().all(|x| !x.is_empty()) {
             let column_names = elems
                 .iter()
@@ -480,7 +493,7 @@ impl<B: Backend> StackedDataFrame<B> {
             bail!("slots must be either all empty or all full");
         }
     }
-        
+
     pub fn data(&self) -> Result<DataFrame> {
         let mut merged = DataFrame::empty();
         self.elems.iter().try_for_each(|el| {
@@ -494,9 +507,15 @@ impl<B: Backend> StackedDataFrame<B> {
     }
 
     pub fn par_data(&self) -> Result<DataFrame> {
-        let dfs = self.elems.par_iter().flat_map(|el| 
-            el.lock().as_mut().map(|el| el.data().unwrap().clone().lazy())
-        ).collect::<Vec<_>>();
+        let dfs = self
+            .elems
+            .par_iter()
+            .flat_map(|el| {
+                el.lock()
+                    .as_mut()
+                    .map(|el| el.data().unwrap().clone().lazy())
+            })
+            .collect::<Vec<_>>();
         Ok(concat(&dfs, true, true)?.collect()?)
     }
 
@@ -508,7 +527,6 @@ impl<B: Backend> StackedDataFrame<B> {
         }
     }
 }
-
 
 // TODO: remove Arc.
 #[derive(Clone)]
@@ -535,14 +553,20 @@ impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
 }
 
 impl<B: Backend> StackedArrayElem<B> {
-    pub(crate) fn new(elems: Vec<ArrayElem<B>>) -> Result<Self>
-    {
-        ensure!(elems.iter().map(|x| x.lock().as_ref().map(|x| x.dtype())).all_equal(),
-            "all elements must have the same dtype");
+    pub(crate) fn new(elems: Vec<ArrayElem<B>>) -> Result<Self> {
+        ensure!(
+            elems
+                .iter()
+                .map(|x| x.lock().as_ref().map(|x| x.dtype()))
+                .all_equal(),
+            "all elements must have the same dtype"
+        );
 
         let shapes: Vec<_> = elems.iter().map(|x| x.inner().shape().clone()).collect();
-        ensure!(shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
-            "all elements must have the same shape except for the first axis");
+        ensure!(
+            shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
+            "all elements must have the same shape except for the first axis"
+        );
         let index: VecVecIndex = shapes.iter().map(|x| x[0]).collect();
         let mut shape = shapes[0].clone();
         shape[0] = index.len();
@@ -557,46 +581,86 @@ impl<B: Backend> StackedArrayElem<B> {
         &self.shape
     }
 
-    /*
-    pub fn read(
-        &self,
-        ridx_: Option<&[usize]>,
-        cidx: Option<&[usize]>,
-    ) -> Result<ArrayData> {
-        match ridx_ {
-            Some(ridx) => {
-                let index = self.index.lock();
-                let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx
-                    .iter()
-                    .map(|x| index.ix(x))
-                    .enumerate()
-                    .sorted_by_key(|x| x.1 .0)
-                    .into_iter()
-                    .group_by(|x| x.1 .0)
-                    .into_iter()
-                    .map(|(key, grp)| {
-                        let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
-                        (
-                            ori_idx,
-                            self.elems[key].read(Some(inner_idx.as_slice()), cidx),
-                        )
-                    })
-                    .unzip();
-                Ok(rstack_with_index(
-                    ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
-                    rows.into_iter().collect::<Result<_>>()?,
-                )?)
-            }
-            None => {
-                let mats: Result<Vec<_>> =
-                    self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
-                Ok(rstack(mats?)?)
+    pub fn data<D>(&mut self) -> Result<D>
+    where
+        D: Into<ArrayData> + ReadData + Clone + TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        let arrays: Result<SmallVec<[_; 96]>> = self
+            .elems
+            .iter()
+            .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
+            .collect();
+        Ok(concat_array_data(arrays?).try_into().map_err(Into::into)?)
+    }
+
+    pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
+    where
+        D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        todo!()
+    }
+
+    /// Activate the cache for all elements.
+    pub fn enable_cache(&self) {
+        for el in self.elems.iter() {
+            if let Some(x) = el.lock().as_mut() {
+                x.enable_cache();
             }
         }
     }
-    */
+
+    /// Deactivate the cache for all elements.
+    pub fn disable_cache(&self) {
+        for el in self.elems.iter() {
+            if let Some(x) = el.lock().as_mut() {
+                x.disable_cache();
+            }
+        }
+    }
 }
- 
+
+/*
+pub fn read(
+    &self,
+    ridx_: Option<&[usize]>,
+    cidx: Option<&[usize]>,
+) -> Result<ArrayData> {
+    match ridx_ {
+        Some(ridx) => {
+            let index = self.index.lock();
+            let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx
+                .iter()
+                .map(|x| index.ix(x))
+                .enumerate()
+                .sorted_by_key(|x| x.1 .0)
+                .into_iter()
+                .group_by(|x| x.1 .0)
+                .into_iter()
+                .map(|(key, grp)| {
+                    let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
+                    (
+                        ori_idx,
+                        self.elems[key].read(Some(inner_idx.as_slice()), cidx),
+                    )
+                })
+                .unzip();
+            Ok(rstack_with_index(
+                ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
+                rows.into_iter().collect::<Result<_>>()?,
+            )?)
+        }
+        None => {
+            let mats: Result<Vec<_>> =
+                self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
+            Ok(rstack(mats?)?)
+        }
+    }
+}
+*/
 
 /// This struct is used to perform index lookup for nested Vectors (vectors of vectors).
 #[derive(Clone)]
@@ -609,9 +673,9 @@ impl VecVecIndex {
 
     /// Find the outer and inner index for a given index corresponding to the
     /// flattened view.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```
     /// let vec_of_vec = vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]];
     /// let flatten_view = vec![0, 1, 2, 3, 4, 5, 6];
@@ -682,19 +746,10 @@ impl FromIterator<usize> for VecVecIndex {
 }
 
 /*
-/*
    pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
         StackedChunkedMatrix::new(self.elems.iter().map(|x| x.clone()), chunk_size)
     }
 
-    pub fn enable_cache(&self) {
-        self.elems.iter().for_each(|x| x.enable_cache())
-    }
 
-    pub fn disable_cache(&self) {
-        self.elems.iter().for_each(|x| x.disable_cache())
-    }
-}
 
-*/
 */

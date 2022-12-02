@@ -277,21 +277,26 @@ impl<B: Backend> AxisArrays<B> {
 }
 
 
-
-
-/*
+/// Stacked axis arrays, providing Read-only access to the data.
 #[derive(Clone)]
-pub struct StackedAxisArrays {
+pub struct StackedAxisArrays<B: Backend> {
     pub axis: Axis,
-    pub data: HashMap<String, StackedMatrixElem>,
+    data: Arc<HashMap<String, StackedArrayElem<B>>>,
 }
 
-impl std::fmt::Display for StackedAxisArrays {
+impl<B: Backend> Deref for StackedAxisArrays<B> {
+    type Target = HashMap<String, StackedArrayElem<B>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<B: Backend> std::fmt::Display for StackedAxisArrays<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ty = match self.axis {
             Axis::Row => "row",
-            Axis::Column => "column",
-            Axis::Both => "square",
+            Axis::RowColumn => "square",
         };
         let keys = self
             .data
@@ -303,6 +308,7 @@ impl std::fmt::Display for StackedAxisArrays {
     }
 }
 
+/*
 impl StackedAxisArrays {
     pub(crate) fn new(
         arrays: Vec<&InnerAxisArrays>,

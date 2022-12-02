@@ -1,3 +1,5 @@
+mod dataset;
+
 use crate::{
     backend::{Backend, FileOp, GroupOp},
     data::*,
@@ -18,7 +20,10 @@ use std::{
 
 pub struct AnnData<B: Backend> {
     pub(crate) file: B::File,
-    pub(crate) n_obs: Arc<Mutex<usize>>,
+    // Put n_obs in a mutex to allow concurrent access to different slots
+    // because modifying n_obs requires modifying slots will also modify n_obs.
+    // Operations that modify n_obs must acquire a lock until the end of the operation.
+    pub(crate) n_obs: Arc<Mutex<usize>>,  
     pub(crate) n_vars: Arc<Mutex<usize>>,
     pub(crate) x: ArrayElem<B>,
     pub(crate) obs: DataFrameElem<B>,
