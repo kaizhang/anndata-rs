@@ -7,6 +7,21 @@ use core::fmt::{Display, Formatter};
 use ndarray::{Array, ArrayD, ArrayView, Dimension};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone)]
+pub struct WriteConfig {
+    pub compression: u8,
+    pub block_size: Option<Shape>,
+}
+
+impl Default for WriteConfig {
+    fn default() -> Self {
+        Self {
+            compression: 3,
+            block_size: None,
+        }
+    }
+}
+
 pub trait Backend {
     /// File represents the root of the hierarchy.
     type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send;
@@ -33,32 +48,61 @@ pub trait GroupOp {
     fn list(&self) -> Result<Vec<String>>;
     fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
     fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+
+    /// Create an empty dataset holding an array value.
+    fn new_dataset<T: BackendData>(
+        &self,
+        name: &str,
+        shape: &Shape,
+        config: WriteConfig,
+    ) -> Result<<Self::Backend as Backend>::Dataset>;
     fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>;
+
     fn delete(&self, name: &str) -> Result<()>;
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn write_scalar<D: BackendData>(
+    fn create_scalar_data<D: BackendData>(
         &self,
         name: &str,
         data: &D,
     ) -> Result<<Self::Backend as Backend>::Dataset>;
 
-    fn write_array<'a, A, D, Dim>(
+    fn create_array_data<'a, A, D, Dim>(
         &self,
         name: &str,
-        data: A,
+        arr: A,
+        config: WriteConfig,
     ) -> Result<<Self::Backend as Backend>::Dataset>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension;
+        Dim: Dimension,
+    {
+        let arr_view = arr.into();
+        let shape = arr_view.shape();
+        let block_size = config.block_size.unwrap_or_else(|| if shape.len() == 1 {
+            shape[0].min(10000).into()
+        } else {
+            shape.iter().map(|&x| x.min(100)).collect()
+        });
+        let new_config = WriteConfig {
+            compression: config.compression,
+            block_size: Some(block_size),
+        };
+        let dataset = self.new_dataset::<D>(name, &shape.into(), new_config)?;
+        dataset.write_array(arr_view)?;
+        Ok(dataset)
+    }
 }
 
 pub trait LocationOp {
     type Backend: Backend;
 
+    /// Returns the Root.
     fn file(&self) -> Result<<Self::Backend as Backend>::File>;
-    fn path(&self) -> PathBuf;
+
+    /// Returns the name of the location.
+    fn name(&self) -> PathBuf;
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -76,6 +120,7 @@ pub trait DatasetOp {
 
     fn dtype(&self) -> Result<ScalarType>;
     fn shape(&self) -> Result<Shape>;
+    fn reshape(&self, shape: &Shape) -> Result<()>;
 
     fn read_scalar<T: BackendData>(&self) -> Result<T>;
 
@@ -88,6 +133,30 @@ pub trait DatasetOp {
 
     fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
     where
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        D: Dimension;
+
+    fn write_array<'a, A, D, Dim>(
+        &self,
+        data: A,
+    ) -> Result<()>
+    where
+        A: Into<ArrayView<'a, D, Dim>>,
+        D: BackendData,
+        Dim: Dimension,
+    {
+        self.write_array_slice(data, SelectInfo::all())
+    }
+
+    fn write_array_slice<'a, A, S, T, D, E>(
+        &self,
+        data: A,
+        selection: S,
+    ) -> Result<()>
+    where
+        A: Into<ArrayView<'a, T, D>>,
+        T: BackendData,
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
         D: Dimension;
@@ -171,10 +240,10 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.file(),
         }
     }
-    fn path(&self) -> PathBuf {
+    fn name(&self) -> PathBuf {
         match self {
-            DataContainer::Group(g) => g.path(),
-            DataContainer::Dataset(d) => d.path(),
+            DataContainer::Group(g) => g.name(),
+            DataContainer::Dataset(d) => d.name(),
         }
     }
 
@@ -224,7 +293,7 @@ impl<B: Backend> DataContainer<B> {
 
     pub fn delete(container: DataContainer<B>) -> Result<()> {
         let file = container.file()?;
-        let name = container.path();
+        let name = container.name();
         let group = file.open_group(name.parent().unwrap().to_str().unwrap())?;
 
         group.delete(name.file_name().unwrap().to_str().unwrap())

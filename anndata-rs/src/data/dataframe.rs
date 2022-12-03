@@ -228,7 +228,7 @@ impl WriteData for DataFrameIndex {
         };
         group.write_str_attr("_index", &self.index_name)?;
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        location.write_array(&self.index_name, &data, )?;
+        location.create_array_data(&self.index_name, &data, Default::default())?;
         Ok(DataContainer::Group(group))
     }
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
@@ -237,7 +237,12 @@ impl WriteData for DataFrameIndex {
         container.write_str_attr("_index", &self.index_name)?;
 
         let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        container.as_group()?.write_array(&self.index_name, &data)?;
+        let group = container.as_group()?;
+        group.create_array_data(
+            &self.index_name,
+            &data,
+            Default::default()
+        )?;
         Ok(container)
     }
 }

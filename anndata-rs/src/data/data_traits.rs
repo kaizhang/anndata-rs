@@ -1,5 +1,8 @@
-use crate::backend::{Backend, GroupOp, LocationOp, DataContainer};
-use crate::data::{scalar::DynScalar, array::slice::{SelectInfoElem, Shape}};
+use crate::backend::{Backend, DataContainer, GroupOp, LocationOp};
+use crate::data::{
+    array::slice::{SelectInfoElem, Shape},
+    scalar::DynScalar,
+};
 
 use anyhow::Result;
 
@@ -12,10 +15,14 @@ pub trait ReadData {
 
 /// Write data to a backend
 pub trait WriteData {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>>;
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>>;
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
         let file = container.file()?;
-        let path = container.path();
+        let path = container.name();
         let group = file.open_group(path.parent().unwrap().to_str().unwrap())?;
         let name = path.file_name().unwrap().to_str().unwrap();
         group.delete(name)?;

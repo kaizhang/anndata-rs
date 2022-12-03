@@ -60,7 +60,7 @@ impl_from_dynscalar!(
 
 impl<T: BackendData> WriteData for T {
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-        let dataset = location.write_scalar(name, self)?;
+        let dataset = location.create_scalar_data(name, self)?;
         let container = DataContainer::Dataset(dataset);
         let encoding_type = if T::DTYPE == ScalarType::String {
             "string"

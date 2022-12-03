@@ -1,20 +1,18 @@
 use crate::{
-    backend::{
-        Backend, BackendData, DatasetOp, DynArrayView, FileOp, GroupOp, LocationOp, ScalarType,
-        SelectInfoElem,
-    },
-    data::{BoundedSelectInfo, DynArray, DynScalar, Shape, ArrayOp},
+    backend::{Backend, FileOp, GroupOp, DatasetOp, LocationOp, ScalarType, DynArrayView,
+        BackendData, WriteConfig},
+    data::{ArrayOp, SelectInfoElem, BoundedSelectInfo, DynArray, DynScalar, Shape},
 };
 
 use anyhow::{bail, Result};
 use hdf5::{
-    Location,
     dataset::Dataset,
     types::IntSize::*,
     types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
-    File, Group, H5Type, Selection,
+    File, Group, H5Type, Location, Selection,
 };
 use ndarray::{Array, ArrayView, Dimension, SliceInfo};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 pub struct H5;
@@ -51,7 +49,7 @@ impl LocationOp for Group {
         Ok(hdf5::Location::file(&self)?)
     }
 
-    fn path(&self) -> PathBuf {
+    fn name(&self) -> PathBuf {
         hdf5::Location::name(&self).into()
     }
 
@@ -102,7 +100,7 @@ impl LocationOp for Dataset {
         Ok(hdf5::Location::file(&self)?)
     }
 
-    fn path(&self) -> PathBuf {
+    fn name(&self) -> PathBuf {
         hdf5::Location::name(&self).into()
     }
 
@@ -161,6 +159,32 @@ impl GroupOp for Group {
         Ok(self.group(name)?)
     }
 
+    fn new_dataset<T: BackendData>(
+        &self,
+        name: &str,
+        shape: &Shape,
+        config: WriteConfig,
+    ) -> Result<<Self::Backend as Backend>::Dataset> {
+        let block_size = config.block_size.unwrap_or(vec![100; shape.ndim()].into());
+        let s: hdf5::Extents = hdf5::SimpleExtents::resizable(shape.as_ref()).into();
+        let dataset = match T::DTYPE {
+            ScalarType::U8 => self.new_dataset::<u8>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::U16 => self.new_dataset::<u16>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::U32 => self.new_dataset::<u32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::U64 => self.new_dataset::<u64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::Usize => self.new_dataset::<usize>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::I8 => self.new_dataset::<i8>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::I16 => self.new_dataset::<i16>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::I32 => self.new_dataset::<i32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::I64 => self.new_dataset::<i64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::F32 => self.new_dataset::<f32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::F64 => self.new_dataset::<f64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::Bool => self.new_dataset::<bool>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+            ScalarType::String => self.new_dataset::<VarLenUnicode>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+        };
+        Ok(dataset)
+    }
+
     fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset> {
         Ok(self.dataset(name)?)
     }
@@ -173,25 +197,12 @@ impl GroupOp for Group {
         Ok(self.link_exists(name))
     }
 
-    fn write_scalar<D: BackendData>(
+    fn create_scalar_data<D: BackendData>(
         &self,
         name: &str,
         data: &D,
     ) -> Result<<Self::Backend as Backend>::Dataset> {
         write_scalar(self, name, data)
-    }
-
-    fn write_array<'a, A, D, Dim>(
-        &self,
-        name: &str,
-        data: A,
-    ) -> Result<<Self::Backend as Backend>::Dataset>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        write_array(self, name, data)
     }
 }
 
@@ -210,6 +221,15 @@ impl GroupOp for File {
         Ok(self.group(name)?)
     }
 
+    fn new_dataset<T: BackendData>(
+        &self,
+        name: &str,
+        shape: &Shape,
+        config: WriteConfig,
+    ) -> Result<<Self::Backend as Backend>::Dataset> {
+        GroupOp::new_dataset::<T>(self.deref(), name, shape, config)
+    }
+
     fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset> {
         Ok(self.dataset(name)?)
     }
@@ -222,25 +242,12 @@ impl GroupOp for File {
         Ok(self.link_exists(name))
     }
 
-    fn write_scalar<D: BackendData>(
+    fn create_scalar_data<D: BackendData>(
         &self,
         name: &str,
         data: &D,
     ) -> Result<<Self::Backend as Backend>::Dataset> {
         write_scalar(self, name, data)
-    }
-
-    fn write_array<'a, A, D, Dim>(
-        &self,
-        name: &str,
-        data: A,
-    ) -> Result<<Self::Backend as Backend>::Dataset>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        write_array(self, name, data)
     }
 }
 
@@ -271,6 +278,10 @@ impl DatasetOp for Dataset {
         Ok(hdf5::Container::shape(self).into())
     }
 
+    fn reshape(&self, shape: &Shape) -> Result<()> {
+        Ok(Dataset::resize(self, shape.as_ref())?)
+    }
+
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
         read_scalar(self)
     }
@@ -282,6 +293,21 @@ impl DatasetOp for Dataset {
         D: Dimension,
     {
         read_array(self, selection)
+    }
+
+    fn write_array_slice<'a, A, S, T, D, E>(
+        &self,
+        data: A,
+        selection: S,
+    ) -> Result<()>
+    where
+        A: Into<ArrayView<'a, T, D>>,
+        T: BackendData,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        D: Dimension,
+    {
+        write_array(self, data, selection)
     }
 }
 
@@ -347,14 +373,17 @@ where
         E: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        if selection.as_ref().iter().any(|x| x.as_ref().is_index()) { // fancy indexing is too slow, just read all
+        if selection.as_ref().iter().any(|x| x.as_ref().is_index()) {
+            // fancy indexing is too slow, just read all
             let arr = hdf5::Container::read::<T, D>(dataset)?;
             Ok(ArrayOp::select(&arr, selection))
         } else {
             let (select, shape) = into_selection(selection, dataset.shape()?);
             if matches!(select, Selection::Points(_)) {
                 let slice_1d = hdf5::Container::read_slice_1d::<T, _>(dataset, select)?;
-                Ok(slice_1d.into_shape(shape.as_ref())?.into_dimensionality::<D>()?)
+                Ok(slice_1d
+                    .into_shape(shape.as_ref())?
+                    .into_dimensionality::<D>()?)
             } else {
                 Ok(hdf5::Container::read_slice::<T, _, D>(dataset, select)?)
             }
@@ -375,7 +404,8 @@ where
         ScalarType::F64 => read_arr::<f64, _, _, D>(dataset, selection)?.into(),
         ScalarType::Bool => read_arr::<bool, _, _, D>(dataset, selection)?.into(),
         ScalarType::String => {
-            if selection.as_ref().iter().any(|x| x.as_ref().is_index()) { // fancy indexing is too slow, just read all
+            if selection.as_ref().iter().any(|x| x.as_ref().is_index()) {
+                // fancy indexing is too slow, just read all
                 let arr = hdf5::Container::read::<VarLenUnicode, D>(dataset)?;
                 let arr_ = arr.map(|s| s.to_string());
                 let r: Result<_> = Ok(ArrayOp::select(&arr_, selection));
@@ -383,19 +413,25 @@ where
             } else {
                 let (select, shape) = into_selection(selection, dataset.shape()?);
                 let arr: Result<_> = if matches!(select, Selection::Points(_)) {
-                    let slice_1d = hdf5::Container::read_slice_1d::<VarLenUnicode, _>(dataset, select)?;
-                    Ok(slice_1d.into_shape(shape.as_ref())?.into_dimensionality::<D>()?)
+                    let slice_1d =
+                        hdf5::Container::read_slice_1d::<VarLenUnicode, _>(dataset, select)?;
+                    Ok(slice_1d
+                        .into_shape(shape.as_ref())?
+                        .into_dimensionality::<D>()?)
                 } else {
-                    Ok(hdf5::Container::read_slice::<VarLenUnicode, _, D>(dataset, select)?)
+                    Ok(hdf5::Container::read_slice::<VarLenUnicode, _, D>(
+                        dataset, select,
+                    )?)
                 };
                 Ok(arr?.map(|s| s.to_string()))
-            }?.into()
+            }?
+            .into()
             /*
             let arr = read_arr::<VarLenUnicode, _, _, D>(dataset, selection)?;
             let arr = arr.map(|s| s.to_string());
             arr.into()
             */
-        },
+        }
     };
     Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
 }
@@ -497,59 +533,47 @@ where
     Ok(())
 }
 
-
-
-fn write_array<'a, A, D, Dim>(group: &Group, name: &str, data: A) -> Result<Dataset>
+fn write_array<'a, A, T, D, S, E>(container: &Dataset, data: A, selection: S) -> Result<()>
 where
-    A: Into<ArrayView<'a, D, Dim>>,
-    D: BackendData,
-    Dim: Dimension,
+    A: Into<ArrayView<'a, T, D>>,
+    T: BackendData,
+    D: Dimension,
+    S: AsRef<[E]>,
+    E: AsRef<SelectInfoElem>,
 {
-    fn write_array_impl<'a, D, Dim>(
-        group: &Group,
-        name: &str,
-        arr: ArrayView<'a, D, Dim>,
-    ) -> Result<Dataset>
+    fn write_array_impl<'a, T, D, S, E>(
+        container: &Dataset,
+        arr: ArrayView<'a, T, D>,
+        selection: S,
+    ) -> Result<()>
     where
-        D: H5Type,
-        Dim: Dimension,
+        T: H5Type,
+        D: Dimension,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
     {
-        let shape = arr.shape();
-        let chunk_size = if shape.len() == 1 {
-            vec![shape[0].min(100000)]
-        } else {
-            shape.iter().map(|&x| x.min(100)).collect()
-        };
-        let dataset = if arr.len() > 100 {
-            group
-                .new_dataset_builder()
-                .deflate(3)
-                .chunk(chunk_size)
-                .with_data(arr)
-                .create(name)?
-        } else {
-            group.new_dataset_builder().with_data(arr).create(name)?
-        };
-        Ok(dataset)
+        let (select, _) = into_selection(selection, container.shape()?);
+        container.write_slice(arr, select)?;
+        Ok(())
     }
 
     match BackendData::into_dyn_arr(data.into()) {
-        DynArrayView::U8(x) => write_array_impl(group, name, x),
-        DynArrayView::U16(x) => write_array_impl(group, name, x),
-        DynArrayView::U32(x) => write_array_impl(group, name, x),
-        DynArrayView::U64(x) => write_array_impl(group, name, x),
-        DynArrayView::Usize(x) => write_array_impl(group, name, x),
-        DynArrayView::I8(x) => write_array_impl(group, name, x),
-        DynArrayView::I16(x) => write_array_impl(group, name, x),
-        DynArrayView::I32(x) => write_array_impl(group, name, x),
-        DynArrayView::I64(x) => write_array_impl(group, name, x),
-        DynArrayView::F32(x) => write_array_impl(group, name, x),
-        DynArrayView::F64(x) => write_array_impl(group, name, x),
-        DynArrayView::Bool(x) => write_array_impl(group, name, x),
+        DynArrayView::U8(x) => write_array_impl(container, x, selection),
+        DynArrayView::U16(x) => write_array_impl(container, x, selection),
+        DynArrayView::U32(x) => write_array_impl(container, x, selection),
+        DynArrayView::U64(x) => write_array_impl(container, x, selection),
+        DynArrayView::Usize(x) => write_array_impl(container, x, selection),
+        DynArrayView::I8(x) => write_array_impl(container, x, selection),
+        DynArrayView::I16(x) => write_array_impl(container, x, selection),
+        DynArrayView::I32(x) => write_array_impl(container, x, selection),
+        DynArrayView::I64(x) => write_array_impl(container, x, selection),
+        DynArrayView::F32(x) => write_array_impl(container, x, selection),
+        DynArrayView::F64(x) => write_array_impl(container, x, selection),
+        DynArrayView::Bool(x) => write_array_impl(container, x, selection),
         DynArrayView::String(x) => {
-            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap());
-            write_array_impl(group, name, data.view())
-        }
+            let data: Array<VarLenUnicode, D> = x.map(|x| x.parse().unwrap());
+            write_array_impl(container, data.view(), selection)
+        },
     }
 }
 

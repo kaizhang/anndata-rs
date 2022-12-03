@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2, SliceInfoElem, SliceInfo, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use std::ops::{RangeFull, Range, Index, IndexMut};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 #[derive(Clone, Debug)]
 pub struct Shape(SmallVec<[usize; 3]>);
@@ -42,6 +42,24 @@ impl IndexMut<usize> for Shape {
 impl From<Vec<usize>> for Shape {
     fn from(shape: Vec<usize>) -> Self {
         Self(SmallVec::from_vec(shape))
+    }
+}
+
+impl From<&[usize]> for Shape {
+    fn from(shape: &[usize]) -> Self {
+        Self(SmallVec::from_slice(shape))
+    }
+}
+
+impl From<usize> for Shape {
+    fn from(shape: usize) -> Self {
+        Self(smallvec![shape])
+    }
+}
+
+impl FromIterator<usize> for Shape {
+    fn from_iter<T: IntoIterator<Item = usize>>(iter: T) -> Self {
+        Self(SmallVec::from_iter(iter))
     }
 }
 

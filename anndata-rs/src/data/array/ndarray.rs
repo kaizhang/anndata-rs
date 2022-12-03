@@ -251,7 +251,7 @@ impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let dataset = location.write_array(name, self)?;
+        let dataset = location.create_array_data(name, self, Default::default())?;
         let encoding_type = if T::DTYPE == ScalarType::String {
             "string-array"
         } else {
@@ -435,8 +435,8 @@ impl WriteData for CategoricalArray {
         group.write_str_attr("encoding-type", "categorical")?;
         group.write_str_attr("encoding-version", "0.2.0")?;
 
-        group.write_array("codes", &self.codes)?;
-        group.write_array("categories", &self.categories)?;
+        group.create_array_data("codes", &self.codes, Default::default())?;
+        group.create_array_data("categories", &self.categories, Default::default())?;
 
         Ok(DataContainer::Group(group))
     }

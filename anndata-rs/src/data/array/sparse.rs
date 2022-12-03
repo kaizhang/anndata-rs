@@ -190,7 +190,7 @@ impl<T: BackendData> WriteData for &CsrMatrix<T> {
         group.write_str_attr("encoding-version", "0.2.0")?;
         group.write_arr_attr("shape", shape.as_ref())?;
 
-        group.write_array("data", &self.values())?;
+        group.create_array_data("data", &self.values(), Default::default())?;
 
         let num_cols = shape[1];
         // Use i32 or i64 as indices type in order to be compatible with scipy
@@ -201,49 +201,54 @@ impl<T: BackendData> WriteData for &CsrMatrix<T> {
                 .map(|x| (*x).try_into().ok())
                 .collect();
             if let Some(indptr_i32) = try_convert_indptr {
-                group.write_array("indptr", &indptr_i32)?;
-                group.write_array(
+                group.create_array_data("indptr", &indptr_i32, Default::default())?;
+                group.create_array_data(
                     "indices",
                     self.col_indices()
                         .iter()
                         .map(|x| (*x) as i32)
                         .collect::<Vec<_>>()
                         .as_slice(),
+                    Default::default(),
                 )?;
             } else {
-                group.write_array(
+                group.create_array_data(
                     "indptr",
                     self.row_offsets()
                         .iter()
                         .map(|x| TryInto::<i64>::try_into(*x).unwrap())
                         .collect::<Vec<_>>()
                         .as_slice(),
+                    Default::default(),
                 )?;
-                group.write_array(
+                group.create_array_data(
                     "indices",
                     self.col_indices()
                         .iter()
                         .map(|x| (*x) as i64)
                         .collect::<Vec<_>>()
                         .as_slice(),
+                    Default::default(),
                 )?;
             }
         } else if TryInto::<i64>::try_into(num_cols.saturating_sub(1)).is_ok() {
-            group.write_array(
+            group.create_array_data(
                 "indptr",
                 self.row_offsets()
                     .iter()
                     .map(|x| TryInto::<i64>::try_into(*x).unwrap())
                     .collect::<Vec<_>>()
                     .as_slice(),
+                Default::default(),
             )?;
-            group.write_array(
+            group.create_array_data(
                 "indices",
                 self.col_indices()
                     .iter()
                     .map(|x| (*x) as i64)
                     .collect::<Vec<_>>()
                     .as_slice(),
+                Default::default(),
             )?;
         } else {
             panic!(
