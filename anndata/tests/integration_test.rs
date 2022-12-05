@@ -42,7 +42,7 @@ where
     with_tmp_path(|file| {
         let adata: AnnData<H5> = AnnData::new(file, 0, 0).unwrap();
         adata.add_uns("test", Data::from(&input)).unwrap();
-        assert_eq!(input, adata.fetch_uns::<Data>("test").unwrap().unwrap().try_into().unwrap());
+        assert_eq!(input, adata.fetch_uns::<Data>("test").unwrap().unwrap());
     });
 }
 
@@ -54,7 +54,7 @@ fn test_basic() -> Result<()> {
         adata.add_uns("test", 3i32)?;
         assert_eq!(3i32, adata.fetch_uns::<i32>("test")?.unwrap());
         adata.add_uns("test", 3.0f32)?;
-        assert_eq!(3.0f32, adata.fetch_uns::<f32>("test")?.unwrap().try_into()?);
+        assert_eq!(3.0f32, adata.fetch_uns::<f32>("test")?.unwrap());
 
         let arr = Array::random((2, 5), Uniform::new(0, 100));
         adata.add_obsm("test", &arr)?;

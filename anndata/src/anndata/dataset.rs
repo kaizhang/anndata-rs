@@ -1,17 +1,17 @@
 use crate::element::base::VecVecIndex;
 use crate::{
     anndata::AnnData,
-    traits::AnnDataOp,
+    backend::{Backend, FileOp, GroupOp},
     data::*,
-    element::{*, collection::InnerElemCollection},
     element::{
-        base::{InnerDataFrameElem},
+        base::InnerDataFrameElem,
         collection::{AxisArrays, InnerAxisArrays},
     },
-    backend::{Backend, GroupOp, FileOp},
+    element::{collection::InnerElemCollection, *},
+    traits::AnnDataOp,
 };
 
-use anyhow::{ensure, bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -20,234 +20,53 @@ use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
-use std::{collections::HashMap, ops::Deref, path::{Path, PathBuf}, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 pub struct AnnDataSet<B: Backend> {
     annotation: AnnData<B>,
-    anndatas: Slot<StackedAnnData<B>>,
+    anndatas: StackedAnnData<B>,
 }
 
-pub struct StackedAnnData<B: Backend> {
-    anndatas: IndexMap<String, AnnData<B>>,
-    index: Arc<Mutex<VecVecIndex>>,
-    n_obs: Arc<Mutex<usize>>,
-    n_vars: Arc<Mutex<usize>>,
-    x: StackedArrayElem<B>,
-    pub obs: StackedDataFrame<B>,
-    obsm: StackedAxisArrays<B>,
-}
-
-impl<B: Backend> std::fmt::Display for StackedAnnData<B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Stacked AnnData objects:")?;
-        write!(
-            f,
-            "\n    obs: '{}'",
-            self.obs.column_names.iter().join("', '")
-        )?;
-        write!(f, "\n    obsm: '{}'", self.obsm.keys().join("', '"))?;
-        Ok(())
-    }
-}
-
-/*
-impl StackedAnnData {
-    fn new(adatas: IndexMap<String, AnnData>) -> Result<Option<Self>> {
-        if adatas.is_empty() {
-            return Ok(None);
-        }
-        if let Some((_, first)) = adatas.first() {
-            let lock = first.var.lock();
-            let var_names: Option<&Vec<String>> = lock.as_ref().map(|x| &x.index.names);
-            if !adatas
-                .par_values()
-                .skip(1)
-                .all(|x| x.var.lock().as_ref().map(|x| &x.index.names).eq(&var_names))
-            {
-                bail!("var names mismatch");
-            }
-        }
-
-        let index_: VecVecIndex = adatas.values().map(|x| x.n_obs()).collect();
-        let n_obs = Arc::new(Mutex::new(index_.len()));
-        let index = Arc::new(Mutex::new(index_));
-        let n_vars = adatas.values().next().unwrap().n_vars.clone();
-
-        let x = StackedArrayElem::new(
-            adatas.values().map(|x| x.get_x().clone()).collect(),
-            n_obs.clone(),
-            n_vars.clone(),
-            index.clone(),
-        )?;
-
-        let obs = if adatas.values().any(|x| x.obs.is_empty()) {
-            StackedDataFrame::new(Vec::new())
-        } else {
-            StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
-        };
-
-        let obsm = if adatas.values().any(|x| x.obsm.is_empty()) {
-            Ok(StackedAxisArrays {
-                axis: Axis::Row,
-                data: HashMap::new(),
-            })
-        } else {
-            let obsm_guard: Vec<_> = adatas.values().map(|x| x.obsm.inner()).collect();
-            StackedAxisArrays::new(
-                obsm_guard.iter().map(|x| x.deref()).collect(),
-                &n_obs,
-                &n_vars,
-                &index,
-            )
-        }?;
-
-        Ok(Some(Self {
-            anndatas: adatas,
-            x,
-            obs,
-            obsm,
-            index,
-            n_obs,
-            n_vars,
-        }))
-    }
-
-    pub fn get_x(&self) -> &StackedArrayElem {
-        &self.x
-    }
-    pub fn get_obsm(&self) -> &StackedAxisArrays {
-        &self.obsm
-    }
-
-    pub fn len(&self) -> usize {
-        self.anndatas.len()
-    }
-
-    pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData> {
-        self.anndatas.keys()
-    }
-
-    pub fn values(&self) -> indexmap::map::Values<'_, String, AnnData> {
-        self.anndatas.values()
-    }
-
-    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData> {
-        self.anndatas.iter()
-    }
-
-    /// Write a part of stacked AnnData objects to disk, return the key and
-    /// file name (without parent paths)
-    fn write<P>(
-        &self,
-        obs_indices: Option<&[usize]>,
-        var_indices: Option<&[usize]>,
-        dir: P,
-    ) -> Result<(IndexMap<String, String>, Option<Vec<usize>>)>
-    where
-        P: AsRef<Path> + std::marker::Sync,
-    {
-        let index = self.index.lock();
-        let obs_outer2inner = obs_indices.map(|x| index.ix_group_by_outer(x.iter()));
-        let (files, ori_idx): (IndexMap<_, _>, Vec<_>) = self
-            .anndatas
-            .par_iter()
-            .enumerate()
-            .flat_map(|(i, (k, data))| {
-                let file = dir.as_ref().join(k.to_string() + ".h5ad");
-                let filename = (
-                    k.clone(),
-                    file.file_name().unwrap().to_str().unwrap().to_string(),
-                );
-
-                if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
-                    get_inner_indices.get(&i).map(|(indices, ori_idx)| {
-                        data.write(Some(indices.as_slice()), var_indices, file.clone())
-                            .unwrap();
-                        (filename, Some(ori_idx.clone()))
-                    })
-                } else {
-                    data.write(None, var_indices, file.clone()).unwrap();
-                    Some((filename, None))
-                }
-            })
-            .unzip();
-        Ok((
-            files,
-            ori_idx
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-                .map(|x| x.into_iter().flatten().collect()),
-        ))
-    }
-
-    /// Subsetting an AnnDataSet will not rearrange the data between
-    /// AnnData objects.
-    pub fn subset(
-        &self,
-        obs_indices: Option<&[usize]>,
-        var_indices: Option<&[usize]>,
-    ) -> Result<Option<Vec<usize>>> {
-        let index = self.index.lock();
-
-        let obs_outer2inner = obs_indices.map(|x| {
-            *self.n_obs.lock() = x.len();
-            index.ix_group_by_outer(x.iter())
-        });
-        if let Some(j) = var_indices {
-            *self.n_vars.lock() = j.len();
-        }
-
-        let ori_idx: Vec<_> = self
-            .anndatas
-            .par_values()
-            .enumerate()
-            .map(|(i, data)| {
-                if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
-                    if let Some((indices, ori_idx)) = get_inner_indices.get(&i) {
-                        data.subset(Some(indices.as_slice()), var_indices).unwrap();
-                        Some(ori_idx.clone())
-                    } else {
-                        data.subset(Some(&[]), var_indices).unwrap();
-                        Some(Vec::new())
-                    }
-                } else {
-                    data.subset(None, var_indices).unwrap();
-                    None
-                }
-            })
-            .collect();
-        Ok(ori_idx
-            .into_iter()
-            .collect::<Option<Vec<_>>>()
-            .map(|x| x.into_iter().flatten().collect()))
-    }
-}
-
-impl std::fmt::Display for AnnDataSet {
+impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "AnnDataSet object with n_obs x n_vars = {} x {} backed at '{}'",
             self.n_obs(),
             self.n_vars(),
-            self.annotation.filename(),
+            self.annotation.filename().display(),
         )?;
-        if let Some((n, keys)) = self
-            .anndatas
+        if self.anndatas.len() > 0 {
+            write!(
+                f,
+                "\ncontains {} AnnData objects with keys: '{}'",
+                self.anndatas.len(),
+                self.anndatas.keys().join("', '")
+            )?;
+        }
+        if let Some(obs) = self
+            .annotation
+            .obs
             .lock()
             .as_ref()
-            .map(|x| (x.len(), x.keys().join("', '")))
+            .map(|x| x.get_column_names())
         {
-            if n > 0 {
-                write!(f, "\ncontains {} AnnData objects with keys: '{}'", n, keys)?;
-            }
-        }
-        if let Some(obs) = self.annotation.obs.get_column_names() {
             if !obs.is_empty() {
                 write!(f, "\n    obs: '{}'", obs.into_iter().join("', '"))?;
             }
         }
-        if let Some(var) = self.annotation.var.get_column_names() {
+        if let Some(var) = self
+            .annotation
+            .var
+            .lock()
+            .as_ref()
+            .map(|x| x.get_column_names())
+        {
             if !var.is_empty() {
                 write!(f, "\n    var: '{}'", var.into_iter().join("', '"))?;
             }
@@ -311,6 +130,71 @@ impl std::fmt::Display for AnnDataSet {
     }
 }
 
+impl<B: Backend> AnnDataSet<B> {
+    pub fn new<'a, T, P: AsRef<Path>>(
+        data: T,
+        filename: P,
+        add_key: &str,
+    ) -> Result<Self>
+    where
+        T: IntoIterator<Item = (&'a str, AnnData<B>)>,
+    {
+        let anndatas = StackedAnnData::new(data)?;
+        let n_obs = anndatas.n_obs;
+        let n_vars = anndatas.n_vars;
+
+        let annotation = AnnData::new(filename, n_obs, n_vars)?;
+        { // Set UNS. UNS includes children anndata locations.
+            let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
+                .iter()
+                .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
+                .unzip();
+            let data = DataFrame::new(vec![
+                Series::new("keys", keys),
+                Series::new("file_path", filenames),
+            ])?;
+            annotation.add_uns("AnnDataSet", data)?;
+        }
+        { // Set OBS.
+            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names()).collect();
+            if obs_names.is_empty() {
+                annotation
+                    .set_obs_names((0..n_obs).into_iter().map(|x| x.to_string()).collect())?;
+            } else {
+                annotation.set_obs_names(obs_names)?;
+            }
+            let keys = Series::new(
+                add_key,
+                anndatas
+                    .iter()
+                    .map(|(k, v)| vec![k.clone(); v.n_obs()])
+                    .flatten()
+                    .collect::<Series>(),
+            );
+            annotation.set_obs(Some(DataFrame::new(vec![keys])?))?;
+        }
+        { // Set VAR.
+            let adata = anndatas.values().next().unwrap();
+            if !adata.var_names().is_empty() {
+                annotation.set_var_names(adata.var_names().into_iter().collect())?;
+            }
+        }
+        Ok(Self {
+            annotation,
+            anndatas,
+        })
+    }
+
+    pub fn close(self) -> Result<()> {
+        self.annotation.close()?;
+        for ann in self.anndatas.elems.into_values() {
+            ann.close()?;
+        }
+        Ok(())
+    }
+}
+
+/*
 macro_rules! def_accessor {
     ($get_type:ty, $set_type:ty, { $($field:ident),* }) => {
         paste! {
@@ -357,69 +241,6 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
     ann.get_uns().add_data("AnnDataSet", data)?;
     Ok(())
 }
-
-impl AnnDataSet {
-    pub fn new<P: AsRef<Path>>(
-        anndatas: IndexMap<String, AnnData>,
-        filename: P,
-        add_key: &str,
-    ) -> Result<Self> {
-        // Compute n_obs and n_vars
-        let n_obs = anndatas.values().map(|x| x.n_obs()).sum();
-        let n_vars = anndatas.values().next().map(|x| x.n_vars()).unwrap_or(0);
-
-        let annotation = AnnData::new(filename, n_obs, n_vars)?;
-
-        // Set UNS. UNS includes children anndata locations.
-        {
-            let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
-                .iter()
-                .map(|(k, v)| (k.clone(), v.filename()))
-                .unzip();
-            let data = DataFrame::new(vec![
-                Series::new("keys", keys),
-                Series::new("file_path", filenames),
-            ])?;
-            annotation.get_uns().add_data("AnnDataSet", data)?;
-        }
-
-        // Set OBS.
-        {
-            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names()).collect();
-            if obs_names.is_empty() {
-                annotation
-                    .set_obs_names((0..n_obs).into_iter().map(|x| x.to_string()).collect())?;
-            } else {
-                annotation.set_obs_names(obs_names)?;
-            }
-            let keys = Series::new(
-                add_key,
-                anndatas
-                    .iter()
-                    .map(|(k, v)| vec![k.clone(); v.n_obs()])
-                    .flatten()
-                    .collect::<Series>(),
-            );
-            annotation.set_obs(Some(DataFrame::new(vec![keys])?))?;
-        }
-
-        // Set VAR.
-        {
-            let adata = anndatas.values().next().unwrap();
-            if !adata.var_names().is_empty() {
-                annotation.set_var_names(adata.var_names().into_iter().collect())?;
-                annotation.set_var(Some(adata.get_var().read()?))?;
-            }
-        }
-        let anndatas = match StackedAnnData::new(anndatas)? {
-            Some(ann) => Slot::new(ann),
-            _ => Slot::empty(),
-        };
-        Ok(Self {
-            annotation,
-            anndatas,
-        })
-    }
 
     /// Get the reference to the concatenated AnnData objects.
     pub fn get_inner_adatas(&self) -> &Slot<StackedAnnData> {
@@ -613,37 +434,40 @@ impl AnnDataSet {
         Ok(self.annotation)
     }
 
-    pub fn close(self) -> Result<()> {
-        self.annotation.close()?;
-        if let Some(anndatas) = self.anndatas.extract() {
-            for ann in anndatas.anndatas.into_values() {
-                ann.close()?;
-            }
-        }
-        Ok(())
-    }
-}
 
+*/
 
-/*
-impl AnnDataOp for AnnDataSet {
-    fn read_x(&self) -> Result<Option<Box<dyn ArrayData>>> {
-        let adatas = &self.anndatas;
-        if adatas.is_empty() {
-            Ok(None)
-        } else {
-            adatas.inner().x.read(None, None).map(Option::Some)
-        }
+impl<B: Backend> AnnDataOp for AnnDataSet<B> {
+    fn read_x<D>(&self) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        Ok(Some(self.anndatas.x.data()?))
     }
-    fn set_x<D: ArrayData>(&self, _: Option<D>) -> Result<()> {
+
+    fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
+    where
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        S: AsRef<[SelectInfoElem]>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        todo!()
+    }
+
+    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()> {
         bail!("cannot set X in AnnDataSet")
     }
 
+    fn del_x(&self) -> Result<()> {
+        bail!("cannot delete X in AnnDataSet")
+    }
+
     fn n_obs(&self) -> usize {
-        *self.anndatas.inner().n_obs.lock()
+        self.anndatas.n_obs
     }
     fn n_vars(&self) -> usize {
-        *self.anndatas.inner().n_vars.lock()
+        self.anndatas.n_vars
     }
 
     fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
@@ -694,37 +518,261 @@ impl AnnDataOp for AnnDataSet {
         self.annotation.varp_keys()
     }
 
-    fn read_uns_item(&self, key: &str) -> Result<Option<Box<dyn Data>>> {
-        self.annotation.read_uns_item(key)
-    }
-    fn read_obsm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
-        self.annotation.read_obsm_item(key)
-    }
-    fn read_obsp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
-        self.annotation.read_obsp_item(key)
-    }
-    fn read_varm_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
-        self.annotation.read_varm_item(key)
-    }
-    fn read_varp_item(&self, key: &str) -> Result<Option<Box<dyn ArrayData>>> {
-        self.annotation.read_varp_item(key)
+    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
+    {
+        self.annotation.fetch_uns(key)
     }
 
-    fn add_uns_item<D: Data>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_uns_item(key, data)
+    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.annotation.fetch_obsm(key)
     }
-    fn add_obsm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_obsm_item(key, data)
+
+    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.annotation.fetch_obsp(key)
     }
-    fn add_obsp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_obsp_item(key, data)
+
+    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.annotation.fetch_varm(key)
     }
-    fn add_varm_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_varm_item(key, data)
+
+    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.annotation.fetch_varp(key)
     }
-    fn add_varp_item<D: ArrayData>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_varp_item(key, data)
+
+    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
+        self.annotation.add_uns(key, data)
+    }
+
+    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
+        self.annotation.add_obsm(key, data)
+    }
+
+    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
+        self.annotation.add_obsp(key, data)
+    }
+
+    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
+        self.annotation.add_varm(key, data)
+    }
+
+    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()> {
+        self.annotation.add_varp(key, data)
     }
 }
-*/
-*/
+
+pub struct StackedAnnData<B: Backend> {
+    elems: IndexMap<String, AnnData<B>>,
+    n_obs: usize,
+    n_vars: usize,
+    x: StackedArrayElem<B>,
+    pub obs: StackedDataFrame<B>,
+    obsm: StackedAxisArrays<B>,
+}
+
+impl<B: Backend> std::fmt::Display for StackedAnnData<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Stacked AnnData objects:")?;
+        write!(
+            f,
+            "\n    obs: '{}'",
+            self.obs.get_column_names().iter().join("', '")
+        )?;
+        write!(f, "\n    obsm: '{}'", self.obsm.keys().join("', '"))?;
+        Ok(())
+    }
+}
+
+impl<B: Backend> StackedAnnData<B> {
+    fn new<'a, T>(iter: T) -> Result<Self>
+    where
+        T: IntoIterator<Item = (&'a str, AnnData<B>)>,
+    {
+        let adatas: IndexMap<String, AnnData<B>> = iter.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        ensure!(!adatas.is_empty(), "no AnnData objects to stack");
+
+        if let Some((_, first)) = adatas.first() {
+            let lock = first.var.lock();
+            let var_names: Option<&Vec<String>> = lock.as_ref().map(|x| &x.index.names);
+            if !adatas
+                .par_values()
+                .skip(1)
+                .all(|x| x.var.lock().as_ref().map(|x| &x.index.names).eq(&var_names))
+            {
+                bail!("var names mismatch");
+            }
+        }
+
+        let x = StackedArrayElem::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
+
+        let obs = if adatas.values().any(|x| x.obs.is_empty()) {
+            StackedDataFrame::new(Vec::new())
+        } else {
+            StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
+        }?;
+
+        let obsm = {
+            let arrays: Vec<AxisArrays<_>> = adatas.values().map(|x| x.obsm.clone()).collect();
+            StackedAxisArrays::new(Axis::Row, arrays)?
+        };
+
+        let index_: VecVecIndex = adatas.values().map(|x| x.n_obs()).collect();
+        let n_obs = Arc::new(Mutex::new(index_.len()));
+        let index = Arc::new(Mutex::new(index_));
+
+        Ok(Self {
+            n_obs: adatas.values().map(|x| x.n_obs()).sum(),
+            n_vars: adatas.values().next().unwrap().n_vars(),
+            elems: adatas,
+            x,
+            obs,
+            obsm,
+        })
+    }
+
+    pub fn get_x(&self) -> &StackedArrayElem<B> {
+        &self.x
+    }
+    pub fn get_obsm(&self) -> &StackedAxisArrays<B> {
+        &self.obsm
+    }
+
+    pub fn len(&self) -> usize {
+        self.elems.len()
+    }
+
+    pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData<B>> {
+        self.elems.keys()
+    }
+
+    pub fn values(&self) -> indexmap::map::Values<'_, String, AnnData<B>> {
+        self.elems.values()
+    }
+
+    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData<B>> {
+        self.elems.iter()
+    }
+
+    /*
+    /// Write a part of stacked AnnData objects to disk, return the key and
+    /// file name (without parent paths)
+    fn write<P>(
+        &self,
+        obs_indices: Option<&[usize]>,
+        var_indices: Option<&[usize]>,
+        dir: P,
+    ) -> Result<(IndexMap<String, String>, Option<Vec<usize>>)>
+    where
+        P: AsRef<Path> + std::marker::Sync,
+    {
+        let index = self.index.lock();
+        let obs_outer2inner = obs_indices.map(|x| index.ix_group_by_outer(x.iter()));
+        let (files, ori_idx): (IndexMap<_, _>, Vec<_>) = self
+            .anndatas
+            .par_iter()
+            .enumerate()
+            .flat_map(|(i, (k, data))| {
+                let file = dir.as_ref().join(k.to_string() + ".h5ad");
+                let filename = (
+                    k.clone(),
+                    file.file_name().unwrap().to_str().unwrap().to_string(),
+                );
+
+                if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
+                    get_inner_indices.get(&i).map(|(indices, ori_idx)| {
+                        data.write(Some(indices.as_slice()), var_indices, file.clone())
+                            .unwrap();
+                        (filename, Some(ori_idx.clone()))
+                    })
+                } else {
+                    data.write(None, var_indices, file.clone()).unwrap();
+                    Some((filename, None))
+                }
+            })
+            .unzip();
+        Ok((
+            files,
+            ori_idx
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .map(|x| x.into_iter().flatten().collect()),
+        ))
+    }
+
+    /// Subsetting an AnnDataSet will not rearrange the data between
+    /// AnnData objects.
+    pub fn subset(
+        &self,
+        obs_indices: Option<&[usize]>,
+        var_indices: Option<&[usize]>,
+    ) -> Result<Option<Vec<usize>>> {
+        let index = self.index.lock();
+
+        let obs_outer2inner = obs_indices.map(|x| {
+            *self.n_obs.lock() = x.len();
+            index.ix_group_by_outer(x.iter())
+        });
+        if let Some(j) = var_indices {
+            *self.n_vars.lock() = j.len();
+        }
+
+        let ori_idx: Vec<_> = self
+            .anndatas
+            .par_values()
+            .enumerate()
+            .map(|(i, data)| {
+                if let Some(get_inner_indices) = obs_outer2inner.as_ref() {
+                    if let Some((indices, ori_idx)) = get_inner_indices.get(&i) {
+                        data.subset(Some(indices.as_slice()), var_indices).unwrap();
+                        Some(ori_idx.clone())
+                    } else {
+                        data.subset(Some(&[]), var_indices).unwrap();
+                        Some(Vec::new())
+                    }
+                } else {
+                    data.subset(None, var_indices).unwrap();
+                    None
+                }
+            })
+            .collect();
+        Ok(ori_idx
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .map(|x| x.into_iter().flatten().collect()))
+    }
+    */
+}

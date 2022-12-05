@@ -512,6 +512,12 @@ where
     D: BackendData,
     Dim: Dimension,
 {
+    unsafe {
+        let c_name = std::ffi::CString::new(name).unwrap().into_raw();
+        if hdf5_sys::h5a::H5Aexists(loc.id(), c_name) != 0 {
+            hdf5_sys::h5a::H5Adelete(loc.id(), c_name);
+        }
+    }
     match BackendData::into_dyn_arr(data.into()) {
         DynArrayView::U8(x) => loc.new_attr_builder().with_data(x).create(name)?,
         DynArrayView::U16(x) => loc.new_attr_builder().with_data(x).create(name)?,

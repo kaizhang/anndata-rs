@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, iter_containers},
+    backend::{iter_containers, Backend},
     data::*,
     element::base::*,
 };
@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{ensure, Result};
 use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -66,6 +66,12 @@ where
 }
 
 pub struct ElemCollection<B: Backend>(Slot<InnerElemCollection<B>>);
+
+impl<B: Backend> Clone for ElemCollection<B> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<B: Backend> Deref for ElemCollection<B> {
     type Target = Slot<InnerElemCollection<B>>;
@@ -150,18 +156,25 @@ impl<B: Backend> InnerAxisArrays<B> {
         key: &str,
         data: D,
     ) -> Result<()> {
-        { // Check if the data is compatible with the current size
+        {
+            // Check if the data is compatible with the current size
             let shape = data.shape();
-            let mut size= self.size.lock();
+            let mut size = self.size.lock();
 
             match self.axis {
                 Axis::Row => {
-                    ensure!(*size == 0 || *size == shape[0], "Row arrays must have same length");
+                    ensure!(
+                        *size == 0 || *size == shape[0],
+                        "Row arrays must have same length"
+                    );
                     *size = shape[0];
                 }
                 Axis::RowColumn => {
                     ensure!(shape[0] == shape[1], "Square arrays must be square");
-                    ensure!(*size == 0 || *size == shape[0], "Square arrays must have same length");
+                    ensure!(
+                        *size == 0 || *size == shape[0],
+                        "Square arrays must have same length"
+                    );
                     *size = shape[0];
                 }
             }
@@ -194,16 +207,14 @@ impl<B: Backend> InnerAxisArrays<B> {
             match self.axis {
                 Axis::Row => {
                     let s = vec![selection];
-                    self
-                        .iter()
+                    self.iter()
                         .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
-                },
+                }
                 Axis::RowColumn => {
                     let s = vec![selection.as_ref(), selection.as_ref()];
-                    self
-                        .iter()
+                    self.iter()
                         .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
-                },
+                }
             }
         }
     }
@@ -213,7 +224,7 @@ impl<B: Backend> InnerAxisArrays<B> {
             Axis::Row => {
                 let s = vec![selection.as_ref()];
                 self.values().try_for_each(|x| x.inner().subset(&s))?;
-            },
+            }
             Axis::RowColumn => {
                 let s = vec![selection.as_ref(), selection.as_ref()];
                 self.values().try_for_each(|x| x.inner().subset(&s))?;
@@ -224,6 +235,12 @@ impl<B: Backend> InnerAxisArrays<B> {
 }
 
 pub struct AxisArrays<B: Backend>(Slot<InnerAxisArrays<B>>);
+
+impl<B: Backend> Clone for AxisArrays<B> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<B: Backend> Deref for AxisArrays<B> {
     type Target = Slot<InnerAxisArrays<B>>;
@@ -248,25 +265,32 @@ impl<B: Backend> AxisArrays<B> {
         let data: HashMap<_, _> = iter_containers::<B>(&group)
             .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
-        { // Check if the data is compatible with the current size
-            let mut size= size_.lock();
+        {
+            // Check if the data is compatible with the current size
+            let mut size = size_.lock();
             for (_, v) in data.iter() {
                 let v_lock = v.inner();
                 let shape = v_lock.shape();
                 match &axis {
                     Axis::Row => {
-                        ensure!(*size == 0 || *size == shape[0], "Row arrays must have same length");
+                        ensure!(
+                            *size == 0 || *size == shape[0],
+                            "Row arrays must have same length"
+                        );
                         *size = shape[0];
                     }
                     Axis::RowColumn => {
                         ensure!(shape[0] == shape[1], "Square arrays must be square");
-                        ensure!(*size == 0 || *size == shape[0], "Square arrays must have same length");
+                        ensure!(
+                            *size == 0 || *size == shape[0],
+                            "Square arrays must have same length"
+                        );
                         *size = shape[0];
                     }
                 }
             }
         }
-        let arrays = InnerAxisArrays{
+        let arrays = InnerAxisArrays {
             container: group,
             size: size_,
             axis,
@@ -276,11 +300,10 @@ impl<B: Backend> AxisArrays<B> {
     }
 }
 
-
 /// Stacked axis arrays, providing Read-only access to the data.
 #[derive(Clone)]
 pub struct StackedAxisArrays<B: Backend> {
-    pub axis: Axis,
+    axis: Axis,
     data: Arc<HashMap<String, StackedArrayElem<B>>>,
 }
 
@@ -308,39 +331,43 @@ impl<B: Backend> std::fmt::Display for StackedAxisArrays<B> {
     }
 }
 
-/*
-impl StackedAxisArrays {
-    pub(crate) fn new(
-        arrays: Vec<&InnerAxisArrays>,
-        nrows: &Arc<Mutex<usize>>,
-        ncols: &Arc<Mutex<usize>>,
-        accum: &Arc<Mutex<VecVecIndex>>,
-    ) -> Result<Self> {
-        if arrays.is_empty() {
-            return Err(anyhow!("input is empty"));
+impl<B: Backend> StackedAxisArrays<B> {
+    pub fn empty(axis: Axis) -> Self {
+        Self {
+            axis,
+            data: Arc::new(HashMap::new()),
         }
-        if !arrays.iter().map(|x| x.axis).all_equal() {
-            return Err(anyhow!("arrays must have same axis"));
+    }
+
+    pub(crate) fn new(axis: Axis, arrays: Vec<AxisArrays<B>>) -> Result<Self> {
+        if arrays.iter().any(|x| x.is_empty()) {
+            return Ok(Self::empty(axis));
         }
-        let keys = intersections(
-            arrays
-                .iter()
-                .map(|x| x.keys().map(Clone::clone).collect())
-                .collect(),
+
+        ensure!(
+            arrays.iter().all(|x| x.inner().axis == axis),
+            "Axis mismatch"
         );
-        let data = keys
+
+        let shared_keys: HashSet<String> = arrays
+            .iter()
+            .map(|x| x.inner().keys().cloned().collect::<HashSet<_>>())
+            .reduce(|a, b| a.intersection(&b).cloned().collect())
+            .unwrap_or(HashSet::new());
+
+        let data = shared_keys
             .into_iter()
             .map(|k| {
-                let elems = arrays.iter().map(|x| x.get(&k).unwrap().clone()).collect();
-                Ok((
-                    k,
-                    StackedMatrixElem::new(elems, nrows.clone(), ncols.clone(), accum.clone())?,
-                ))
+                let elems = arrays
+                    .iter()
+                    .map(|x| x.inner().get(&k).unwrap().clone())
+                    .collect();
+                Ok((k, StackedArrayElem::new(elems)?))
             })
             .collect::<Result<HashMap<_, _>>>()?;
         Ok(Self {
-            axis: arrays[0].axis,
-            data,
+            axis: axis,
+            data: Arc::new(data),
         })
     }
 
@@ -348,15 +375,3 @@ impl StackedAxisArrays {
         self.data.contains_key(key)
     }
 }
-
-fn intersections(mut sets: Vec<HashSet<String>>) -> HashSet<String> {
-    {
-        let (intersection, others) = sets.split_at_mut(1);
-        let intersection = &mut intersection[0];
-        for other in others {
-            intersection.retain(|e| other.contains(e));
-        }
-    }
-    sets[0].clone()
-}
-*/

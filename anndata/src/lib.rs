@@ -8,11 +8,11 @@ pub mod element;
 pub(crate) mod utils;
 
 pub use traits::AnnDataOp;
-pub use anndata::AnnData;
+pub use anndata::{AnnData, AnnDataSet};
 pub use data::{Data, ArrayData, WriteArrayData, ReadArrayData, ArrayOp};
 pub use element::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 
-    //StackedAxisArrays, StackedDataFrame, StackedMatrixElem,
+    StackedAxisArrays, StackedDataFrame, StackedArrayElem,
 };
 //pub use iterator::{AnnDataIterator, ChunkedMatrix, StackedChunkedMatrix};
 

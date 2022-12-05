@@ -1,5 +1,7 @@
 mod dataset;
 
+pub use dataset::AnnDataSet;
+
 use crate::{
     backend::{Backend, FileOp, GroupOp},
     data::*,

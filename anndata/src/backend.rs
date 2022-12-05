@@ -1,4 +1,5 @@
 pub mod hdf5;
+pub mod n5;
 
 use crate::data::{DynArray, DynScalar, SelectInfo, SelectInfoElem, Shape};
 
@@ -24,29 +25,38 @@ impl Default for WriteConfig {
 
 pub trait Backend {
     /// File represents the root of the hierarchy.
-    type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send;
+    type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send + Sync;
 
     /// Groups work like directories and can contain groups or datasets.
-    type Group: GroupOp<Backend = Self> + LocationOp<Backend = Self> + Send;
+    type Group: GroupOp<Backend = Self> + LocationOp<Backend = Self> + Send + Sync;
 
     /// Datasets store multi-dimensional arrays.
-    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend = Self> + Send;
+    type Dataset: DatasetOp<Backend = Self> + LocationOp<Backend = Self> + Send + Sync;
 
+    /// Create a new file at the given path.
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
 }
 
 pub trait FileOp {
     type Backend: Backend;
 
+    /// Returns the file path.
     fn filename(&self) -> PathBuf;
+
+    /// Close the file.
     fn close(self) -> Result<()>;
 }
 
 pub trait GroupOp {
     type Backend: Backend;
 
+    /// List all groups and datasets in this group.
     fn list(&self) -> Result<Vec<String>>;
+
+    /// Create a new group.
     fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
+
+    /// Open an existing group.
     fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group>;
 
     /// Create an empty dataset holding an array value.
@@ -58,7 +68,10 @@ pub trait GroupOp {
     ) -> Result<<Self::Backend as Backend>::Dataset>;
     fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset>;
 
+    /// Delete a group or dataset.
     fn delete(&self, name: &str) -> Result<()>;
+
+    /// Check if a group or dataset exists.
     fn exists(&self, name: &str) -> Result<bool>;
 
     fn create_scalar_data<D: BackendData>(
@@ -104,7 +117,11 @@ pub trait LocationOp {
     /// Returns the name of the location.
     fn name(&self) -> PathBuf;
 
+    /// Write a string attribute at a given location. This function should be able to
+    /// overwrite existing attributes.
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
+
+    /// Write a array-like attribute at a given location.
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,

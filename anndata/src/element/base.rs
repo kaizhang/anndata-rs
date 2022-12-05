@@ -8,8 +8,7 @@ use crate::{
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use nalgebra_sparse::csr::CsrMatrix;
-use ndarray::{Array, Dimension, Ix1};
+use ndarray::Ix1;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
@@ -131,7 +130,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = index.overwrite(df.write(location, name)?)?;
+        df.write(location, name)?;
+        let container = index.write(location, name)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -189,7 +189,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        self.index.overwrite(df.write(location, name)?)?;
+        df.write(location, name)?;
+        self.index.write(location, name)?;
         Ok(())
     }
 
@@ -453,8 +454,8 @@ pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
 /// Horizontal concatenated dataframe elements.
 #[derive(Clone)]
 pub struct StackedDataFrame<B: Backend> {
-    pub column_names: IndexSet<String>,
-    pub elems: Arc<Vec<DataFrameElem<B>>>,
+    column_names: IndexSet<String>,
+    elems: Arc<Vec<DataFrameElem<B>>>,
 }
 
 impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
@@ -494,6 +495,10 @@ impl<B: Backend> StackedDataFrame<B> {
         }
     }
 
+    pub fn get_column_names(&self) -> &IndexSet<String> {
+        &self.column_names
+    }
+
     pub fn data(&self) -> Result<DataFrame> {
         let mut merged = DataFrame::empty();
         self.elems.iter().try_for_each(|el| {
@@ -528,15 +533,13 @@ impl<B: Backend> StackedDataFrame<B> {
     }
 }
 
-// TODO: remove Arc.
-#[derive(Clone)]
-pub struct StackedArrayElem<B: Backend> {
+pub struct InnerStackedArrayElem<B: Backend> {
     shape: Shape,
-    pub(crate) elems: Arc<Vec<ArrayElem<B>>>,
+    pub(crate) elems: Vec<ArrayElem<B>>,
     index: VecVecIndex,
 }
 
-impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
+impl<B: Backend> std::fmt::Display for InnerStackedArrayElem<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.elems.len() == 0 {
             write!(f, "empty stacked elements")
@@ -552,36 +555,12 @@ impl<B: Backend> std::fmt::Display for StackedArrayElem<B> {
     }
 }
 
-impl<B: Backend> StackedArrayElem<B> {
-    pub(crate) fn new(elems: Vec<ArrayElem<B>>) -> Result<Self> {
-        ensure!(
-            elems
-                .iter()
-                .map(|x| x.lock().as_ref().map(|x| x.dtype()))
-                .all_equal(),
-            "all elements must have the same dtype"
-        );
-
-        let shapes: Vec<_> = elems.iter().map(|x| x.inner().shape().clone()).collect();
-        ensure!(
-            shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
-            "all elements must have the same shape except for the first axis"
-        );
-        let index: VecVecIndex = shapes.iter().map(|x| x[0]).collect();
-        let mut shape = shapes[0].clone();
-        shape[0] = index.len();
-        Ok(Self {
-            shape,
-            elems: Arc::new(elems),
-            index,
-        })
-    }
-
+impl<B: Backend> InnerStackedArrayElem<B> {
     pub fn shape(&self) -> &Shape {
         &self.shape
     }
 
-    pub fn data<D>(&mut self) -> Result<D>
+    pub fn data<D>(&self) -> Result<D>
     where
         D: Into<ArrayData> + ReadData + Clone + TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
@@ -622,6 +601,44 @@ impl<B: Backend> StackedArrayElem<B> {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct StackedArrayElem<B: Backend>(Arc<InnerStackedArrayElem<B>>);
+
+impl<B: Backend> Deref for StackedArrayElem<B> {
+    type Target = InnerStackedArrayElem<B>;
+    fn deref(&self) -> &InnerStackedArrayElem<B> {
+        &self.0
+    }
+}
+
+impl<B: Backend> StackedArrayElem<B> {
+    pub fn new(elems: Vec<ArrayElem<B>>) -> Result<Self> {
+        ensure!(
+            elems
+                .iter()
+                .map(|x| x.lock().as_ref().map(|x| x.dtype()))
+                .all_equal(),
+            "all elements must have the same dtype"
+        );
+
+        let shapes: Vec<_> = elems.iter().map(|x| x.inner().shape().clone()).collect();
+        ensure!(
+            shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
+            "all elements must have the same shape except for the first axis"
+        );
+        let index: VecVecIndex = shapes.iter().map(|x| x[0]).collect();
+        let mut shape = shapes[0].clone();
+        shape[0] = index.len();
+        Ok(Self(Arc::new(InnerStackedArrayElem {
+            shape,
+            elems: elems,
+            index,
+        })))
+    }
+}
+
+
 
 /*
 pub fn read(
