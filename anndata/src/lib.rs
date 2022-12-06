@@ -1,5 +1,5 @@
+mod anndata;
 pub mod traits;
-pub mod anndata;
 pub mod backend;
 pub mod data;
 pub mod element;
@@ -8,7 +8,7 @@ pub mod element;
 pub(crate) mod utils;
 
 pub use traits::AnnDataOp;
-pub use anndata::{AnnData, AnnDataSet};
+pub use crate::anndata::{AnnData, AnnDataSet};
 pub use data::{Data, ArrayData, WriteArrayData, ReadArrayData, ArrayOp};
 pub use element::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 

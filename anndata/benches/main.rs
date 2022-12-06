@@ -1,12 +1,11 @@
-use anndata_rs::*;
-use anndata_rs::backend::hdf5::H5;
+use anndata::*;
+use anndata_hdf5::H5;
 
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use ndarray::{Array, Array1, Array2, Array3};
 use criterion::BenchmarkId;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use hdf5::*;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
 use rand::Rng;
@@ -21,13 +20,6 @@ pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
 
 fn with_tmp_path<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     with_tmp_dir(|dir| func(dir.join("foo.h5")))
-}
-
-fn with_tmp_file<T, F: FnMut(File) -> T>(mut func: F) -> T {
-    with_tmp_path(|path| {
-        let file = File::create(&path).unwrap();
-        func(file)
-    })
 }
 
 fn bench_array_io(c: &mut Criterion) {

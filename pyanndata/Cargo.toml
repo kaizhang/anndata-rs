@@ -12,7 +12,7 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 keywords = ["data"]
 
 [dependencies]
-anndata-rs = { path = "../anndata-rs", features = ["static"] }
+anndata = { path = "../anndata" }
 anyhow = "1.0"
 numpy = "0.17.2"
 ndarray = "0.15"

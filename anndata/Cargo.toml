@@ -12,33 +12,24 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
 anyhow = "1.0"
-flate2 = "1.0"
 indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
-hdf5 = "0.8"
-hdf5-sys = { version = "0.8", features = ["static", "zlib"] }
-libz-sys = { version = "1", features = ["zlib-ng"], default-features = false, optional = true }
-n5 = "0.7"
-ndarray = { version = "0.15", features = ["serde"] }
+ndarray = { version = "0.15" }
 nalgebra-sparse = "0.8"
-downcast-rs = "1.2"
 polars = { version = "0.25", features = ["lazy", "decompress", "ndarray", "dtype-full"] }
-paste = "1.0"
 parking_lot = "0.12"
 replace_with = "0.1"
 smallvec = "1.10"
-serde_json = "1.0"
 rayon = "1.5"
 
 [dev-dependencies]
+anndata-n5 = { path = '../anndata-n5' }
+anndata-hdf5 = { path = '../anndata-hdf5' }
 tempfile = "3.2"
 criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_support", "html_reports"] }
 proptest = "1"
 rand = "0.8.5"
 ndarray-rand = "0.14"
-
-[features]
-static = ["dep:libz-sys"]
 
 [[bench]]
 name = "main"

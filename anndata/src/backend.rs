@@ -1,6 +1,3 @@
-pub mod hdf5;
-pub mod n5;
-
 use crate::data::{DynArray, DynScalar, SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
@@ -136,7 +133,7 @@ pub trait DatasetOp {
     type Backend: Backend;
 
     fn dtype(&self) -> Result<ScalarType>;
-    fn shape(&self) -> Result<Shape>;
+    fn shape(&self) -> Shape;
     fn reshape(&self, shape: &Shape) -> Result<()>;
 
     fn read_scalar<T: BackendData>(&self) -> Result<T>;
@@ -145,7 +142,7 @@ pub trait DatasetOp {
     where
         D: Dimension,
     {
-        self.read_array_slice(SelectInfo::all())
+        self.read_array_slice(SelectInfo::all(self.shape().ndim()))
     }
 
     fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
@@ -163,7 +160,9 @@ pub trait DatasetOp {
         D: BackendData,
         Dim: Dimension,
     {
-        self.write_array_slice(data, SelectInfo::all())
+        let arr = data.into();
+        let ndim = arr.ndim();
+        self.write_array_slice(arr, SelectInfo::all(ndim))
     }
 
     fn write_array_slice<'a, A, S, T, D, E>(

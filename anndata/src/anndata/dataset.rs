@@ -15,7 +15,6 @@ use anyhow::{bail, ensure, Context, Result};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
 use parking_lot::Mutex;
-use paste::paste;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,

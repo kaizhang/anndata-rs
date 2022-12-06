@@ -1,5 +1,5 @@
-use anndata_rs::*;
-use anndata_rs::backend::hdf5::H5;
+use anndata::*;
+use anndata_hdf5::H5;
 
 use proptest::prelude::*;
 

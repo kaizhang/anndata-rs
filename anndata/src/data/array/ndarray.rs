@@ -213,7 +213,7 @@ impl ArrayOp for DynArray {
 impl WriteArrayData for DynArray {}
 impl ReadArrayData for DynArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
-        Ok(container.as_dataset()?.shape()?.into())
+        Ok(container.as_dataset()?.shape().into())
     }
 
     fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
@@ -370,7 +370,7 @@ impl<T: BackendData, D: Dimension> ReadData for Array<T, D> {
 
 impl<T: BackendData, D: Dimension> ReadArrayData for Array<T, D> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
-        Ok(container.as_dataset()?.shape()?.into())
+        Ok(container.as_dataset()?.shape().into())
     }
 
     fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
@@ -464,7 +464,7 @@ impl ReadData for CategoricalArray {
 impl ReadArrayData for CategoricalArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         let group = container.as_group()?;
-        let codes = group.open_dataset("codes")?.shape()?;
+        let codes = group.open_dataset("codes")?.shape();
         Ok(codes.into())
     }
 

@@ -1,5 +1,6 @@
-use anndata_rs::*;
-use anndata_rs::backend::hdf5::H5;
+use anndata::*;
+use anndata::data::ReadData;
+use anndata_hdf5::H5;
 
 use proptest::prelude::*;
 
@@ -35,14 +36,13 @@ fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i32> {
 
 fn uns_io<T>(input: T)
 where
-    T: Eq + Debug + Into<Data> + Clone,
-    Data: TryInto<T>,
-    <Data as TryInto<T>>::Error: Debug,
+    T: Eq + Debug + Into<Data> + ReadData + Clone + TryFrom<Data>,
+    <T as TryFrom<Data>>::Error: Into<anyhow::Error>, 
 {
     with_tmp_path(|file| {
         let adata: AnnData<H5> = AnnData::new(file, 0, 0).unwrap();
         adata.add_uns("test", Data::from(&input)).unwrap();
-        assert_eq!(input, adata.fetch_uns::<Data>("test").unwrap().unwrap());
+        assert_eq!(input, adata.fetch_uns::<T>("test").unwrap().unwrap());
     });
 }
 

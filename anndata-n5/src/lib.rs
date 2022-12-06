@@ -1,15 +1,17 @@
-use crate::{
+use anndata::{
     backend::{
         Backend, BackendData, DatasetOp, DynArrayView, FileOp, GroupOp, LocationOp, ScalarType,
         WriteConfig,
     },
-    data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape},
+    data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, BoundedSelectInfoElem, Shape},
 };
+use anndata::data::slice::BoundedSliceInfoElem;
 
 use anyhow::{bail, Result};
 use n5::{
     filesystem::N5Filesystem, ndarray::N5NdarrayWriter, DataType, DatasetAttributes, N5Lister,
     N5Reader, N5Writer, ReadableDataBlock, ReflectedType, SliceDataBlock,
+    ndarray::N5NdarrayReader,
 };
 use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, SliceInfoElem};
 use serde_json::value::Value;
@@ -267,13 +269,9 @@ impl GroupOp for Group {
     {
         let arr_view = arr.into();
         let shape = arr_view.shape();
-        let block_size = config.block_size.unwrap_or_else(|| {
-            if shape.len() == 1 {
-                shape[0].min(10000).into()
-            } else {
-                shape.iter().map(|&x| x.min(100)).collect()
-            }
-        });
+        let block_size = config.block_size.unwrap_or_else(||
+            shape.as_ref().iter().map(|&x| x.min(1000)).collect()
+        );
         let new_config = WriteConfig {
             compression: config.compression,
             block_size: Some(block_size),
@@ -320,8 +318,8 @@ impl DatasetOp for Dataset {
             DataType::FLOAT64 => Ok(ScalarType::F64),
         }
     }
-    fn shape(&self) -> Result<Shape> {
-        todo!()
+    fn shape(&self) -> Shape {
+        self.attributes.get_dimensions().into_iter().map(|x| *x as usize).collect()
     }
 
     fn reshape(&self, shape: &Shape) -> Result<()> {
@@ -371,7 +369,45 @@ impl DatasetOp for Dataset {
         E: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        todo!()
+        macro_rules! impl_read {
+            ($ty:ty) => {{
+                let path = self.path.to_string_lossy();
+                let attr = &self.attributes;
+                let shape = self.shape();
+                if selection
+                    .as_ref()
+                    .into_iter()
+                    .all(|x| x.as_ref().is_slice())
+                {
+                    let (offsets, sizes) = BoundedSelectInfo::new(&selection, &shape).unwrap()
+                        .as_ref().into_iter()
+                        .map(|x| match x {
+                            BoundedSelectInfoElem::Slice(BoundedSliceInfoElem { start, end, step: 1 }) => (*start as u64, (*end - *start) as u64),
+                            _ => todo!(),
+                        })
+                        .unzip();
+                    let bbox = n5::ndarray::BoundingBox::new(offsets, sizes);
+                    self.root.read_ndarray::<$ty>(&path, attr, &bbox)?
+                } else {
+                    todo!()
+                }
+            }};
+        }
+
+        let array: DynArray = match T::DTYPE {
+            ScalarType::I8 => impl_read!(i8).into(),
+            ScalarType::I16 => impl_read!(i16).into(),
+            ScalarType::I32 => impl_read!(i32).into(),
+            ScalarType::I64 => impl_read!(i64).into(),
+            ScalarType::U8 => impl_read!(u8).into(),
+            ScalarType::U16 => impl_read!(u16).into(),
+            ScalarType::U32 => impl_read!(u32).into(),
+            ScalarType::U64 => impl_read!(u64).into(),
+            ScalarType::F32 => impl_read!(f32).into(),
+            ScalarType::F64 => impl_read!(f64).into(),
+            _ => todo!(),
+        };
+        Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
     fn write_array_slice<'a, A, S, T, D, E>(&self, data: A, selection: S) -> Result<()>
@@ -382,7 +418,46 @@ impl DatasetOp for Dataset {
         E: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        todo!()
+        // TODO: check array dimension matches the selectioin
+
+        macro_rules! impl_write {
+            ($data:expr, $fill:expr) => {{
+                let path = self.path.to_string_lossy();
+                let attr = &self.attributes;
+                if selection
+                    .as_ref()
+                    .into_iter()
+                    .all(|x| x.as_ref().is_slice())
+                {
+                    let offsets = selection
+                        .as_ref()
+                        .into_iter()
+                        .map(|x| match x.as_ref() {
+                            SelectInfoElem::Slice(SliceInfoElem::Slice{ start, .. }) => *start as u64,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    self.root.write_ndarray(&path, attr, offsets, $data, $fill)?;
+                    Ok(())
+                } else {
+                    todo!()
+                }
+            }};
+        }
+
+        match BackendData::into_dyn_arr(data.into()) {
+            DynArrayView::U8(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::U16(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::U32(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::U64(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::I8(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::I16(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::I32(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::I64(x) => impl_write!(x.into_dyn(), 0),
+            DynArrayView::F32(x) => impl_write!(x.into_dyn(), 0.0),
+            DynArrayView::F64(x) => impl_write!(x.into_dyn(), 0.0),
+            _ => todo!(),
+        }
     }
 }
 
@@ -569,53 +644,6 @@ impl LocationOp for Dataset {
     }
 }
 
-fn write_array<'a, A, T, D, S, E>(container: &Dataset, data: A, selection: S) -> Result<()>
-where
-    A: Into<ArrayView<'a, T, D>>,
-    T: BackendData,
-    D: Dimension,
-    S: AsRef<[E]>,
-    E: AsRef<SelectInfoElem>,
-{
-    // TODO: check array dimension matches the selectioin
-
-    macro_rules! impl_write {
-        ($ty:ty, $data:expr, $fill:expr) => {{
-            let path = container.path.to_string_lossy();
-            let attr = container.attributes;
-            if selection
-                .as_ref()
-                .into_iter()
-                .all(|x| x.as_ref().is_slice())
-            {
-                let offsets = selection
-                    .as_ref()
-                    .into_iter()
-                    .map(|x| match x.as_ref() {
-                        SelectInfoElem::Slice(SliceInfoElem::Slice{ start, .. }) => *start as u64,
-                        _ => unreachable!(),
-                    })
-                    .collect();
-                container.root.write_ndarray::<$ty, _>(&path, &attr, offsets, $data, $fill)?;
-                Ok(())
-            } else {
-                todo!()
-            }
-        }};
-    }
-
-    match BackendData::into_dyn_arr(data.into()) {
-        DynArrayView::U16(x) => impl_write!(u16, x.into_dyn(), 0),
-        _ => todo!(),
-
-        /*
-        DynArrayView::String(x) => {
-            let data: Array<VarLenUnicode, D> = x.map(|x| x.parse().unwrap());
-            write_array_impl(container, data.view(), selection)
-        }
-        */
-    }
-}
 
 fn get_data_type<T: BackendData>() -> DataType {
     match T::DTYPE {
@@ -638,7 +666,11 @@ fn get_data_type<T: BackendData>() -> DataType {
 /// test module
 #[cfg(test)]
 mod tests {
+    use anndata::data::array;
+
     use super::*;
+    use ndarray_rand::RandomExt;
+    use ndarray_rand::rand_distr::Uniform;
 
     fn scalar_io<T: PartialEq + BackendData + std::fmt::Debug>(root: &Root, data: T) -> Result<()> {
         let root = N5::create("test.n5")?;
@@ -647,6 +679,21 @@ mod tests {
         assert_eq!(dataset.dtype()?, T::DTYPE);
         Ok(())
     }
+
+    fn array_io<'a, A, T, D>(root: &Root, data: A) -> Result<()>
+    where
+        A: Into<ArrayView<'a, T, D>>,
+        T: PartialEq + BackendData + std::fmt::Debug,
+        D: Dimension,
+    {
+        let root = N5::create("test.n5")?;
+        let arr = data.into();
+        let dataset = root.create_array_data("array", &arr, Default::default())?;
+        assert_eq!(dataset.read_array::<T, _>()?, arr);
+        assert_eq!(dataset.dtype()?, T::DTYPE);
+        Ok(())
+    }
+
 
     fn scalar_attr_io(root: &Root, data: &str) {
         let root = N5::create("test.n5").unwrap();
@@ -667,9 +714,19 @@ mod tests {
     }
 
     #[test]
+    fn test_array() -> Result<()> {
+        let root = N5::create("test.n5")?;
+        let arr = Array::random((2, 5), Uniform::new(0, 100));
+        array_io(&root, arr.view())?;
+        Ok(())
+    }
+
+
+    #[test]
     fn test_scalar_attr() {
         let root = N5::create("test.n5").unwrap();
 
         scalar_attr_io(&root, "this is a test");
     }
+
 }

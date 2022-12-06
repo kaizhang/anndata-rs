@@ -106,8 +106,8 @@ impl TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for SelectInfo {
 }
 
 impl SelectInfo {
-    pub fn all() -> Self {
-        Self(vec![SelectInfoElem::Slice(SLICE_FULL)])
+    pub fn all(n: usize) -> Self {
+        Self(vec![SelectInfoElem::Slice(SLICE_FULL); n])
     }
 }
 
@@ -203,6 +203,12 @@ impl SelectInfoElem {
 pub struct BoundedSelectInfo<'a> {
     input_shape: Shape,
     select: Vec<BoundedSelectInfoElem<'a>>,
+}
+
+impl<'a> AsRef<[BoundedSelectInfoElem<'a>]> for BoundedSelectInfo<'a> {
+    fn as_ref(&self) -> &[BoundedSelectInfoElem<'a>] {
+        &self.select
+    }
 }
 
 impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for BoundedSelectInfo<'a>{
@@ -340,9 +346,9 @@ impl<'a> BoundedSelectInfoElem<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct BoundedSliceInfoElem {
-    start: usize,
-    end: usize,
-    step: isize,
+    pub start: usize,
+    pub end: usize,
+    pub step: isize,
 }
 
 impl Into<SliceInfoElem> for BoundedSliceInfoElem {

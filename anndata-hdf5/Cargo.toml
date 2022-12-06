@@ -1,0 +1,19 @@
+[package]
+name = "anndata-hdf5"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.65"
+authors = ["Kai Zhang <kai@kzhang.org>"]
+description = "HDF5 backend for the anndata package"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/kaizhang/anndata-rs"
+homepage = "https://github.com/kaizhang/anndata-rs"
+
+[dependencies]
+anndata = { path = '../anndata' }
+anyhow = "1.0"
+hdf5 = "0.8"
+hdf5-sys = { version = "0.8", features = ["static", "zlib"] }
+libz-sys = { version = "1", features = ["zlib-ng"], default-features = false }
+ndarray = { version = "0.15" }
