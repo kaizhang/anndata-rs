@@ -111,8 +111,8 @@ pub trait LocationOp {
     /// Returns the Root.
     fn file(&self) -> Result<<Self::Backend as Backend>::File>;
 
-    /// Returns the name of the location.
-    fn name(&self) -> PathBuf;
+    /// Returns the path of the location relative to the file root.
+    fn path(&self) -> PathBuf;
 
     /// Write a string attribute at a given location. This function should be able to
     /// overwrite existing attributes.
@@ -256,10 +256,10 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.file(),
         }
     }
-    fn name(&self) -> PathBuf {
+    fn path(&self) -> PathBuf {
         match self {
-            DataContainer::Group(g) => g.name(),
-            DataContainer::Dataset(d) => d.name(),
+            DataContainer::Group(g) => g.path(),
+            DataContainer::Dataset(d) => d.path(),
         }
     }
 
@@ -308,11 +308,7 @@ impl<B: Backend> DataContainer<B> {
     }
 
     pub fn delete(container: DataContainer<B>) -> Result<()> {
-        let file = container.file()?;
-        let name = container.name();
-        let group = file.open_group(name.parent().unwrap().to_str().unwrap())?;
-
-        group.delete(name.file_name().unwrap().to_str().unwrap())
+        container.file()?.delete(&container.path().to_string_lossy())
     }
 
     pub fn encoding_type(&self) -> Result<DataType> {

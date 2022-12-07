@@ -1,5 +1,6 @@
 use anndata::*;
 use anndata_hdf5::H5;
+use anndata_n5::N5;
 
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
@@ -8,6 +9,7 @@ use criterion::BenchmarkId;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
+use proptest::array;
 use rand::Rng;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -22,9 +24,9 @@ fn with_tmp_path<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     with_tmp_dir(|dir| func(dir.join("foo.h5")))
 }
 
-fn bench_array_io(c: &mut Criterion) {
+fn array_io<B: Backend>(name: &str, c: &mut Criterion) {
     with_tmp_path(|file| {
-        let mut group = c.benchmark_group("Array IO");
+        let mut group = c.benchmark_group(name);
 
         // Prepare data
         let n = 200;
@@ -46,6 +48,7 @@ fn bench_array_io(c: &mut Criterion) {
             |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![3..33, 4..44, ..]).unwrap().unwrap())
         );
 
+        /*
         group.bench_function(
             BenchmarkId::new("read fancy", "30 x 40 x 10"),
             |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
@@ -58,8 +61,30 @@ fn bench_array_io(c: &mut Criterion) {
             BenchmarkId::new("read fancy (sorted)", "30 x 40 x 10"),
             |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
         );
+        */
 
         group.finish();
+    })
+}
+
+fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
+    with_tmp_dir(|dir| {
+        let n = 50;
+        let m = 10000;
+        let arr: Array2<i32> = Array::random((n, m), Uniform::new(-100, 100));
+
+        let d1: AnnData<B> = AnnData::new(dir.join("1.h5ad"), 0, 0).unwrap();
+        let d2: AnnData<B> = AnnData::new(dir.join("2.h5ad"), 0, 0).unwrap();
+        let d3: AnnData<B> = AnnData::new(dir.join("3.h5ad"), 0, 0).unwrap();
+        d1.set_x(&arr).unwrap();
+        d2.set_x(&arr).unwrap();
+        d3.set_x(&arr).unwrap();
+
+        let dataset = AnnDataSet::new(
+            [("1", d1), ("2", d2), ("3", d3)],
+            dir.join("dataset.h5ads"), "key"
+        ).unwrap();
+        dataset.get_x().par_data::<ArrayData>().unwrap();
     })
 }
 
@@ -180,5 +205,10 @@ fn criterion_multi_threading(c: &mut Criterion) {
 }
 */
 
-criterion_group!(benches, bench_array_io);
+fn array_io_h5(c: &mut Criterion) { array_io::<H5>("Array IO (HDF5 backend)", c); }
+fn array_io_n5(c: &mut Criterion) { array_io::<N5>("Array IO (N5 backend)", c); }
+fn parallel_io_h5(c: &mut Criterion) { parallel_io::<H5>("Parallel IO (HDF5 backend)", c); }
+fn parallel_io_n5(c: &mut Criterion) { parallel_io::<N5>("Parallel IO (N5 backend)", c); }
+
+criterion_group!(benches, array_io_h5, array_io_n5, parallel_io_h5, parallel_io_n5);
 criterion_main!(benches);

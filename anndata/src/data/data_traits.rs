@@ -22,7 +22,7 @@ pub trait WriteData {
     ) -> Result<DataContainer<B>>;
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
         let file = container.file()?;
-        let path = container.name();
+        let path = container.path();
         let group = file.open_group(path.parent().unwrap().to_str().unwrap())?;
         let name = path.file_name().unwrap().to_str().unwrap();
         group.delete(name)?;

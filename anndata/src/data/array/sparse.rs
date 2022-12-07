@@ -5,6 +5,7 @@ use crate::data::{
     slice::{Shape, SelectInfoElem},
 };
 
+use ndarray::Ix1;
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 
@@ -267,8 +268,23 @@ impl<T: BackendData> ReadData for CsrMatrix<T> {
         let group = container.as_group()?;
         let shape: Vec<usize> = group.read_arr_attr("shape")?.to_vec();
         let data = group.open_dataset("data")?.read_array()?.to_vec();
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array()?.to_vec();
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array()?.to_vec();
+        let indices: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indices")?)?;
+        let indptr: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indptr")?)?;
         Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
+    }
+}
+
+fn read_array_as_usize<B: Backend>(container: &B::Dataset) -> Result<Vec<usize>> {
+    match container.dtype()? {
+        ScalarType::U8 => Ok(container.read_array::<u8, Ix1>()?.map(|x| *x as usize).to_vec()),
+        ScalarType::U16 => Ok(container.read_array::<u16, Ix1>()?.map(|x| *x as usize).to_vec()),
+        ScalarType::U32 => Ok(container.read_array::<u32, Ix1>()?.map(|x| *x as usize).to_vec()),
+        ScalarType::U64 => Ok(container.read_array::<u64, Ix1>()?.map(|x| *x as usize).to_vec()),
+        ScalarType::Usize => Ok(container.read_array::<usize, Ix1>()?.to_vec()),
+        ScalarType::I8 => Ok(container.read_array::<i8, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
+        ScalarType::I16 => Ok(container.read_array::<i16, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
+        ScalarType::I32 => Ok(container.read_array::<i32, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
+        ScalarType::I64 => Ok(container.read_array::<i64, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
+        ty => bail!("cannot cast array type {} to usize", ty),
     }
 }

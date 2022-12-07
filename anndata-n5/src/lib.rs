@@ -7,6 +7,7 @@ use anndata::{
 };
 use anndata::data::slice::BoundedSliceInfoElem;
 
+use std::str::FromStr;
 use anyhow::{bail, Result};
 use n5::{
     filesystem::N5Filesystem, ndarray::N5NdarrayWriter, DataType, DatasetAttributes, N5Lister,
@@ -17,7 +18,6 @@ use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, SliceInfoEl
 use serde_json::value::Value;
 use smallvec::smallvec;
 use std::{
-    fmt::write,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -28,16 +28,13 @@ use std::{
 /// N5 always stores array data in column-major order.
 pub struct N5;
 
-pub struct Root {
-    group: Group,
-    filename: PathBuf,
-}
+pub struct Root(Group);
 
 impl Deref for Root {
     type Target = Group;
 
     fn deref(&self) -> &Self::Target {
-        &self.group
+        &self.0
     }
 }
 
@@ -67,6 +64,7 @@ impl Deref for Dataset {
 pub struct Location {
     path: PathBuf,
     root: N5Filesystem,
+    filename: PathBuf,
 }
 
 impl Location {
@@ -84,13 +82,13 @@ impl Backend for N5 {
     type Dataset = Dataset;
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File> {
-        Ok(Root {
-            filename: path.as_ref().to_path_buf(),
-            group: Group(Location {
-                path: PathBuf::new(),
+        Ok(Root( 
+            Group(Location {
+                path: PathBuf::from_str("/")?,
+                filename: path.as_ref().to_path_buf(),
                 root: N5Filesystem::open_or_create(path)?,
-            }),
-        })
+            })
+        ))
     }
 }
 
@@ -123,6 +121,7 @@ impl GroupOp for Group {
         Ok(Group(Location {
             path,
             root: self.root.clone(),
+            filename: self.filename.clone(),
         }))
     }
 
@@ -133,6 +132,7 @@ impl GroupOp for Group {
             Ok(Group(Location {
                 path,
                 root: self.root.clone(),
+                filename: self.filename.clone(),
             }))
         } else {
             bail!("Group {} does not exist", name);
@@ -165,6 +165,7 @@ impl GroupOp for Group {
             loc: Location {
                 path,
                 root: self.root.clone(),
+                filename: self.filename.clone(),
             },
         })
     }
@@ -178,6 +179,7 @@ impl GroupOp for Group {
                 loc: Location {
                     path,
                     root: self.root.clone(),
+                    filename: self.filename.clone(),
                 },
             })
         } else {
@@ -222,6 +224,7 @@ impl GroupOp for Group {
                     loc: Location {
                         path,
                         root: self.root.clone(),
+                        filename: self.filename.clone(),
                     },
                 })
             }};
@@ -403,6 +406,7 @@ impl DatasetOp for Dataset {
             ScalarType::U16 => impl_read!(u16).into(),
             ScalarType::U32 => impl_read!(u32).into(),
             ScalarType::U64 => impl_read!(u64).into(),
+            ScalarType::Usize => impl_read!(u64).map(|x| *x as usize).into(),
             ScalarType::F32 => impl_read!(f32).into(),
             ScalarType::F64 => impl_read!(f64).into(),
             _ => todo!(),
@@ -465,11 +469,15 @@ impl LocationOp for Location {
     type Backend = N5;
 
     fn file(&self) -> Result<<Self::Backend as Backend>::File> {
-        todo!()
+        Ok(Root(Group(Location {
+            path: PathBuf::from_str("/")?,
+            root: self.root.clone(),
+            filename: self.filename.clone(),
+        })))
     }
 
-    fn name(&self) -> PathBuf {
-        self.path.file_name().unwrap().to_owned().into()
+    fn path(&self) -> PathBuf {
+        self.path.clone()
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -478,14 +486,22 @@ impl LocationOp for Location {
         D: BackendData,
         Dim: Dimension,
     {
-        let path = self.child_path(name);
+        let path = self.path.to_string_lossy();
         match BackendData::into_dyn_arr(value.into()) {
-            DynArrayView::U8(x) => {
-                self.root
-                    .set_attribute(&path.to_string_lossy(), name.to_string(), x.into_dyn())?;
-            }
-            _ => todo!(),
-        }
+            DynArrayView::U8(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::U16(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::U32(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::U64(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::Usize(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::I8(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::I16(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::I32(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::I64(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::F32(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::F64(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::Bool(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+            DynArrayView::String(x) => self.root.set_attribute(&path, name.to_string(), x.into_dyn()),
+        }?;
         Ok(())
     }
 
@@ -507,7 +523,23 @@ impl LocationOp for Location {
     }
 
     fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        todo!()
+        let val = self.root.get_attributes(&self.path.to_string_lossy())?.as_object().unwrap().get(name).unwrap().clone();
+        let array: DynArray = match T::DTYPE {
+            ScalarType::U8 => serde_json::from_value::<Array<u8, IxDyn>>(val)?.into(),
+            ScalarType::U16 => serde_json::from_value::<Array<u16, IxDyn>>(val)?.into(),
+            ScalarType::U32 => serde_json::from_value::<Array<u32, IxDyn>>(val)?.into(),
+            ScalarType::U64 => serde_json::from_value::<Array<u64, IxDyn>>(val)?.into(),
+            ScalarType::Usize => serde_json::from_value::<Array<usize, IxDyn>>(val)?.into(),
+            ScalarType::I8 => serde_json::from_value::<Array<i8, IxDyn>>(val)?.into(),
+            ScalarType::I16 => serde_json::from_value::<Array<i16, IxDyn>>(val)?.into(),
+            ScalarType::I32 => serde_json::from_value::<Array<i32, IxDyn>>(val)?.into(),
+            ScalarType::I64 => serde_json::from_value::<Array<i64, IxDyn>>(val)?.into(),
+            ScalarType::F32 => serde_json::from_value::<Array<f32, IxDyn>>(val)?.into(),
+            ScalarType::F64 => serde_json::from_value::<Array<f64, IxDyn>>(val)?.into(),
+            ScalarType::Bool => serde_json::from_value::<Array<bool, IxDyn>>(val)?.into(),
+            ScalarType::String => serde_json::from_value::<Array<String, IxDyn>>(val)?.into(),
+        };
+        Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 }
 
@@ -585,8 +617,8 @@ impl LocationOp for Group {
         self.deref().file()
     }
 
-    fn name(&self) -> PathBuf {
-        self.deref().name()
+    fn path(&self) -> PathBuf {
+        self.deref().path()
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -618,8 +650,8 @@ impl LocationOp for Dataset {
         self.deref().file()
     }
 
-    fn name(&self) -> PathBuf {
-        self.deref().name()
+    fn path(&self) -> PathBuf {
+        self.deref().path()
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -671,12 +703,26 @@ mod tests {
     use super::*;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand_distr::Uniform;
+    use ndarray_rand::rand_distr::Standard;
+    use tempfile::tempdir;
+    use std::path::PathBuf;
+
+
+    pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        func(path)
+    }
+
+    fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        with_tmp_dir(|dir| func(dir.join("temp.h5")))
+    }
 
     fn scalar_io<T: PartialEq + BackendData + std::fmt::Debug>(root: &Root, data: T) -> Result<()> {
-        let root = N5::create("test.n5")?;
         let dataset = root.create_scalar_data("scalar", &data)?;
         assert_eq!(dataset.read_scalar::<T>()?, data);
         assert_eq!(dataset.dtype()?, T::DTYPE);
+        root.delete("scalar")?;
         Ok(())
     }
 
@@ -686,7 +732,6 @@ mod tests {
         T: PartialEq + BackendData + std::fmt::Debug,
         D: Dimension,
     {
-        let root = N5::create("test.n5")?;
         let arr = data.into();
         let dataset = root.create_array_data("array", &arr, Default::default())?;
         assert_eq!(dataset.read_array::<T, _>()?, arr);
@@ -696,37 +741,77 @@ mod tests {
 
 
     fn scalar_attr_io(root: &Root, data: &str) {
-        let root = N5::create("test.n5").unwrap();
         let dataset = root.create_scalar_data("scalar", &1u8).unwrap();
         dataset.write_str_attr("test", data).unwrap();
         assert_eq!(dataset.read_str_attr("test").unwrap().as_str(), data);
     }
 
+    fn array_attr_io<'a, A, T, D>(root: &Root, data: A) -> Result<()>
+    where
+        A: Into<ArrayView<'a, T, D>>,
+        T: PartialEq + BackendData + std::fmt::Debug,
+        D: Dimension,
+    {
+        let arr = data.into();
+        let dataset = root.create_scalar_data("scalar", &1u8)?;
+        dataset.write_arr_attr("test", &arr)?;
+        assert_eq!(dataset.read_arr_attr::<T, D>("test")?, arr);
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_path() -> Result<()> {
+        let file = N5::create("test.n5")?;
+        let group = file.create_group("group")?;
+        let subgroup = group.create_group("subgroup")?;
+
+        assert_eq!(subgroup.path(), PathBuf::from("/group/subgroup"));
+
+        group.delete("subgroup")?;
+        file.delete("group")?;
+        Ok(())
+    }
+ 
+
     #[test]
     fn test_scalar() -> Result<()> {
-        let root = N5::create("test.n5")?;
+        with_tmp_path(|path| {
+            let root = N5::create(path)?;
 
-        scalar_io(&root, 10u8)?;
-        scalar_io(&root, 10usize)?;
-        scalar_io(&root, true)?;
-        scalar_io(&root, "this is a test".to_string())?;
-        Ok(())
+            scalar_io(&root, 10u8)?;
+            scalar_io(&root, 10usize)?;
+            scalar_io(&root, true)?;
+            scalar_io(&root, "this is a test".to_string())?;
+
+            Ok(())
+        })
     }
 
     #[test]
     fn test_array() -> Result<()> {
-        let root = N5::create("test.n5")?;
-        let arr = Array::random((2, 5), Uniform::new(0, 100));
-        array_io(&root, arr.view())?;
-        Ok(())
+        with_tmp_path(|path| {
+            let root = N5::create(path)?;
+            let arr = Array::random((2, 5), Uniform::new(0, 100));
+            array_io(&root, arr.view())?;
+            Ok(())
+        })
     }
 
 
     #[test]
-    fn test_scalar_attr() {
-        let root = N5::create("test.n5").unwrap();
+    fn test_attr() ->Result<()> {
+        with_tmp_path(|path| {
+            let root = N5::create("t.n5")?;
 
-        scalar_attr_io(&root, "this is a test");
+            scalar_attr_io(&root, "this is a test");
+
+            let string_arr = Array::random((2, 5), Standard).map(|x: &[char; 10]| x.iter().collect::<String>());
+            array_attr_io(&root, &Array::random((2, 5), Uniform::new(0, 100)))?;
+            array_attr_io(&root, &string_arr)?;
+
+            Ok(())
+        })
     }
 
 }

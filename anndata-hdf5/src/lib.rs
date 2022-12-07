@@ -391,7 +391,7 @@ fn file(loc: &Location) -> Result<H5File> {
     Ok(H5File(hdf5::Location::file(loc)?))
 }
 
-fn name(loc: &Location) -> PathBuf {
+fn path(loc: &Location) -> PathBuf {
     hdf5::Location::name(loc).into()
 }
 
@@ -577,8 +577,8 @@ impl LocationOp for H5Group {
         file(self)
     }
 
-    fn name(&self) -> PathBuf {
-        name(self)
+    fn path(&self) -> PathBuf {
+        path(self)
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -610,8 +610,8 @@ impl LocationOp for H5Dataset {
         file(self)
     }
 
-    fn name(&self) -> PathBuf {
-        name(self)
+    fn path(&self) -> PathBuf {
+        path(self)
     }
 
     fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
@@ -657,5 +657,35 @@ where
             let slice: SliceInfo<_, _, _> = bounded_selection.try_into().unwrap();
             (Selection::try_from(slice).unwrap(), out_shape)
         }
+    }
+}
+
+/// test module
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use std::path::PathBuf;
+
+    pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        func(path)
+    }
+
+    fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
+        with_tmp_dir(|dir| func(dir.join("temp.h5")))
+    }
+
+    #[test]
+    fn test_basic() -> Result<()> {
+        with_tmp_path(|path| {
+            let file = H5::create(path.clone())?;
+            let group = file.create_group("group")?;
+            let subgroup = group.create_group("subgroup")?;
+
+            assert_eq!(subgroup.path(), PathBuf::from("/group/subgroup"));
+            Ok(())
+        })
     }
 }

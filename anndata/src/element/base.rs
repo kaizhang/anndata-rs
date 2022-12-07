@@ -573,6 +573,19 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         Ok(concat_array_data(arrays?).try_into().map_err(Into::into)?)
     }
 
+    pub fn par_data<D>(&self) -> Result<D>
+    where
+        D: Into<ArrayData> + ReadData + Clone + TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        let arrays: Result<Vec<_>> = self
+            .elems
+            .par_iter()
+            .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
+            .collect();
+        Ok(concat_array_data(arrays?).try_into().map_err(Into::into)?)
+    }
+
     pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,

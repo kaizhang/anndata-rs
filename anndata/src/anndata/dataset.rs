@@ -184,6 +184,10 @@ impl<B: Backend> AnnDataSet<B> {
         })
     }
 
+    pub fn get_x(&self) -> &StackedArrayElem<B> {
+        &self.anndatas.x
+    }
+
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
         for ann in self.anndatas.elems.into_values() {

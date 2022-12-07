@@ -1,6 +1,7 @@
 use anndata::*;
-use anndata::data::ReadData;
+use anndata::backend::Backend;
 use anndata_hdf5::H5;
+use anndata_n5::N5;
 
 use proptest::prelude::*;
 
@@ -34,51 +35,89 @@ fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i32> {
     (&CooMatrix::try_from_triplets(nrow, ncol, row_indices, col_indices, values).unwrap()).into()
 }
 
-fn uns_io<T>(input: T)
+fn uns_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
 where
+    B: Backend,
     T: Eq + Debug + Into<Data> + ReadData + Clone + TryFrom<Data>,
     <T as TryFrom<Data>>::Error: Into<anyhow::Error>, 
 {
-    with_tmp_path(|file| {
-        let adata: AnnData<H5> = AnnData::new(file, 0, 0).unwrap();
-        adata.add_uns("test", Data::from(&input)).unwrap();
-        assert_eq!(input, adata.fetch_uns::<T>("test").unwrap().unwrap());
-    });
+    adata.add_uns("test", Data::from(&input))?;
+    assert_eq!(input, adata.fetch_uns::<T>("test")?.unwrap());
+    Ok(())
 }
 
-#[test]
-fn test_basic() -> Result<()> {
+fn obsm_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
+where
+    B: Backend,
+    T: Eq + Debug + HasShape + Into<ArrayData> + ReadArrayData + WriteArrayData + Clone + TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>, 
+{
+    adata.add_obsm("test", input.clone())?;
+    assert_eq!(input, adata.fetch_obsm::<T>("test")?.unwrap());
+    Ok(())
+}
+
+fn obsp_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
+where
+    B: Backend,
+    T: Eq + Debug + HasShape + Into<ArrayData> + ReadArrayData + WriteArrayData + Clone + TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>, 
+{
+    adata.add_obsp("test", input.clone())?;
+    assert_eq!(input, adata.fetch_obsp::<T>("test")?.unwrap());
+    Ok(())
+}
+
+fn varm_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
+where
+    B: Backend,
+    T: Eq + Debug + HasShape + Into<ArrayData> + ReadArrayData + WriteArrayData + Clone + TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>, 
+{
+    adata.add_varm("test", input.clone())?;
+    assert_eq!(input, adata.fetch_varm::<T>("test")?.unwrap());
+    Ok(())
+}
+
+fn varp_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
+where
+    B: Backend,
+    T: Eq + Debug + HasShape + Into<ArrayData> + ReadArrayData + WriteArrayData + Clone + TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>, 
+{
+    adata.add_varp("test", input.clone())?;
+    assert_eq!(input, adata.fetch_varp::<T>("test")?.unwrap());
+    Ok(())
+}
+
+fn test_io<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
-        let adata: AnnData<H5> = AnnData::new(file, 0, 0)?;
-
-        adata.add_uns("test", 3i32)?;
-        assert_eq!(3i32, adata.fetch_uns::<i32>("test")?.unwrap());
-        adata.add_uns("test", 3.0f32)?;
-        assert_eq!(3.0f32, adata.fetch_uns::<f32>("test")?.unwrap());
-
-        let arr = Array::random((2, 5), Uniform::new(0, 100));
-        adata.add_obsm("test", &arr)?;
-        adata.add_varm("test", &arr)?;
-
+        let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
         let arr_x = Array::random((2, 2), Uniform::new(-100, 100));
-        adata.set_x(&arr_x)?;
-        assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
-        adata.del_x()?;
-
         let csr_x = rand_csr(2, 2, 1);
         adata.set_x(&csr_x)?;
         assert_eq!(csr_x, adata.read_x::<CsrMatrix<i32>>()?.unwrap());
 
-        assert!(adata.add_obsp("test", &arr).is_err());
+        adata.set_x(&arr_x)?;
+        assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
+        adata.del_x()?;
+
+        uns_io(&adata, 3i32)?;
+        uns_io(&adata, "test".to_string())?;
+
+        obsm_io(&adata, Array::random((2, 5), Uniform::new(0, 100)))?;
+        varm_io(&adata, Array::random((2, 5), Uniform::new(0, 100)))?;
+
+        obsp_io(&adata, Array::random((2, 2), Uniform::new(0, 100)))?;
+        varp_io(&adata, Array::random((2, 2), Uniform::new(0, 100)))?;
 
         Ok(())
     })
 }
 
-#[test]
-fn test_slice() -> Result<()> {
+fn test_slice<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
-        let adata: AnnData<H5> = AnnData::new(file, 0, 0)?;
+        let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
 
         let arr: Array3<i32> = Array::random((40, 50, 10), Uniform::new(0, 100));
         adata.set_x(&arr)?;
@@ -123,16 +162,22 @@ fn test_fancy_index() -> Result<()> {
 }
 
 
+// Begin of tests
+
 #[test]
-fn test_uns_io_array() {
-    let arr = Array::random((2, 5), Uniform::new(0, 100)).into_dyn();
-    uns_io(arr);
+fn test_io_h5() -> Result<()> {
+    test_io::<H5>()
+}
+#[test]
+fn test_io_n5() -> Result<()> {
+    test_io::<N5>()
 }
 
-proptest! {
-    #[test]
-    fn test_uns_io(input: (i64, String)) {
-        uns_io(input.0);
-        uns_io(input.1);
-    }
+#[test]
+fn test_slice_h5() -> Result<()> {
+    test_slice::<H5>()
+}
+#[test]
+fn test_slice_n5() -> Result<()> {
+    test_slice::<N5>()
 }
