@@ -69,6 +69,8 @@ fn array_io<B: Backend>(name: &str, c: &mut Criterion) {
 
 fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
     with_tmp_dir(|dir| {
+        let mut group = c.benchmark_group(name);
+
         let n = 50;
         let m = 10000;
         let arr: Array2<i32> = Array::random((n, m), Uniform::new(-100, 100));
@@ -79,12 +81,20 @@ fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
         d1.set_x(&arr).unwrap();
         d2.set_x(&arr).unwrap();
         d3.set_x(&arr).unwrap();
-
         let dataset = AnnDataSet::new(
             [("1", d1), ("2", d2), ("3", d3)],
             dir.join("dataset.h5ads"), "key"
         ).unwrap();
-        dataset.get_x().par_data::<ArrayData>().unwrap();
+
+        group.bench_function(
+            BenchmarkId::new("Serial read", "50 x 10000 (3)"),
+            |b| b.iter(|| dataset.get_x().data::<ArrayData>().unwrap()),
+        );
+
+        group.bench_function(
+            BenchmarkId::new("Parallel read", "50 x 10000 (3)"),
+            |b| b.iter(|| dataset.get_x().par_data::<ArrayData>().unwrap()),
+        );
     })
 }
 

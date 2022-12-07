@@ -16,6 +16,7 @@ indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
 ndarray = { version = "0.15" }
 nalgebra-sparse = "0.8"
+num = "0.4"
 polars = { version = "0.25", features = ["lazy", "decompress", "ndarray", "dtype-full"] }
 parking_lot = "0.12"
 replace_with = "0.1"
@@ -30,6 +31,7 @@ criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_sup
 proptest = "1"
 rand = "0.8.5"
 ndarray-rand = "0.14"
+nalgebra = "0.31"
 
 [[bench]]
 name = "main"

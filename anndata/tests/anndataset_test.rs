@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use anyhow::Result;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
-use ndarray::{Array, Array1, Array2, Array3};
+use ndarray::{Axis, Array, Array1, Array2, Array3, concatenate};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use std::fmt::Debug;
@@ -49,8 +49,9 @@ where
 #[test]
 fn test_basic() -> Result<()> {
     with_tmp_dir(|dir| -> Result<()> {
-        let arr = Array::random((2, 5), Uniform::new(0, 100));
-
+        let arr = Array::random((30, 50), Uniform::new(-100, 100));
+        let merged = concatenate(Axis(0), &[arr.view(), arr.view(), arr.view()])?;
+        
         let d1: AnnData<H5> = AnnData::new(dir.join("1.h5ad"), 0, 0)?;
         let d2: AnnData<H5> = AnnData::new(dir.join("2.h5ad"), 0, 0)?;
         let d3: AnnData<H5> = AnnData::new(dir.join("3.h5ad"), 0, 0)?;
@@ -58,8 +59,9 @@ fn test_basic() -> Result<()> {
         d2.set_x(&arr)?;
         d3.set_x(&arr)?;
 
-        AnnDataSet::new([("1", d1)], dir.join("2.h5ads"), "key")?;
-        AnnDataSet::new([("2", d2), ("3", d3)], dir.join("3.h5ads"), "key")?;
+        let dataset = AnnDataSet::new([("1", d1), ("2", d2), ("3", d3)], dir.join("dataset.h5ads"), "key")?;
+
+        assert_eq!(merged, dataset.read_x::<Array<i32, _>>()?.unwrap());
 
         Ok(())
     })

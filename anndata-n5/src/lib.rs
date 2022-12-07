@@ -460,7 +460,8 @@ impl DatasetOp for Dataset {
             DynArrayView::I64(x) => impl_write!(x.into_dyn(), 0),
             DynArrayView::F32(x) => impl_write!(x.into_dyn(), 0.0),
             DynArrayView::F64(x) => impl_write!(x.into_dyn(), 0.0),
-            _ => todo!(),
+            DynArrayView::String(x) => Ok(()),
+            _ => panic!("unsupported type: {:?}", T::DTYPE),
         }
     }
 }

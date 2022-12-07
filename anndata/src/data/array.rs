@@ -76,7 +76,7 @@ macro_rules! impl_into_array_data {
     };
 }
 
-impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
+impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, usize, f32, f64, bool, String);
 
 impl WriteData for ArrayData {
     fn write<B: Backend, G: GroupOp<Backend = B>>(

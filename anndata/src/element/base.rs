@@ -1,4 +1,5 @@
 use crate::{
+    s,
     backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
     utils::array::concat_array_data,
     //iterator::{ChunkedMatrix, StackedChunkedMatrix},
@@ -21,6 +22,7 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use num::integer::div_rem;
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
 /// Encapsulating an object inside a slot allows us to drop the object from all references.
@@ -445,11 +447,12 @@ impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
     }
 }
 
-/*
-pub fn chunked(&self, chunk_size: usize) -> ChunkedMatrix {
-    ChunkedMatrix::new(self.clone(), chunk_size)
+impl<B: Backend> ArrayElem<B> {
+    pub fn chunked<T>(&self, chunk_size: usize) -> ChunkedArrayElem<B, T> {
+        ChunkedArrayElem::new(self.clone(), chunk_size)
+    }
 }
-*/
+
 
 /// Horizontal concatenated dataframe elements.
 #[derive(Clone)]
@@ -535,7 +538,7 @@ impl<B: Backend> StackedDataFrame<B> {
 
 pub struct InnerStackedArrayElem<B: Backend> {
     shape: Shape,
-    pub(crate) elems: Vec<ArrayElem<B>>,
+    pub(crate) elems: SmallVec<[ArrayElem<B>; 96]>,
     index: VecVecIndex,
 }
 
@@ -570,7 +573,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             .iter()
             .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
             .collect();
-        Ok(concat_array_data(arrays?).try_into().map_err(Into::into)?)
+        Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
     }
 
     pub fn par_data<D>(&self) -> Result<D>
@@ -583,7 +586,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             .par_iter()
             .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
             .collect();
-        Ok(concat_array_data(arrays?).try_into().map_err(Into::into)?)
+        Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
     }
 
     pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
@@ -626,7 +629,7 @@ impl<B: Backend> Deref for StackedArrayElem<B> {
 }
 
 impl<B: Backend> StackedArrayElem<B> {
-    pub fn new(elems: Vec<ArrayElem<B>>) -> Result<Self> {
+    pub(crate) fn new(elems: SmallVec<[ArrayElem<B>; 96]>) -> Result<Self> {
         ensure!(
             elems
                 .iter()
@@ -691,6 +694,121 @@ pub fn read(
     }
 }
 */
+
+
+/// Chunked Arrays
+pub struct ChunkedArrayElem<B: Backend, T> {
+    /// The underlying array element.
+    elem: ArrayElem<B>,
+    /// The chunk size.
+    chunk_size: usize,
+    num_items: usize,
+    current_position: usize,
+    type_marker: std::marker::PhantomData<T>,
+}
+
+impl<B: Backend, T> ChunkedArrayElem<B, T> {
+    pub fn new(elem: ArrayElem<B>, chunk_size: usize) -> Self {
+        let num_items = elem.inner().shape()[0];
+        Self {
+            elem,
+            chunk_size,
+            num_items,
+            current_position : 0,
+            type_marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<B, T> Iterator for ChunkedArrayElem<B, T>
+where
+    B: Backend,
+    T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+{
+    type Item = (T, usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_position >= self.num_items {
+            None
+        } else {
+            let i = self.current_position;
+            let j = std::cmp::min(self.num_items, self.current_position + self.chunk_size);
+            self.current_position = j;
+            let data = self.elem.inner().select(s![i..j]).unwrap();
+            Some((data, i, j))
+        }
+    }
+}
+
+impl<B, T> ExactSizeIterator for ChunkedArrayElem<B, T>
+where
+    B: Backend,
+    T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+{
+    fn len(&self) -> usize {
+        let (n, remain) = div_rem(self.num_items, self.chunk_size);
+        if remain == 0 {
+            n
+        } else {
+            n + 1
+        }
+    }
+}
+
+pub struct StackedChunkedArrayElem<B: Backend, T> {
+    arrays: SmallVec<[ChunkedArrayElem<B, T>; 96]>,
+    current_position: usize,
+    current_array: usize,
+}
+
+impl<B: Backend, T> StackedChunkedArrayElem<B, T> {
+    pub(crate) fn new<I: Iterator<Item = ArrayElem<B>>>(elems: I, chunk_size: usize) -> Self {
+        Self {
+            arrays: elems.map(|x| ChunkedArrayElem::new(x, chunk_size)).collect(),
+            current_position: 0,
+            current_array: 0,
+        }
+    }
+}
+
+impl<B, T> Iterator for StackedChunkedArrayElem<B, T>
+where
+    B: Backend,
+    T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+{
+    type Item = (T, usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(mat) = self.arrays.get_mut(self.current_array) {
+            if let Some((data, start, stop)) = mat.next() {
+                let new_start = self.current_position;
+                let new_stop = new_start + stop - start;
+                self.current_position = new_stop;
+                Some((data, new_start, new_stop))
+            } else {
+                self.current_array += 1;
+                self.next()
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl<B, T> ExactSizeIterator for StackedChunkedArrayElem<B, T>
+where
+    B: Backend,
+    T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+{
+    fn len(&self) -> usize {
+        self.arrays.iter().map(|x| x.len()).sum()
+    }
+}
+
 
 /// This struct is used to perform index lookup for nested Vectors (vectors of vectors).
 #[derive(Clone)]
