@@ -462,6 +462,10 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         bail!("cannot set X in AnnDataSet")
     }
 
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
+        bail!("cannot set X in AnnDataSet")
+    }
+
     fn del_x(&self) -> Result<()> {
         bail!("cannot delete X in AnnDataSet")
     }

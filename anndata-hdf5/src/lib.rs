@@ -705,7 +705,7 @@ where
     if selection.as_ref().into_iter().all(|x| x.as_ref().is_full()) {
         (Selection::All, shape)
     } else {
-        let bounded_selection = BoundedSelectInfo::new(&selection, &shape).unwrap();
+        let bounded_selection = BoundedSelectInfo::new(&selection, &shape);
         let out_shape = bounded_selection.out_shape();
         if let Some(idx) = bounded_selection.try_into_indices() {
             (Selection::from(idx), out_shape)

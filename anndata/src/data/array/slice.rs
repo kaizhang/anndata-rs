@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, SliceInfoElem, SliceInfo, IxDyn};
+use ndarray::{Array1, Array2, Slice, SliceInfo, SliceInfoElem, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use std::ops::{RangeFull, Range, Index, IndexMut};
@@ -85,14 +85,14 @@ impl FromIterator<SelectInfoElem> for SelectInfo {
     }
 }
 
-impl FromIterator<SliceInfoElem> for SelectInfo {
-    fn from_iter<T: IntoIterator<Item = SliceInfoElem>>(iter: T) -> Self {
+impl FromIterator<Slice> for SelectInfo {
+    fn from_iter<T: IntoIterator<Item = Slice>>(iter: T) -> Self {
         Self(iter.into_iter().map(SelectInfoElem::Slice).collect())
     }
 }
 
-impl<'a> FromIterator<&'a SliceInfoElem> for SelectInfo {
-    fn from_iter<T: IntoIterator<Item = &'a SliceInfoElem>>(iter: T) -> Self {
+impl<'a> FromIterator<&'a Slice> for SelectInfo {
+    fn from_iter<T: IntoIterator<Item = &'a Slice>>(iter: T) -> Self {
         Self(iter.into_iter().map(|x| SelectInfoElem::Slice(x.clone())).collect())
     }
 }
@@ -103,7 +103,7 @@ impl TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for SelectInfo {
 
     fn try_into(self) -> Result<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> {
         let elems: Result<Vec<_>> = self.0.into_iter().map(|e| match e {
-            SelectInfoElem::Slice(s) => Ok(s),
+            SelectInfoElem::Slice(s) => Ok(SliceInfoElem::from(s)),
             _ => bail!("Cannot convert SelectInfo to SliceInfo"),
         }).collect();
         let slice = SliceInfo::try_from(elems?)?;
@@ -123,7 +123,19 @@ impl SelectInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectInfoElem {
     Index(Vec<usize>),
-    Slice(SliceInfoElem),
+    Slice(Slice),
+}
+
+impl FromIterator<usize> for SelectInfoElem {
+    fn from_iter<T: IntoIterator<Item = usize>>(iter: T) -> Self {
+        Self::Index(iter.into_iter().collect())
+    }
+}
+
+impl From<usize> for SelectInfoElem {
+    fn from(x: usize) -> Self {
+        Self::Index(vec![x])
+    }
 }
 
 impl From<&[usize]> for SelectInfoElem {
@@ -198,7 +210,7 @@ impl SelectInfoElem {
     pub fn is_full(&self) -> bool {
         matches!(
             self,
-            SelectInfoElem::Slice(SliceInfoElem::Slice {
+            SelectInfoElem::Slice(Slice {
                 start: 0,
                 end: None,
                 step: 1
@@ -232,18 +244,18 @@ impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for BoundedSelectI
 
 
 impl<'a> BoundedSelectInfo<'a> {
-    pub fn new<S, E>(select: &'a S, shape: &Shape) -> Option<Self>
+    pub fn new<S, E>(select: &'a S, shape: &Shape) -> Self
     where
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem> + 'a,
     {
-        let res: Option<Vec<_>> = select.as_ref().iter().zip(shape.as_ref()).map(|(sel, dim)|
+        let res: Vec<_> = select.as_ref().iter().zip(shape.as_ref()).map(|(sel, dim)|
             BoundedSelectInfoElem::new(sel.as_ref(), *dim)
         ).collect();
-        res.map(|x| Self {
+        Self {
             input_shape: shape.clone(),
-            select: x,
-        })
+            select: res,
+        }
     }
 
     pub fn in_shape(&self) -> Shape {
@@ -300,7 +312,7 @@ impl<'a> BoundedSelectInfo<'a> {
                         result[[r, c]] = *values.next().unwrap();
                     }
                 },
-                BoundedSelectInfoElem::Slice(BoundedSliceInfoElem { start, end, step }) => {
+                BoundedSelectInfoElem::Slice(BoundedSlice { start, end, step }) => {
                     if step > 0 {
                         let mut values = (start..end).step_by(step as usize).flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
                         for r in 0..nrows {
@@ -321,16 +333,15 @@ impl<'a> BoundedSelectInfo<'a> {
 
 pub enum BoundedSelectInfoElem<'a> {
     Index(&'a [usize]),
-    Slice(BoundedSliceInfoElem),
+    Slice(BoundedSlice),
 }
 
 impl<'a> BoundedSelectInfoElem<'a> {
-    pub fn new<S: AsRef<SelectInfoElem>>(select: &'a S, bound: usize) -> Option<Self> {
-        let res = match select.as_ref() {
+    pub fn new<S: AsRef<SelectInfoElem>>(select: &'a S, bound: usize) -> Self {
+        match select.as_ref() {
             SelectInfoElem::Index(idx) => Self::Index(idx.as_slice()),
-            SelectInfoElem::Slice(slice) => Self::Slice(BoundedSliceInfoElem::new(slice, bound)?),
-        };
-        Some(res)
+            SelectInfoElem::Slice(slice) => Self::Slice(BoundedSlice::new(slice, bound)),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -351,15 +362,15 @@ impl<'a> BoundedSelectInfoElem<'a> {
 
 
 #[derive(Debug, Copy, Clone)]
-pub struct BoundedSliceInfoElem {
+pub struct BoundedSlice {
     pub start: usize,
     pub end: usize,
     pub step: isize,
 }
 
-impl Into<SliceInfoElem> for BoundedSliceInfoElem {
+impl Into<SliceInfoElem> for BoundedSlice {
     fn into(self) -> SliceInfoElem {
-        ndarray::Slice {
+        Slice {
             start: self.start as isize,
             end: Some(self.end as isize),
             step: self.step,
@@ -368,9 +379,8 @@ impl Into<SliceInfoElem> for BoundedSliceInfoElem {
 }
 
 
-
-impl BoundedSliceInfoElem {
-    pub(crate) fn new(slice: &SliceInfoElem, bound: usize) -> Option<Self> {
+impl BoundedSlice {
+    pub(crate) fn new(slice: &Slice, bound: usize) -> Self {
         fn convert(x: isize, d: usize) -> usize {
             if x < 0 {
                 d.checked_add_signed(x).unwrap()
@@ -378,18 +388,11 @@ impl BoundedSliceInfoElem {
                 x as usize
             }
         }
-        match slice {
-            SliceInfoElem::Index(x) => Some(Self {
-                start: *x as usize,
-                end: *x as usize + 1,
-                step: 1,
-            }),
-            SliceInfoElem::Slice { start, end, step } => Some(Self {
-                start: convert(*start, bound),
-                end: end.map_or(bound, |x| convert(x, bound)),
-                step: *step,
-            }),
-            SliceInfoElem::NewAxis => None,
+
+        Self {
+            start: convert(slice.start, bound),
+            end: slice.end.map_or(bound, |x| convert(x, bound)),
+            step: slice.step,
         }
     }
 
@@ -406,14 +409,19 @@ impl BoundedSliceInfoElem {
     }
 }
 
-pub const SLICE_FULL: SliceInfoElem = SliceInfoElem::Slice {
+pub const SLICE_FULL: Slice = Slice {
     start: 0,
     end: None,
     step: 1,
 };
 
 /// find unique indices and return the mapping
-fn unique_indices(indices: &[usize], upper_bound: usize) -> (Vec<usize>, Vec<usize>) {
+/// 
+/// Example:
+/// 
+/// (unique_idx, mapping) = unique_indices_sorted(ori_idx, upper_bound)
+/// assert_eq!(ori_idx, mapping.iter().map(|x| unique_idx[*x]).collect::<Vec<usize>>())
+pub(crate) fn unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (Vec<usize>, Vec<usize>) {
     let mut mask = vec![upper_bound; upper_bound];
     // Set the mask for the present indices
     for i in indices {

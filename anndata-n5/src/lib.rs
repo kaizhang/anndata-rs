@@ -5,7 +5,7 @@ use anndata::{
     },
     data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, BoundedSelectInfoElem, Shape},
 };
-use anndata::data::slice::BoundedSliceInfoElem;
+use anndata::data::slice::BoundedSlice;
 
 use std::str::FromStr;
 use anyhow::{bail, Result};
@@ -14,7 +14,7 @@ use n5::{
     N5Reader, N5Writer, ReadableDataBlock, ReflectedType, SliceDataBlock,
     ndarray::N5NdarrayReader,
 };
-use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, SliceInfoElem};
+use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, Slice};
 use serde_json::value::Value;
 use smallvec::smallvec;
 use std::{
@@ -382,10 +382,10 @@ impl DatasetOp for Dataset {
                     .into_iter()
                     .all(|x| x.as_ref().is_slice())
                 {
-                    let (offsets, sizes) = BoundedSelectInfo::new(&selection, &shape).unwrap()
+                    let (offsets, sizes) = BoundedSelectInfo::new(&selection, &shape)
                         .as_ref().into_iter()
                         .map(|x| match x {
-                            BoundedSelectInfoElem::Slice(BoundedSliceInfoElem { start, end, step: 1 }) => (*start as u64, (*end - *start) as u64),
+                            BoundedSelectInfoElem::Slice(BoundedSlice { start, end, step: 1 }) => (*start as u64, (*end - *start) as u64),
                             _ => todo!(),
                         })
                         .unzip();
@@ -437,7 +437,7 @@ impl DatasetOp for Dataset {
                         .as_ref()
                         .into_iter()
                         .map(|x| match x.as_ref() {
-                            SelectInfoElem::Slice(SliceInfoElem::Slice{ start, .. }) => *start as u64,
+                            SelectInfoElem::Slice(Slice{ start, .. }) => *start as u64,
                             _ => unreachable!(),
                         })
                         .collect();

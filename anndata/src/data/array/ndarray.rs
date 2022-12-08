@@ -8,7 +8,7 @@ use crate::{
 };
 
 use anyhow::{bail, ensure, Result};
-use ndarray::{ArrayView, Array, Array1, ArrayD, Dimension};
+use ndarray::{ArrayView, Array, Array1, ArrayD, Dimension, SliceInfoElem};
 use std::collections::HashMap;
 use std::ops::Index;
 
@@ -314,7 +314,7 @@ impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
     {
         let arr = self.view().into_dyn();
         let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
-            SelectInfoElem::Slice(slice) => Some(slice.clone()),
+            SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
             _ => None,
         }).collect::<Option<Vec<_>>>();
         if let Some(slices) = slices {
@@ -322,7 +322,7 @@ impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
         } else {
             let shape = self.shape();
             let select: Vec<_> = info.as_ref().into_iter().zip(shape)
-                .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n).unwrap()).collect();
+                .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n)).collect();
             let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
             ArrayD::from_shape_fn(new_shape, |idx| {
                 let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();

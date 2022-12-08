@@ -3,7 +3,7 @@ use crate::{
     backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
     utils::array::concat_array_data,
     //iterator::{ChunkedMatrix, StackedChunkedMatrix},
-    data::*,
+    data::{*, array::slice::unique_indices_sorted},
 };
 
 use anyhow::{bail, ensure, Result};
@@ -20,6 +20,7 @@ use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterato
 use smallvec::SmallVec;
 use std::{
     ops::{Deref, DerefMut},
+    collections::HashMap,
     sync::Arc,
 };
 use num::integer::div_rem;
@@ -528,7 +529,10 @@ impl<B: Backend> ArrayElem<B> {
         Ok(())
     }
 
-    pub fn chunked<T>(&self, chunk_size: usize) -> ChunkedArrayElem<B, T> {
+    pub fn chunked<T>(&self, chunk_size: usize) -> ChunkedArrayElem<B, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    {
         ChunkedArrayElem::new(self.clone(), chunk_size)
     }
 }
@@ -732,6 +736,13 @@ impl<B: Backend> StackedArrayElem<B> {
             index,
         })))
     }
+
+   pub fn chunked<T>(&self, chunk_size: usize) -> StackedChunkedArrayElem<B, T>
+   where
+       T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+    {
+        StackedChunkedArrayElem::new(self.elems.iter().map(|x| x.clone()), chunk_size)
+    }
 }
 
 
@@ -934,6 +945,25 @@ impl VecVecIndex {
         }
     }
 
+    pub fn split_select(&self, select: &SelectInfoElem) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
+        match select {
+            SelectInfoElem::Slice(slice) => {
+                todo!()
+            },
+            SelectInfoElem::Index(index) => {
+                let (indices, mapping) = unique_indices_sorted(index.as_slice(), self.len());
+                let idx_groups: HashMap<usize, SelectInfoElem> = indices
+                    .into_iter()
+                    .map(|x| self.ix(&x))
+                    .group_by(|(o, _)| *o)
+                    .into_iter()
+                    .map(|(outer, x)| (outer, x.map(|(_, i)| i).collect()))
+                    .collect();
+                (idx_groups, Some(mapping))
+            }
+        }
+    }
+
     pub fn ix_group_by_outer<'a, I>(
         &self,
         indices: I,
@@ -972,12 +1002,3 @@ impl FromIterator<usize> for VecVecIndex {
         VecVecIndex(index)
     }
 }
-
-/*
-   pub fn chunked(&self, chunk_size: usize) -> StackedChunkedMatrix {
-        StackedChunkedMatrix::new(self.elems.iter().map(|x| x.clone()), chunk_size)
-    }
-
-
-
-*/

@@ -241,9 +241,7 @@ impl<B: Backend> AnnData<B> {
                     .map(|obsp| obsp.subset(i))
                     .transpose()?;
                 let mut n_obs = self.n_obs.lock();
-                *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs)
-                    .unwrap()
-                    .len();
+                *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs).len();
                 Ok::<(), anyhow::Error>(())
             })
             .transpose()?;
@@ -268,9 +266,7 @@ impl<B: Backend> AnnData<B> {
                     .map(|varp| varp.subset(i))
                     .transpose()?;
                 let mut n_vars = self.n_vars.lock();
-                *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars)
-                    .unwrap()
-                    .len();
+                *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars).len();
                 Ok::<(), anyhow::Error>(())
             })
             .transpose()?;
