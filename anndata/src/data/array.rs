@@ -2,10 +2,12 @@
 mod ndarray;
 pub mod slice;
 mod sparse;
+mod iterators;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
+pub use iterators::CsrIterator;
 
 use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};

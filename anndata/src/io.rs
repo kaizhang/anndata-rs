@@ -45,19 +45,6 @@ impl AnnData {
         Ok(())
     }
 
-    pub fn copy<P>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        filename: P,
-    ) -> Result<Self>
-    where
-        P: AsRef<Path>,
-    {
-        self.write(obs_idx, var_idx, filename.as_ref().clone())?;
-        Self::read(File::open_rw(filename)?)
-    }
-
     pub fn read(file: File) -> Result<Self> {
         let n_obs = Arc::new(Mutex::new(0));
         let n_vars = Arc::new(Mutex::new(0));

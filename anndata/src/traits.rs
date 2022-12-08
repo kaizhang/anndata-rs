@@ -16,7 +16,11 @@ pub trait AnnDataOp {
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
-    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()>;
+    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()>;
+
+    /// Set the 'X' element from an iterator. Note that the original data will be
+    /// lost if an error occurs during the writing.
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>;
     fn del_x(&self) -> Result<()>;
 
     /// Return the number of observations (rows).

@@ -163,6 +163,14 @@ impl<B: Backend> AnnData<B> {
         }
     }
 
+    /// Open an existing AnnData. 
+    pub fn open(file: B::File) -> Result<Self> {
+        let n_obs = Arc::new(Mutex::new(0));
+        let n_vars = Arc::new(Mutex::new(0));
+
+        todo!()
+    }
+
     pub fn new<P: AsRef<Path>>(filename: P, n_obs: usize, n_vars: usize) -> Result<Self> {
         let file = B::create(filename)?;
         let n_obs = Arc::new(Mutex::new(n_obs));
@@ -298,7 +306,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
     }
 
-    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
+    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
         let shape = data.shape();
         ensure!(
             shape.ndim() >= 2,
@@ -314,12 +322,32 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         Ok(())
     }
-    fn del_x(&self) -> Result<()> {
-        if !self.x.is_empty() {
-            self.file.delete("X")?;
-            self.x.drop();
+
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
+        let mut obs_lock = self.n_obs.lock();
+        let mut var_lock = self.n_vars.lock();
+        self.del_x()?;
+        let new_elem = ArrayElem::try_from(
+            WriteArrayData::write_from_iter(iter, &self.file, "X")?
+        )?;
+
+        let shape = new_elem.inner().shape().clone();
+        if *obs_lock == 0 {
+            *obs_lock = shape[0];
+        } else {
+            ensure!(shape[0] == *obs_lock, "X must have the same number of rows as obs");
         }
+        if *var_lock == 0 {
+            *var_lock = shape[1];
+        } else {
+            ensure!(shape[1] == *var_lock, "X must have the same number of columns as var");
+        }
+        self.x.swap(&new_elem);
         Ok(())
+    }
+
+    fn del_x(&self) -> Result<()> {
+        self.x.clear()
     }
 
     fn n_obs(&self) -> usize {

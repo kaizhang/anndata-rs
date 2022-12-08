@@ -5,9 +5,10 @@ use crate::data::{
     slice::{Shape, SelectInfoElem},
 };
 
-use ndarray::Ix1;
+use ndarray::{ArrayView1, ArrayView, Ix1, Dimension};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
+use smallvec::SmallVec;
 
 #[derive(Debug, Clone)]
 pub enum DynCsrMatrix {
@@ -262,6 +263,52 @@ impl<T: BackendData> WriteData for &CsrMatrix<T> {
     }
 }
 
+impl<T: BackendData> WriteArrayData for &CsrMatrix<T> {
+    fn write_from_iter<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        B: Backend,
+        G: GroupOp<Backend = B>,
+        I: Iterator<Item = Self>,
+    {
+        let group = location.create_group(name)?;
+        group.write_str_attr("encoding_type", "csr_matrix")?;
+        group.write_str_attr("encoding-version", "0.2.0")?;
+        group.write_str_attr("h5sparse_format", "csr")?;
+
+        let mut data: ExtendableDataset<B> = ExtendableDataset::with_capacity(
+            group.new_dataset::<T>("data", &0.into(), Default::default())?,
+            100000.into(),
+        );
+        let mut indices: ExtendableDataset<B> = ExtendableDataset::with_capacity(
+            group.new_dataset::<i64>("indices", &0.into(), Default::default())?,
+            100000.into(),
+        );
+        let mut indptr: Vec<i64> = Vec::new();
+        let mut num_rows = 0;
+        let mut num_cols: Option<usize> = None;
+
+        iter.try_for_each(|csr| {
+            let c = csr.ncols();
+            if num_cols.is_none() {
+                num_cols = Some(c);
+            }
+            if num_cols.unwrap() == c {
+                num_rows += csr.nrows();
+                let (indptr_, indices_, data_) = csr.csr_data();
+                let nnz = *indptr.last().unwrap_or(&0);
+                indptr_.iter().for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
+                data.extend(ArrayView1::from_shape(data_.len(), data_)?)?;
+                indices.extend(ArrayView1::from_shape(indices_.len(), indices_)?)
+            } else {
+                bail!("All matrices must have the same number of columns");
+            }
+        })?;
+
+        group.create_array_data("indptr", &indptr, Default::default())?;
+        group.write_arr_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        Ok(DataContainer::Group(group))
+    }
+}
 
 impl<T: BackendData> ReadData for CsrMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
@@ -286,5 +333,54 @@ fn read_array_as_usize<B: Backend>(container: &B::Dataset) -> Result<Vec<usize>>
         ScalarType::I32 => Ok(container.read_array::<i32, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
         ScalarType::I64 => Ok(container.read_array::<i64, Ix1>()?.map(|x| usize::try_from(*x).unwrap()).to_vec()),
         ty => bail!("cannot cast array type {} to usize", ty),
+    }
+}
+
+struct ExtendableDataset<B: Backend> {
+    dataset: B::Dataset,
+    capacity: Shape,
+    size: Shape,
+}
+
+impl<B: Backend> ExtendableDataset<B> {
+    fn with_capacity(dataset: B::Dataset, capacity: Shape) -> Self {
+        Self {
+            dataset,
+            size: std::iter::repeat(0).take(capacity.ndim()).collect(),
+            capacity,
+        }
+    }
+
+    fn reserve(&mut self, additional: &Shape) -> Result<()> {
+        self.capacity.as_mut().iter_mut()
+            .zip(additional.as_ref())
+            .for_each(|(x, add)| *x += *add);
+        self.dataset.reshape(&self.capacity)
+    }
+
+    fn check_or_grow(&mut self, size: &Shape, default: usize) -> Result<()> {
+        let additional: Shape = self.capacity.as_ref().iter().zip(size.as_ref()).map(|(cap, size)|
+            if *cap < *size {
+                default.max(*size - *cap)
+            } else {
+                0
+            }
+        ).collect();
+
+        if additional.as_ref().iter().any(|x| *x != 0) {
+            self.reserve(&additional)?;
+        }
+        Ok(())
+    }
+
+    fn extend<'a, T: BackendData, D: Dimension>(&mut self, data: ArrayView<'a, T, D>) -> Result<()> {
+        let new_size = self.size.as_ref().iter().zip(data.shape())
+            .map(|(x, y)| *x + *y).collect();
+        self.check_or_grow(&new_size, 100000)?;
+        let slice: SmallVec<[SelectInfoElem; 3]> = self.size.as_ref().iter().zip(new_size.as_ref())
+            .map(|(x, y)| (*x..*y).into()).collect();
+        self.dataset.write_array_slice(data, slice)?;
+        self.size = new_size;
+        Ok(())
     }
 }

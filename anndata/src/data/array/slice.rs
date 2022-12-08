@@ -25,6 +25,12 @@ impl AsRef<[usize]> for Shape {
     }
 }
 
+impl AsMut<[usize]> for Shape {
+    fn as_mut(&mut self) -> &mut [usize] {
+        &mut self.0
+    }
+}
+
 impl Index<usize> for Shape {
     type Output = usize;
 

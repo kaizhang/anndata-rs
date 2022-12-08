@@ -1,24 +1,75 @@
 use crate::backend::{WriteConfig, Backend, BackendData, DataContainer, DatasetOp, GroupOp, LocationOp};
 use crate::data::data_traits::{ReadData, WriteData};
+use crate::data::{Shape, SelectInfoElem};
 use crate::s;
 
 use anyhow::Result;
+use nalgebra_sparse::csr::CsrMatrix;
+use ndarray::{ArrayView, Dimension};
+use smallvec::SmallVec;
 
-pub struct CsrIterator<I> {
-    iterator: I,
-    num_cols: usize,
-}
+pub struct CsrIterator<I>(I);
 
-impl<I> CsrIterator<I> {
-    pub fn new(iterator: I, num_cols: usize) -> Self {
-        Self { iterator, num_cols }
+impl<I: Iterator<Item = CsrMatrix<T>>, T: BackendData> CsrIterator<I> {
+    pub fn new(iterator: I) -> Self {
+        Self(iterator)
     }
 }
 
-impl<I, D> WriteData for CsrIterator<I>
+struct ExtendableDataset<B: Backend> {
+    dataset: B::Dataset,
+    capacity: Shape,
+    size: Shape,
+}
+
+impl<B: Backend> ExtendableDataset<B> {
+    fn with_capacity(dataset: B::Dataset, capacity: Shape) -> Self {
+        Self {
+            dataset,
+            size: std::iter::repeat(0).take(capacity.ndim()).collect(),
+            capacity,
+        }
+    }
+
+    fn reserve(&mut self, additional: &Shape) -> Result<()> {
+        self.capacity.as_mut().iter_mut()
+            .zip(additional.as_ref())
+            .for_each(|(x, add)| *x += *add);
+        self.dataset.reshape(&self.capacity)
+    }
+
+    fn check_or_grow(&mut self, size: &Shape, default: usize) -> Result<()> {
+        let additional: Shape = self.capacity.as_ref().iter().zip(size.as_ref()).map(|(cap, size)|
+            if *cap < *size {
+                default.max(*size - *cap)
+            } else {
+                0
+            }
+        ).collect();
+
+        if additional.as_ref().iter().any(|x| *x != 0) {
+            self.reserve(&additional)?;
+        }
+        Ok(())
+    }
+
+    fn extend<'a, T: BackendData, D: Dimension>(&mut self, data: ArrayView<'a, T, D>) -> Result<()> {
+        let new_size = self.size.as_ref().iter().zip(data.shape())
+            .map(|(x, y)| *x + *y).collect();
+        self.check_or_grow(&new_size, 100000)?;
+        let slice: SmallVec<[SelectInfoElem; 3]> = self.size.as_ref().iter().zip(new_size.as_ref())
+            .map(|(x, y)| (*x..*y).into()).collect();
+        self.dataset.write_array_slice(data, slice)?;
+        self.size = new_size;
+        Ok(())
+    }
+}
+
+/*
+impl<I, T> WriteData for CsrIterator<I>
 where
-    I: Iterator<Item = Vec<Vec<(usize, D)>>>,
-    D: BackendData,
+    I: Iterator<Item = CsrMatrix<T>>,
+    T: BackendData,
 {
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
@@ -67,3 +118,4 @@ where
         Ok(DataContainer::Group(group))
     }
 }
+*/

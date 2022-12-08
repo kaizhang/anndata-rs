@@ -1,7 +1,9 @@
 use anndata::{
-    backend::{Backend, FileOp, GroupOp, DatasetOp, LocationOp, ScalarType, DynArrayView,
-        BackendData, WriteConfig},
-    data::{ArrayOp, SelectInfoElem, BoundedSelectInfo, DynArray, DynScalar, Shape},
+    backend::{
+        Backend, BackendData, DatasetOp, DynArrayView, FileOp, GroupOp, LocationOp, ScalarType,
+        WriteConfig,
+    },
+    data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape},
 };
 
 use anyhow::{bail, Result};
@@ -55,7 +57,6 @@ impl Deref for H5Dataset {
 /// Backend implementation
 ///////////////////////////////////////////////////////////////////////////////
 
-
 impl Backend for H5 {
     type File = H5File;
 
@@ -104,19 +105,84 @@ fn new_dataset<T: BackendData>(
     let block_size = config.block_size.unwrap_or(vec![100; shape.ndim()].into());
     let s: hdf5::Extents = hdf5::SimpleExtents::resizable(shape.as_ref()).into();
     let dataset = match T::DTYPE {
-        ScalarType::U8 => group.new_dataset::<u8>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::U16 => group.new_dataset::<u16>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::U32 => group.new_dataset::<u32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::U64 => group.new_dataset::<u64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::Usize => group.new_dataset::<usize>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::I8 => group.new_dataset::<i8>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::I16 => group.new_dataset::<i16>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::I32 => group.new_dataset::<i32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::I64 => group.new_dataset::<i64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::F32 => group.new_dataset::<f32>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::F64 => group.new_dataset::<f64>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::Bool => group.new_dataset::<bool>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
-        ScalarType::String => group.new_dataset::<VarLenUnicode>().deflate(config.compression).chunk(block_size.as_ref()).shape(s).create(name)?,
+        ScalarType::U8 => group
+            .new_dataset::<u8>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::U16 => group
+            .new_dataset::<u16>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::U32 => group
+            .new_dataset::<u32>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::U64 => group
+            .new_dataset::<u64>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::Usize => group
+            .new_dataset::<usize>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::I8 => group
+            .new_dataset::<i8>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::I16 => group
+            .new_dataset::<i16>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::I32 => group
+            .new_dataset::<i32>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::I64 => group
+            .new_dataset::<i64>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::F32 => group
+            .new_dataset::<f32>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::F64 => group
+            .new_dataset::<f64>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::Bool => group
+            .new_dataset::<bool>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
+        ScalarType::String => group
+            .new_dataset::<VarLenUnicode>()
+            .deflate(config.compression)
+            .chunk(block_size.as_ref())
+            .shape(s)
+            .create(name)?,
     };
     Ok(H5Dataset(dataset))
 }
@@ -133,11 +199,7 @@ fn exists(group: &Group, name: &str) -> Result<bool> {
     Ok(group.link_exists(name))
 }
 
-fn create_scalar_data<D: BackendData>(
-    group: &Group,
-    name: &str,
-    data: &D,
-) -> Result<H5Dataset> {
+fn create_scalar_data<D: BackendData>(group: &Group, name: &str, data: &D) -> Result<H5Dataset> {
     match data.into_dyn() {
         DynScalar::U8(x) => {
             let dataset = group.new_dataset::<u8>().create(name)?;
@@ -204,7 +266,8 @@ fn create_scalar_data<D: BackendData>(
             dataset.write_scalar(&x.parse::<VarLenUnicode>().unwrap())?;
             Ok(dataset)
         }
-    }.map(H5Dataset)
+    }
+    .map(H5Dataset)
 }
 
 impl DatasetOp for H5Dataset {
@@ -314,8 +377,7 @@ impl DatasetOp for H5Dataset {
                 } else {
                     let (select, shape) = into_selection(selection, self.shape());
                     let arr: Result<_> = if matches!(select, Selection::Points(_)) {
-                        let slice_1d =
-                            self.deref().read_slice_1d::<VarLenUnicode, _>(select)?;
+                        let slice_1d = self.deref().read_slice_1d::<VarLenUnicode, _>(select)?;
                         Ok(slice_1d
                             .into_shape(shape.as_ref())?
                             .into_dimensionality::<D>()?)
@@ -335,11 +397,7 @@ impl DatasetOp for H5Dataset {
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
-    fn write_array_slice<'a, A, S, T, D, E>(
-        &self,
-        data: A,
-        selection: S,
-    ) -> Result<()>
+    fn write_array_slice<'a, A, S, T, D, E>(&self, data: A, selection: S) -> Result<()>
     where
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
@@ -379,11 +437,10 @@ impl DatasetOp for H5Dataset {
             DynArrayView::String(x) => {
                 let data: Array<VarLenUnicode, D> = x.map(|x| x.parse().unwrap());
                 write_array_impl(self, data.view(), selection)
-            },
+            }
         }
     }
 }
-
 
 // Generic `LocationOp` functions
 
@@ -640,7 +697,6 @@ impl LocationOp for H5Dataset {
 /// Auxiliary functions
 ///////////////////////////////////////////////////////////////////////////////
 
-
 fn into_selection<S, E>(selection: S, shape: Shape) -> (Selection, Shape)
 where
     S: AsRef<[E]>,
@@ -664,8 +720,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use anndata::s;
+    use ndarray_rand::rand_distr::Standard;
+    use ndarray_rand::rand_distr::Uniform;
+    use ndarray_rand::RandomExt;
+    use ndarray::{Axis, concatenate};
     use std::path::PathBuf;
+    use tempfile::tempdir;
 
     pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
         let dir = tempdir().unwrap();
@@ -685,6 +746,40 @@ mod tests {
             let subgroup = group.create_group("subgroup")?;
 
             assert_eq!(subgroup.path(), PathBuf::from("/group/subgroup"));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_write_slice() -> Result<()> {
+        with_tmp_path(|path| -> Result<()> {
+            let file = H5::create(path.clone())?;
+            let config = WriteConfig {
+                ..Default::default()
+            };
+
+            let dataset = file.new_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
+            let arr = Array::random((20, 50), Uniform::new(0, 100));
+
+            // Repeatitive writes
+            dataset.write_array_slice(&arr, s![.., ..])?;
+            dataset.write_array_slice(&arr, s![.., ..])?;
+
+            // Out-of-bounds writes should fail
+            assert!(dataset.write_array_slice(&arr, s![20..40, ..]).is_err());
+
+            // Reshape and write
+            dataset.reshape(&[40, 50].as_slice().into())?;
+            dataset.write_array_slice(&arr, s![20..40, ..])?;
+
+            // Read back is OK
+            let merged = concatenate(Axis(0), &[arr.view(), arr.view()])?;
+            assert_eq!(merged, dataset.read_array::<i32, _>()?);
+
+            // Shrinking is OK
+            dataset.reshape(&[20, 50].as_slice().into())?;
+            assert_eq!(arr, dataset.read_array::<i32, _>()?);
+
             Ok(())
         })
     }

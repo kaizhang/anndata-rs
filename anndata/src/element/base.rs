@@ -275,7 +275,6 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
 /// Container holding general data types.
 pub struct InnerElem<B: Backend, T> {
     dtype: DataType,
-    shape: Option<Shape>,
     cache_enabled: bool,
     container: DataContainer<B>,
     element: Option<T>,
@@ -308,9 +307,7 @@ impl<B: Backend, T> InnerElem<B, T> {
         }
         self.cache_enabled = false;
     }
-}
 
-impl<B: Backend, T> InnerElem<B, T> {
     pub(crate) fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
         if self.element.is_some() {
@@ -349,11 +346,104 @@ impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
     }
 }
 
-impl<B: Backend, T: ArrayOp + Clone> InnerElem<B, T> {
-    pub fn shape(&self) -> &Shape {
-        self.shape.as_ref().unwrap()
+
+pub type Elem<B> = Slot<InnerElem<B, Data>>;
+
+impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
+    type Error = anyhow::Error;
+
+    fn try_from(container: DataContainer<B>) -> Result<Self> {
+        let dtype = container.encoding_type()?;
+        let elem = InnerElem {
+            dtype,
+            cache_enabled: false,
+            element: None,
+            container,
+        };
+        Ok(Slot::new(elem))
+    }
+}
+
+pub struct InnerArrayElem<B: Backend, T> {
+    dtype: DataType,
+    shape: Shape,
+    cache_enabled: bool,
+    container: DataContainer<B>,
+    element: Option<T>,
+}
+
+impl<B: Backend, T> std::fmt::Display for InnerArrayElem<B, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} element, cache_enabled: {}, cached: {}",
+            self.dtype,
+            if self.cache_enabled { "yes" } else { "no" },
+            if self.element.is_some() { "yes" } else { "no" },
+        )
+    }
+}
+
+impl<B: Backend, T> InnerArrayElem<B, T> {
+    pub fn dtype(&self) -> DataType {
+        self.dtype
     }
 
+    pub fn shape(&self) -> &Shape {
+        &self.shape
+    }
+
+    pub fn enable_cache(&mut self) {
+        self.cache_enabled = true;
+    }
+
+    pub fn disable_cache(&mut self) {
+        if self.element.is_some() {
+            self.element = None;
+        }
+        self.cache_enabled = false;
+    }
+
+    pub(crate) fn save<D: HasShape + WriteArrayData + Into<T>>(&mut self, data: D) -> Result<()> {
+        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        self.shape = data.shape();
+        if self.element.is_some() {
+            self.element = Some(data.into());
+        }
+        Ok(())
+    }
+}
+
+impl<B: Backend, T: Clone> InnerArrayElem<B, T> {
+    pub fn data<D>(&mut self) -> Result<D>
+    where
+        D: Into<T> + ReadData + Clone + TryFrom<T>,
+        <D as TryFrom<T>>::Error: Into<anyhow::Error>,
+    {
+        match self.element.as_ref() {
+            Some(data) => Ok(data.clone().try_into().map_err(Into::into)?),
+            None => {
+                let data = D::read(&self.container)?;
+                if self.cache_enabled {
+                    self.element = Some(data.clone().into());
+                }
+                Ok(data)
+            }
+        }
+    }
+}
+
+impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerArrayElem<B, T> {
+    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
+        match self.element.as_ref() {
+            Some(data) => data.write(location, name)?,
+            None => T::read(&self.container)?.write(location, name)?,
+        };
+        Ok(())
+    }
+}
+
+impl<B: Backend, T: ArrayOp + Clone> InnerArrayElem<B, T> {
     pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
     where
         D: Into<T> + TryFrom<T> + ReadArrayData + Clone,
@@ -372,7 +462,7 @@ impl<B: Backend, T: ArrayOp + Clone> InnerElem<B, T> {
     }
 }
 
-impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<B, T> {
+impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArrayElem<B, T> {
     pub fn export_select<S, E>(
         &mut self,
         selection: S,
@@ -401,7 +491,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<
             None => T::read_select(&self.container, selection)?,
         };
 
-        self.shape = Some(data.shape());
+        self.shape = data.shape();
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
         if self.element.is_some() {
             self.element = Some(data);
@@ -410,25 +500,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerElem<
     }
 }
 
-pub type Elem<B> = Slot<InnerElem<B, Data>>;
-
-impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
-    type Error = anyhow::Error;
-
-    fn try_from(container: DataContainer<B>) -> Result<Self> {
-        let dtype = container.encoding_type()?;
-        let elem = InnerElem {
-            dtype,
-            shape: None,
-            cache_enabled: false,
-            element: None,
-            container,
-        };
-        Ok(Slot::new(elem))
-    }
-}
-
-pub type ArrayElem<B> = Slot<InnerElem<B, ArrayData>>;
+pub type ArrayElem<B> = Slot<InnerArrayElem<B, ArrayData>>;
 
 /// Container holding matrix data types.
 impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
@@ -436,9 +508,9 @@ impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
 
     fn try_from(container: DataContainer<B>) -> Result<Self> {
         let dtype = container.encoding_type()?;
-        let elem = InnerElem {
+        let elem = InnerArrayElem {
             dtype,
-            shape: Some(ArrayData::get_shape(&container)?),
+            shape: ArrayData::get_shape(&container)?,
             cache_enabled: false,
             element: None,
             container,
@@ -448,6 +520,14 @@ impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
 }
 
 impl<B: Backend> ArrayElem<B> {
+    /// Delete and Remove the data from the element.
+    pub fn clear(&self) -> Result<()> {
+        if let Some(elem) = self.extract() {
+            DataContainer::delete(elem.container)?;
+        }
+        Ok(())
+    }
+
     pub fn chunked<T>(&self, chunk_size: usize) -> ChunkedArrayElem<B, T> {
         ChunkedArrayElem::new(self.clone(), chunk_size)
     }
