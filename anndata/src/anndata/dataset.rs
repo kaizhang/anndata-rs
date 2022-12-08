@@ -130,13 +130,15 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
 }
 
 impl<B: Backend> AnnDataSet<B> {
-    pub fn new<'a, T, P: AsRef<Path>>(
+    pub fn new<'a, T, S, P>(
         data: T,
         filename: P,
         add_key: &str,
     ) -> Result<Self>
     where
-        T: IntoIterator<Item = (&'a str, AnnData<B>)>,
+        T: IntoIterator<Item = (S, AnnData<B>)>,
+        S: ToString,
+        P: AsRef<Path>,
     {
         let anndatas = StackedAnnData::new(data)?;
         let n_obs = anndatas.n_obs;
@@ -186,6 +188,25 @@ impl<B: Backend> AnnDataSet<B> {
 
     pub fn get_x(&self) -> &StackedArrayElem<B> {
         &self.anndatas.x
+    }
+
+    /*
+    pub fn to_adata<P: AsRef<Path>>(
+        &self,
+        obs_idx: Option<&[usize]>,
+        var_idx: Option<&[usize]>,
+        out: P,
+    ) -> Result<AnnData> {
+        self.annotation.copy(obs_idx, var_idx, out)
+    }
+    */
+
+    /// Convert AnnDataSet to AnnData object
+    pub fn into_adata(self) -> Result<AnnData<B>> {
+        for ann in self.anndatas.elems.into_values() {
+            ann.close()?;
+        }
+        Ok(self.annotation)
     }
 
     pub fn close(self) -> Result<()> {
@@ -418,25 +439,6 @@ fn update_anndata_locations(ann: &AnnData, new_locations: HashMap<String, String
         &self.annotation
     }
 
-    pub fn to_adata<P: AsRef<Path>>(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-        out: P,
-    ) -> Result<AnnData> {
-        self.annotation.copy(obs_idx, var_idx, out)
-    }
-
-    /// Convert AnnDataSet to AnnData object
-    pub fn into_adata(self) -> Result<AnnData> {
-        if let Some(anndatas) = self.anndatas.extract() {
-            for ann in anndatas.anndatas.into_values() {
-                ann.close()?;
-            }
-        }
-        Ok(self.annotation)
-    }
-
 
 */
 
@@ -455,7 +457,7 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        todo!()
+        Ok(Some(self.anndatas.x.select(select)?))
     }
 
     fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()> {
@@ -625,9 +627,10 @@ impl<B: Backend> std::fmt::Display for StackedAnnData<B> {
 }
 
 impl<B: Backend> StackedAnnData<B> {
-    fn new<'a, T>(iter: T) -> Result<Self>
+    fn new<'a, T, S>(iter: T) -> Result<Self>
     where
-        T: IntoIterator<Item = (&'a str, AnnData<B>)>,
+        T: IntoIterator<Item = (S, AnnData<B>)>,
+        S: ToString,
     {
         let adatas: IndexMap<String, AnnData<B>> = iter.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         ensure!(!adatas.is_empty(), "no AnnData objects to stack");

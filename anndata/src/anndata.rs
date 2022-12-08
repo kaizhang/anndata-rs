@@ -3,7 +3,7 @@ mod dataset;
 pub use dataset::AnnDataSet;
 
 use crate::{
-    backend::{Backend, FileOp, GroupOp},
+    backend::{DataContainer, Backend, FileOp, GroupOp},
     data::*,
     element::{
         ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection, InnerDataFrameElem, Slot,
@@ -168,7 +168,91 @@ impl<B: Backend> AnnData<B> {
         let n_obs = Arc::new(Mutex::new(0));
         let n_vars = Arc::new(Mutex::new(0));
 
-        todo!()
+        // Read X
+        let x = if file.exists("X")? {
+            let x = ArrayElem::try_from(DataContainer::open(&file, "X")?)?;
+            *n_obs.lock() = x.inner().shape()[0];
+            *n_vars.lock() = x.inner().shape()[1];
+            x
+        } else {
+            Slot::empty()
+        };
+
+        // Read obs
+        let obs = if file.exists("obs")? {
+            let obs = DataFrameElem::try_from(DataContainer::open(&file, "obs")?)?;
+            let n_records = obs.inner().height();
+            let n = *n_obs.lock();
+            if n == 0 {
+                *n_obs.lock() = n_records;
+            } else {
+                assert!(
+                    n == n_records,
+                    "Inconsistent number of observations: {} (X) != {} (obs)",
+                    n,
+                    n_records,
+                );
+            }
+            obs
+        } else {
+            Slot::empty()
+        };
+
+        // Read var
+        let var = if file.exists("var")? {
+            let var = DataFrameElem::try_from(DataContainer::open(&file, "var")?)?;
+            let n_records = obs.inner().height();
+            let n = *n_vars.lock();
+            if n == 0 {
+                *n_vars.lock() = n_records;
+            } else {
+                assert!(
+                    n == n_records,
+                    "Inconsistent number of variables: {} (X) != {} (var)",
+                    n,
+                    n_records,
+                );
+            }
+            var
+        } else {
+            Slot::empty()
+        };
+
+        let obsm = AxisArrays::new(
+            file.open_group("obsm").or(file.create_group("obsm"))?,
+            Axis::Row,
+            n_obs.clone(),
+        )?;
+        let obsp = AxisArrays::new(
+            file.open_group("obsp").or(file.create_group("obsp"))?,
+            Axis::RowColumn,
+            n_obs.clone(),
+        )?;
+        let varm = AxisArrays::new(
+            file.open_group("varm").or(file.create_group("varm"))?,
+            Axis::Row,
+            n_vars.clone(),
+        )?;
+        let varp = AxisArrays::new(
+            file.open_group("varp").or(file.create_group("varp"))?,
+            Axis::RowColumn,
+            n_vars.clone(),
+        )?;
+        let uns = ElemCollection::new(file.open_group("uns").or(file.create_group("uns"))?)?;
+
+        Ok(Self {
+            file,
+            n_obs,
+            n_vars,
+            x,
+            obs,
+            obsm,
+            obsp,
+            var,
+            varm,
+            varp,
+            uns,
+        })
     }
 
     pub fn new<P: AsRef<Path>>(filename: P, n_obs: usize, n_vars: usize) -> Result<Self> {
@@ -188,6 +272,20 @@ impl<B: Backend> AnnData<B> {
             varm: AxisArrays::empty(),
             varp: AxisArrays::empty(),
         })
+    }
+
+    pub fn write<O: Backend, P: AsRef<Path>>(&self, filename: P) -> Result<()> {
+        let file = O::create(filename)?;
+        self.get_x().lock().as_mut().map(|x| x.export::<O, _>(&file, "X")).transpose()?;
+        self.get_obs().lock().as_mut().map(|x| x.export::<O, _>(&file, "obs")).transpose()?;
+        self.get_var().lock().as_mut().map(|x| x.export::<O, _>(&file, "var")).transpose()?;
+        self.get_obsm().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("obsm")?)).transpose()?;
+        self.get_obsp().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("obsp")?)).transpose()?;
+        self.get_varm().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("varm")?)).transpose()?;
+        self.get_varp().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("varp")?)).transpose()?;
+        self.get_uns().lock().as_mut().map(|x| x.export::<O>(&file.create_group("uns")?)).transpose()?;
+        file.close()?;
+        Ok(())
     }
 
     pub fn filename(&self) -> PathBuf {

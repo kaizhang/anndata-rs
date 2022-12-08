@@ -66,3 +66,42 @@ fn test_basic() -> Result<()> {
         Ok(())
     })
 }
+
+fn test_slice<B: Backend>() -> Result<()> {
+    with_tmp_dir(|dir| -> Result<()> {
+        let arr1 = Array::random((97, 50), Uniform::new(-100, 100));
+        let arr2 = Array::random((13, 50), Uniform::new(-100, 100));
+        let arr3 = Array::random((71, 50), Uniform::new(-100, 100));
+        let merged = concatenate(Axis(0), &[arr1.view(), arr2.view(), arr3.view()])?;
+
+        let d1: AnnData<H5> = AnnData::new(dir.join("1.h5ad"), 0, 0)?;
+        let d2: AnnData<H5> = AnnData::new(dir.join("2.h5ad"), 0, 0)?;
+        let d3: AnnData<H5> = AnnData::new(dir.join("3.h5ad"), 0, 0)?;
+        d1.set_x(&arr1)?;
+        d2.set_x(&arr2)?;
+        d3.set_x(&arr3)?;
+        let dataset = AnnDataSet::new([("1", d1), ("2", d2), ("3", d3)], dir.join("dataset.h5ads"), "key")?;
+
+        let mut x: Array2<i32> = dataset.read_x_slice(s![3..33, 4..44])?.unwrap();
+        assert_eq!(x, merged.slice(ndarray::s![3..33, 4..44]).to_owned());
+
+        x = dataset.read_x_slice(s![0..181, 4..44])?.unwrap();
+        assert_eq!(x, merged.slice(ndarray::s![0..181, 4..44]).to_owned());
+
+        // Fancy index
+        let indices1 = Array::random(300, Uniform::new(0, 181)).to_vec();
+        let indices2 = Array::random(300, Uniform::new(0, 50)).to_vec();
+        let expected = merged
+            .select(ndarray::Axis(0), indices1.as_slice())
+            .select(ndarray::Axis(1), indices2.as_slice());
+        x = dataset.read_x_slice(s![indices1, indices2])?.unwrap();
+        assert_eq!(x, expected);
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_slice_h5() -> Result<()> {
+    test_slice::<H5>()
+}

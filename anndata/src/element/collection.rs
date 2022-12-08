@@ -1,5 +1,5 @@
 use crate::{
-    backend::{iter_containers, Backend},
+    backend::{iter_containers, GroupOp, Backend},
     data::*,
     element::base::*,
 };
@@ -46,9 +46,9 @@ impl<B> InnerElemCollection<B>
 where
     B: Backend,
 {
-    pub fn export(&self, location: &B::Group) -> Result<()> {
+    pub fn export<O: Backend>(&self, location: &O::Group) -> Result<()> {
         for (key, val) in self.iter() {
-            val.inner().export(location, key)?;
+            val.inner().export::<O>(location, key)?;
         }
         Ok(())
     }
@@ -190,30 +190,32 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
-    pub fn export(&self, location: &B::Group) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G) -> Result<()> {
         for (key, val) in self.iter() {
-            val.inner().export(location, key)?;
+            val.inner().export::<O, _>(location, key)?;
         }
         Ok(())
     }
 
-    pub fn export_select<S>(&self, selection: S, location: &B::Group) -> Result<()>
+    pub fn export_select<O, G, S>(&self, selection: S, location: &G) -> Result<()>
     where
+        O: Backend,
+        G: GroupOp<Backend = O>,
         S: AsRef<SelectInfoElem>,
     {
         if selection.as_ref().is_full() {
-            self.export(location)
+            self.export::<O, _>(location)
         } else {
             match self.axis {
                 Axis::Row => {
                     let s = vec![selection];
                     self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
+                        .try_for_each(|(k, x)| x.inner().export_select::<O, _, _, _>(&s, location, k))
                 }
                 Axis::RowColumn => {
                     let s = vec![selection.as_ref(), selection.as_ref()];
                     self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select(&s, location, k))
+                        .try_for_each(|(k, x)| x.inner().export_select::<O, _, _, _>(&s, location, k))
                 }
             }
         }

@@ -132,6 +132,12 @@ impl FromIterator<usize> for SelectInfoElem {
     }
 }
 
+impl From<Slice> for SelectInfoElem {
+    fn from(x: Slice) -> Self {
+        Self::Slice(x)
+    }
+}
+
 impl From<usize> for SelectInfoElem {
     fn from(x: usize) -> Self {
         Self::Index(vec![x])
@@ -431,7 +437,7 @@ pub(crate) fn unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (V
 
     // Find the new order
     mask.iter_mut().fold(0, |acc, x| {
-        if *x == upper_bound {
+        if *x != upper_bound {
             *x = acc;
             acc + 1
         } else {
@@ -488,4 +494,33 @@ macro_rules! s{
         }
 
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_indices(input: Vec<u16>) {
+            let max = (*input.iter().max().unwrap_or(&0) + 1) as usize;
+            let indices = input.into_iter().map(|x| x as usize).collect::<Vec<_>>();
+            let sorted_expected = indices.iter().map(|x| *x).unique().sorted().collect::<Vec<_>>();
+            let (sorted, mapping) = unique_indices_sorted(indices.as_slice(), max);
+            assert_eq!(sorted, sorted_expected);
+            assert_eq!(indices, mapping.iter().map(|x| sorted[*x]).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn test_basic() {
+        assert_eq!(
+            unique_indices_sorted(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 11),
+            (
+                vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            ),
+        );
+    }
 }

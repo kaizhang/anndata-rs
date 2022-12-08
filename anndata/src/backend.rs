@@ -296,7 +296,7 @@ impl<B: Backend> LocationOp for DataContainer<B> {
 }
 
 impl<B: Backend> DataContainer<B> {
-    pub fn open(group: &B::Group, name: &str) -> Result<Self> {
+    pub fn open<G: GroupOp<Backend = B>>(group: &G, name: &str) -> Result<Self> {
         if group.exists(name)? {
             group
                 .open_dataset(name)

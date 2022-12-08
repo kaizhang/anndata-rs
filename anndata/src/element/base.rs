@@ -3,13 +3,13 @@ use crate::{
     backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
     utils::array::concat_array_data,
     //iterator::{ChunkedMatrix, StackedChunkedMatrix},
-    data::{*, array::slice::unique_indices_sorted},
+    data::{*, array::slice::{unique_indices_sorted, BoundedSlice}},
 };
 
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use ndarray::Ix1;
+use ndarray::{Slice, Ix1};
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
@@ -17,6 +17,7 @@ use polars::{
     series::Series,
 };
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::IndexedParallelIterator;
 use smallvec::SmallVec;
 use std::{
     ops::{Deref, DerefMut},
@@ -187,7 +188,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
         }
     }
 
-    pub fn export(&self, location: &B::Group, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
         let df = match self.element {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
@@ -338,7 +339,7 @@ impl<B: Backend, T: Clone> InnerElem<B, T> {
 }
 
 impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
-    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
+    pub fn export<O: Backend>(&mut self, location: &O::Group, name: &str) -> Result<()> {
         match self.element.as_ref() {
             Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
@@ -435,7 +436,7 @@ impl<B: Backend, T: Clone> InnerArrayElem<B, T> {
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerArrayElem<B, T> {
-    pub fn export(&mut self, location: &B::Group, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&mut self, location: &G, name: &str) -> Result<()> {
         match self.element.as_ref() {
             Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
@@ -464,18 +465,20 @@ impl<B: Backend, T: ArrayOp + Clone> InnerArrayElem<B, T> {
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArrayElem<B, T> {
-    pub fn export_select<S, E>(
+    pub fn export_select<O, G, S, E>(
         &mut self,
         selection: S,
-        location: &B::Group,
+        location: &G,
         name: &str,
     ) -> Result<()>
     where
+        O: Backend,
+        G: GroupOp<Backend = O>,
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
     {
         if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
-            self.export(location, name)
+            self.export::<O, _>(location, name)
         } else {
             self.select::<T, _, _>(selection)?.write(location, name)?;
             Ok(())
@@ -622,7 +625,7 @@ impl<B: Backend> StackedDataFrame<B> {
 
 pub struct InnerStackedArrayElem<B: Backend> {
     shape: Shape,
-    pub(crate) elems: SmallVec<[ArrayElem<B>; 96]>,
+    elems: SmallVec<[ArrayElem<B>; 96]>,
     index: VecVecIndex,
 }
 
@@ -673,14 +676,50 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
     }
 
-    pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
+    pub fn select<D, S, E>(&self, selection: S) -> Result<D>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        todo!()
+        let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
+        let array = self.elems.iter().enumerate().flat_map(|(i, el)|
+            indices.get(&i).map(|idx| {
+                let select: SmallVec<[_; 3]> = std::iter::once(idx).chain(selection.as_ref()[1..].iter().map(|x| x.as_ref())).collect();
+                el.inner().select(select)
+            })
+        ).collect::<Result<Vec<_>>>().and_then(concat_array_data)?;
+        if let Some(m) = mapping {
+            let select: SmallVec<[SelectInfoElem; 3]> = std::iter::once(m.into()).chain(
+                std::iter::repeat((..).into()).take(selection.as_ref().len() - 1)
+            ).collect();
+            array.select(select).try_into().map_err(Into::into)
+        } else {
+            array.try_into().map_err(Into::into)
+        }
+    }
+
+    pub fn par_select<D, S, E>(&self, selection: S) -> Result<D>
+    where
+        D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        S: AsRef<[E]> + Sync,
+        E: AsRef<SelectInfoElem>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
+        let array = self.elems.par_iter().enumerate().flat_map(|(i, el)|
+            indices.get(&i).map(|idx| {
+                let select: SmallVec<[_; 3]> = std::iter::once(idx).chain(selection.as_ref()[1..].iter().map(|x| x.as_ref())).collect();
+                el.inner().select(select)
+            })
+        ).collect::<Result<Vec<_>>>().and_then(concat_array_data)?;
+        if let Some(m) = mapping {
+            let select: [SelectInfoElem; 1] = [m.into()];
+            array.select(select).try_into().map_err(Into::into)
+        } else {
+            array.try_into().map_err(Into::into)
+        }
     }
 
     /// Activate the cache for all elements.
@@ -745,46 +784,6 @@ impl<B: Backend> StackedArrayElem<B> {
     }
 }
 
-
-
-/*
-pub fn read(
-    &self,
-    ridx_: Option<&[usize]>,
-    cidx: Option<&[usize]>,
-) -> Result<ArrayData> {
-    match ridx_ {
-        Some(ridx) => {
-            let index = self.index.lock();
-            let (ori_idx, rows): (Vec<_>, Vec<_>) = ridx
-                .iter()
-                .map(|x| index.ix(x))
-                .enumerate()
-                .sorted_by_key(|x| x.1 .0)
-                .into_iter()
-                .group_by(|x| x.1 .0)
-                .into_iter()
-                .map(|(key, grp)| {
-                    let (ori_idx, (_, inner_idx)): (Vec<_>, (Vec<_>, Vec<_>)) = grp.unzip();
-                    (
-                        ori_idx,
-                        self.elems[key].read(Some(inner_idx.as_slice()), cidx),
-                    )
-                })
-                .unzip();
-            Ok(rstack_with_index(
-                ori_idx.into_iter().flatten().collect::<Vec<_>>().as_slice(),
-                rows.into_iter().collect::<Result<_>>()?,
-            )?)
-        }
-        None => {
-            let mats: Result<Vec<_>> =
-                self.elems.par_iter().map(|x| x.read(None, cidx)).collect();
-            Ok(rstack(mats?)?)
-        }
-    }
-}
-*/
 
 
 /// Chunked Arrays
@@ -948,7 +947,36 @@ impl VecVecIndex {
     pub fn split_select(&self, select: &SelectInfoElem) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
         match select {
             SelectInfoElem::Slice(slice) => {
-                todo!()
+                let bounded = BoundedSlice::new(slice, self.len());
+                let (outer_start, inner_start) = self.ix(&bounded.start);
+                let (outer_end, inner_end) = self.ix(&bounded.end);
+                let mut res = HashMap::new();
+                if outer_start == outer_end {
+                    res.insert(outer_start, Slice {
+                        start: inner_start as isize,
+                        end: Some(inner_end as isize),
+                        step: slice.step,
+                    }.into());
+                } else {
+                    res.insert(outer_start, Slice {
+                        start: inner_start as isize,
+                        end: None,
+                        step: slice.step,
+                    }.into());
+                    res.insert(outer_end, Slice {
+                        start: 0,
+                        end: Some(inner_end as isize),
+                        step: slice.step,
+                    }.into());
+                    for i in outer_start+1 .. outer_end {
+                        res.insert(i, Slice {
+                            start: 0,
+                            end: None,
+                            step: slice.step,
+                        }.into());
+                    }
+                };
+                (res, None)
             },
             SelectInfoElem::Index(index) => {
                 let (indices, mapping) = unique_indices_sorted(index.as_slice(), self.len());

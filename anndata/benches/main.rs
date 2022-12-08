@@ -75,25 +75,34 @@ fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
         let m = 10000;
         let arr: Array2<i32> = Array::random((n, m), Uniform::new(-100, 100));
 
-        let d1: AnnData<B> = AnnData::new(dir.join("1.h5ad"), 0, 0).unwrap();
-        let d2: AnnData<B> = AnnData::new(dir.join("2.h5ad"), 0, 0).unwrap();
-        let d3: AnnData<B> = AnnData::new(dir.join("3.h5ad"), 0, 0).unwrap();
-        d1.set_x(&arr).unwrap();
-        d2.set_x(&arr).unwrap();
-        d3.set_x(&arr).unwrap();
+        let adatas = (0..3).into_iter().map(|i| {
+            let d: AnnData<B> = AnnData::new(dir.join(format!("{}.h5ad", i)), n, m).unwrap();
+            d.set_x(&arr).unwrap();
+            (format!("{}", i), d)
+        }).collect::<Vec<_>>();
+
         let dataset = AnnDataSet::new(
-            [("1", d1), ("2", d2), ("3", d3)],
-            dir.join("dataset.h5ads"), "key"
+            adatas, dir.join("dataset.h5ads"), "key"
         ).unwrap();
 
         group.bench_function(
-            BenchmarkId::new("Serial read", "50 x 10000 (3)"),
+            BenchmarkId::new("Serial read", "50 x 10000 (x5)"),
             |b| b.iter(|| dataset.get_x().data::<ArrayData>().unwrap()),
         );
 
         group.bench_function(
-            BenchmarkId::new("Parallel read", "50 x 10000 (3)"),
+            BenchmarkId::new("Parallel read", "50 x 10000 (x5)"),
             |b| b.iter(|| dataset.get_x().par_data::<ArrayData>().unwrap()),
+        );
+
+        group.bench_function(
+            BenchmarkId::new("Serial read slice", "10 x 1000 (x5)"),
+            |b| b.iter(|| dataset.get_x().select::<ArrayData, _, _>(s![0..10, 0..1000]).unwrap()),
+        );
+
+        group.bench_function(
+            BenchmarkId::new("Parallel read slice", "10 x 1000 (x5)"),
+            |b| b.iter(|| dataset.get_x().par_select::<ArrayData, _, _>(s![0..10, 0..1000]).unwrap()),
         );
     })
 }
