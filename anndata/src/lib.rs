@@ -7,7 +7,6 @@ pub mod data;
 pub mod element;
 //pub mod io;
 //pub mod iterator;
-pub(crate) mod utils;
 
 pub use traits::AnnDataOp;
 pub use crate::anndata::{AnnData, AnnDataSet};

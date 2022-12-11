@@ -213,6 +213,14 @@ impl SelectInfoElem {
         matches!(self, SelectInfoElem::Slice(_))
     }
 
+    pub fn full() -> Self {
+        SelectInfoElem::Slice(Slice {
+            start: 0,
+            end: None,
+            step: 1,
+        })
+    }
+
     pub fn is_full(&self) -> bool {
         matches!(
             self,
@@ -363,8 +371,25 @@ impl<'a> BoundedSelectInfoElem<'a> {
             Self::Slice(slice) => slice.index(i),
         }
     }
-}
 
+    pub fn is_full(&self, bound: usize) -> bool {
+        match self {
+            Self::Slice(slice) => slice.start == 0 && slice.end == bound && slice.step == 1,
+            Self::Index(indices) => indices.len() == bound && indices.iter().enumerate().all(|(i, &x)| x == i),
+        }
+    }
+
+    pub fn iter(&self) -> Box<dyn ExactSizeIterator<Item=usize> + 'a> {
+        match self {
+            Self::Index(idx) => Box::new(idx.iter().copied()),
+            Self::Slice(slice) => if slice.step > 0 {
+                Box::new((slice.start..slice.end).step_by(slice.step as usize))
+            } else {
+                Box::new((slice.start..slice.end).step_by(slice.step.abs() as usize).rev())
+            },
+        }
+    }
+}
 
 
 #[derive(Debug, Copy, Clone)]
@@ -448,6 +473,12 @@ pub(crate) fn unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (V
     // Get the mapping
     let mapping = indices.iter().map(|x| mask[*x]).collect();
     (unique, mapping)
+}
+
+pub(crate) fn get_slice_by_axis<'a>(slice: &'a [SelectInfoElem], axis: usize, fill: &'a SelectInfoElem) -> SmallVec<[&'a SelectInfoElem; 3]> {
+    let mut new_slice = smallvec![fill; slice.len()];
+    new_slice[axis] = slice.get(axis).unwrap();
+    new_slice
 }
 
 /// Slice argument constructor.

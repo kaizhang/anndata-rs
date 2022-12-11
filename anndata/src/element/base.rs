@@ -1,9 +1,8 @@
 use crate::{
     s,
     backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
-    utils::array::concat_array_data,
-    //iterator::{ChunkedMatrix, StackedChunkedMatrix},
     data::{*, array::slice::{unique_indices_sorted, BoundedSlice}},
+    data::array::utils::concat_array_data,
 };
 
 use anyhow::{bail, ensure, Result};
@@ -16,8 +15,7 @@ use polars::{
     prelude::{concat, IntoLazy},
     series::Series,
 };
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use rayon::iter::IndexedParallelIterator;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use smallvec::SmallVec;
 use std::{
     ops::{Deref, DerefMut},
@@ -990,24 +988,6 @@ impl VecVecIndex {
                 (idx_groups, Some(mapping))
             }
         }
-    }
-
-    pub fn ix_group_by_outer<'a, I>(
-        &self,
-        indices: I,
-    ) -> std::collections::HashMap<usize, (Vec<usize>, Vec<usize>)>
-    where
-        I: Iterator<Item = &'a usize>,
-    {
-        indices
-            .map(|x| self.ix(x))
-            .enumerate()
-            .sorted_by_key(|(_, (x, _))| *x)
-            .into_iter()
-            .group_by(|(_, (x, _))| *x)
-            .into_iter()
-            .map(|(outer, inner)| (outer, inner.map(|(i, (_, x))| (x, i)).unzip()))
-            .collect()
     }
 
     /// The total number of elements

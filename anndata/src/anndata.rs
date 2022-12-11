@@ -3,8 +3,8 @@ mod dataset;
 pub use dataset::AnnDataSet;
 
 use crate::{
-    backend::{DataContainer, Backend, FileOp, GroupOp},
-    data::*,
+    backend::{Backend, DataContainer, FileOp, GroupOp},
+    data::{*, array::slice::get_slice_by_axis},
     element::{
         ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection, InnerDataFrameElem, Slot,
     },
@@ -25,7 +25,7 @@ pub struct AnnData<B: Backend> {
     // Put n_obs in a mutex to allow concurrent access to different slots
     // because modifying n_obs requires modifying slots will also modify n_obs.
     // Operations that modify n_obs must acquire a lock until the end of the operation.
-    pub(crate) n_obs: Arc<Mutex<usize>>,  
+    pub(crate) n_obs: Arc<Mutex<usize>>,
     pub(crate) n_vars: Arc<Mutex<usize>>,
     pub(crate) x: ArrayElem<B>,
     pub(crate) obs: DataFrameElem<B>,
@@ -86,6 +86,13 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
 }
 
 impl<B: Backend> AnnData<B> {
+    pub(crate) fn lock(&self) -> AnnDataLock<'_> {
+        AnnDataLock {
+            n_obs: self.n_obs.lock(),
+            n_vars: self.n_vars.lock(),
+        }
+    }
+
     pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
@@ -163,7 +170,7 @@ impl<B: Backend> AnnData<B> {
         }
     }
 
-    /// Open an existing AnnData. 
+    /// Open an existing AnnData.
     pub fn open(file: B::File) -> Result<Self> {
         let n_obs = Arc::new(Mutex::new(0));
         let n_vars = Arc::new(Mutex::new(0));
@@ -276,14 +283,101 @@ impl<B: Backend> AnnData<B> {
 
     pub fn write<O: Backend, P: AsRef<Path>>(&self, filename: P) -> Result<()> {
         let file = O::create(filename)?;
-        self.get_x().lock().as_mut().map(|x| x.export::<O, _>(&file, "X")).transpose()?;
-        self.get_obs().lock().as_mut().map(|x| x.export::<O, _>(&file, "obs")).transpose()?;
-        self.get_var().lock().as_mut().map(|x| x.export::<O, _>(&file, "var")).transpose()?;
-        self.get_obsm().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("obsm")?)).transpose()?;
-        self.get_obsp().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("obsp")?)).transpose()?;
-        self.get_varm().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("varm")?)).transpose()?;
-        self.get_varp().lock().as_mut().map(|x| x.export::<O, _>(&file.create_group("varp")?)).transpose()?;
-        self.get_uns().lock().as_mut().map(|x| x.export::<O>(&file.create_group("uns")?)).transpose()?;
+        self.get_x()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "X"))
+            .transpose()?;
+        self.get_obs()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "obs"))
+            .transpose()?;
+        self.get_var()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "var"))
+            .transpose()?;
+        self.get_obsm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("obsm")?))
+            .transpose()?;
+        self.get_obsp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("obsp")?))
+            .transpose()?;
+        self.get_varm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("varm")?))
+            .transpose()?;
+        self.get_varp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("varp")?))
+            .transpose()?;
+        self.get_uns()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O>(&file.create_group("uns")?))
+            .transpose()?;
+        file.close()?;
+        Ok(())
+    }
+
+    pub fn write_select<O, S, P>(&self, selection: S, filename: P) -> Result<()>
+    where
+        O: Backend,
+        S: AsRef<[SelectInfoElem]>,
+        P: AsRef<Path>,
+    {
+        let _lock = self.lock();
+        let file = O::create(filename)?;
+        self.get_x()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select::<O, _, _, _>(selection, &file, "X"))
+            .transpose()?;
+
+        /*
+        self.get_obs()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "obs"))
+            .transpose()?;
+        self.get_var()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "var"))
+            .transpose()?;
+        self.get_obsm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("obsm")?))
+            .transpose()?;
+        self.get_obsp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("obsp")?))
+            .transpose()?;
+        self.get_varm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("varm")?))
+            .transpose()?;
+        self.get_varp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file.create_group("varp")?))
+            .transpose()?;
+        self.get_uns()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O>(&file.create_group("uns")?))
+            .transpose()?;
+        */
         file.close()?;
         Ok(())
     }
@@ -308,11 +402,12 @@ impl<B: Backend> AnnData<B> {
         self.file.close()
     }
 
-    pub fn subset<S, E>(&self, selection: S) -> Result<()>
+    pub fn subset<S>(&self, selection: S) -> Result<()>
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<[SelectInfoElem]>,
     {
+        let mut lock = self.lock();
+
         self.x
             .lock()
             .as_mut()
@@ -338,8 +433,7 @@ impl<B: Backend> AnnData<B> {
                     .as_ref()
                     .map(|obsp| obsp.subset(i))
                     .transpose()?;
-                let mut n_obs = self.n_obs.lock();
-                *n_obs = BoundedSelectInfoElem::new(i.as_ref(), *n_obs).len();
+                *lock.n_obs = BoundedSelectInfoElem::new(i.as_ref(), *lock.n_obs).len();
                 Ok::<(), anyhow::Error>(())
             })
             .transpose()?;
@@ -363,14 +457,21 @@ impl<B: Backend> AnnData<B> {
                     .as_ref()
                     .map(|varp| varp.subset(i))
                     .transpose()?;
-                let mut n_vars = self.n_vars.lock();
-                *n_vars = BoundedSelectInfoElem::new(i.as_ref(), *n_vars).len();
+                *lock.n_vars = BoundedSelectInfoElem::new(i.as_ref(), *lock.n_vars).len();
                 Ok::<(), anyhow::Error>(())
             })
             .transpose()?;
         Ok(())
     }
 }
+
+pub(crate) struct AnnDataLock<'a> {
+    pub(crate) n_obs: MutexGuard<'a, usize>,
+    pub(crate) n_vars: MutexGuard<'a, usize>,
+}
+
+type Obs_Lock<'a> = MutexGuard<'a, usize>;
+type Var_Lock<'a> = MutexGuard<'a, usize>;
 
 impl<B: Backend> AnnDataOp for AnnData<B> {
     fn read_x<D>(&self) -> Result<Option<D>>
@@ -421,20 +522,25 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         let mut obs_lock = self.n_obs.lock();
         let mut var_lock = self.n_vars.lock();
         self.del_x()?;
-        let new_elem = ArrayElem::try_from(
-            WriteArrayData::write_from_iter(iter, &self.file, "X")?
-        )?;
+        let new_elem =
+            ArrayElem::try_from(WriteArrayData::write_from_iter(iter, &self.file, "X")?)?;
 
         let shape = new_elem.inner().shape().clone();
         if *obs_lock == 0 {
             *obs_lock = shape[0];
         } else {
-            ensure!(shape[0] == *obs_lock, "X must have the same number of rows as obs");
+            ensure!(
+                shape[0] == *obs_lock,
+                "X must have the same number of rows as obs"
+            );
         }
         if *var_lock == 0 {
             *var_lock = shape[1];
         } else {
-            ensure!(shape[1] == *var_lock, "X must have the same number of columns as var");
+            ensure!(
+                shape[1] == *var_lock,
+                "X must have the same number of columns as var"
+            );
         }
         self.x.swap(&new_elem);
         Ok(())
@@ -614,7 +720,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<Data> + TryFrom<Data> + Clone,
-        <D as TryFrom<Data>>::Error: Into<anyhow::Error>
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
     {
         self.get_uns()
             .lock()
@@ -626,7 +732,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         self.get_obsm()
             .lock()
@@ -636,9 +742,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .transpose()
     }
     fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
-        where
-            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
         self.get_obsp()
             .lock()
             .as_mut()
@@ -647,9 +754,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .transpose()
     }
     fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
-        where
-            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
         self.get_varm()
             .lock()
             .as_mut()
@@ -658,9 +766,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .transpose()
     }
     fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
-        where
-            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
         self.get_varp()
             .lock()
             .as_mut()

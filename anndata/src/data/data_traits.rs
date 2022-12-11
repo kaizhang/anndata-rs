@@ -5,7 +5,6 @@ use crate::data::{
 };
 
 use anyhow::Result;
-use smallvec::SmallVec;
 
 /// Read data from a backend
 pub trait ReadData {
@@ -34,17 +33,6 @@ pub trait WriteData {
 /// Anything that has a shape.
 pub trait HasShape {
     fn shape(&self) -> Shape;
-}
-
-/// Things that may have a shape.
-pub trait MayHaveShape {
-    fn shape_maybe(&self) -> SmallVec<[Option<usize>; 3]>;
-}
-
-impl<T: HasShape> MayHaveShape for T {
-    fn shape_maybe(&self) -> SmallVec<[Option<usize>; 3]> {
-        self.shape().as_ref().iter().map(|x| Some(*x)).collect()
-    }
 }
 
 pub trait ArrayOp: HasShape {
