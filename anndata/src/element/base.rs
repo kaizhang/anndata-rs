@@ -1,6 +1,6 @@
 use crate::{
     s,
-    backend::{Backend, BackendData, DataContainer, DataType, GroupOp, LocationOp},
+    backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
     data::{*, array::slice::{unique_indices_sorted, BoundedSlice}},
     data::array::utils::concat_array_data,
 };

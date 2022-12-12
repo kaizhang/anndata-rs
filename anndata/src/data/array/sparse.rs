@@ -1,6 +1,6 @@
 use crate::backend::*;
 use crate::data::{
-    array::utils::{cs_majorXminor_index, cs_major_index, cs_major_slice, ExtendableDataset},
+    array::utils::{cs_major_minor_index, cs_major_index, cs_major_slice, ExtendableDataset},
     data_traits::*,
     scalar::DynScalar,
     slice::{SelectInfoElem, Shape},
@@ -176,7 +176,38 @@ impl ReadArrayData for DynCsrMatrix {
         E: AsRef<SelectInfoElem>,
         Self: Sized,
     {
-        todo!()
+        if let DataType::CsrMatrix(ty) = container.encoding_type()? {
+            match ty {
+                ScalarType::I8 => CsrMatrix::<i8>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::I16 => CsrMatrix::<i16>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::I32 => CsrMatrix::<i32>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::I64 => CsrMatrix::<i64>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::U8 => CsrMatrix::<u8>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::U16 => CsrMatrix::<u16>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::U32 => CsrMatrix::<u32>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::U64 => CsrMatrix::<u64>::read_select(container, info) 
+                    .map(Into::into),
+                ScalarType::Usize => CsrMatrix::<usize>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::F32 => CsrMatrix::<f32>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::F64 => CsrMatrix::<f64>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::Bool => CsrMatrix::<bool>::read_select(container, info)
+                    .map(Into::into),
+                ScalarType::String => CsrMatrix::<String>::read_select(container, info)
+                    .map(Into::into),
+            }
+        } else {
+            bail!("the container does not contain a csr matrix");
+        }
     }
 }
 
@@ -256,7 +287,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                 end: col_end,
                             }) => {
                                 if col_step < 0 {
-                                    cs_majorXminor_index(
+                                    cs_major_minor_index(
                                         (start..end).step_by(step.abs() as usize).rev(),
                                         (col_start..col_end).step_by(col_step.abs() as usize).rev(),
                                         self.ncols(),
@@ -265,7 +296,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                         data,
                                     )
                                 } else {
-                                    cs_majorXminor_index(
+                                    cs_major_minor_index(
                                         (start..end).step_by(step.abs() as usize).rev(),
                                         (col_start..col_end).step_by(col_step as usize),
                                         self.ncols(),
@@ -275,7 +306,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_majorXminor_index(
+                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
                                 (start..end).step_by(step.abs() as usize).rev(),
                                 idx.iter().copied(),
                                 self.ncols(),
@@ -292,7 +323,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                 end: col_end,
                             }) => {
                                 if col_step < 0 {
-                                    cs_majorXminor_index(
+                                    cs_major_minor_index(
                                         (start..end).step_by(step as usize),
                                         (col_start..col_end).step_by(col_step.abs() as usize).rev(),
                                         self.ncols(),
@@ -301,7 +332,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                         data,
                                     )
                                 } else {
-                                    cs_majorXminor_index(
+                                    cs_major_minor_index(
                                         (start..end).step_by(step as usize),
                                         (col_start..col_end).step_by(col_step as usize),
                                         self.ncols(),
@@ -311,7 +342,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_majorXminor_index(
+                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
                                 (start..end).step_by(step as usize),
                                 idx.iter().copied(),
                                 self.ncols(),
@@ -329,7 +360,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                         end: col_end,
                     }) => {
                         if col_step < 0 {
-                            cs_majorXminor_index(
+                            cs_major_minor_index(
                                 i.iter().copied(),
                                 (col_start..col_end).step_by(col_step.abs() as usize).rev(),
                                 self.ncols(),
@@ -338,7 +369,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                 data,
                             )
                         } else {
-                            cs_majorXminor_index(
+                            cs_major_minor_index(
                                 i.iter().copied(),
                                 (col_start..col_end).step_by(col_step as usize),
                                 self.ncols(),
@@ -348,7 +379,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                             )
                         }
                     }
-                    BoundedSelectInfoElem::Index(j) => cs_majorXminor_index(
+                    BoundedSelectInfoElem::Index(j) => cs_major_minor_index(
                         i.iter().copied(),
                         j.iter().copied(),
                         self.ncols(),
@@ -525,6 +556,30 @@ impl<T: BackendData> ReadData for CsrMatrix<T> {
     }
 }
 
+impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
+    fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
+        Ok(container
+            .as_group()?
+            .read_arr_attr("shape")?
+            .to_vec()
+            .into())
+    }
+
+    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    where
+        B: Backend,
+        S: AsRef<[E]>,
+        E: AsRef<SelectInfoElem>,
+        Self: Sized,
+    {
+        if info.as_ref().len() != 2 {
+            panic!("index must have length 2");
+        }
+        Ok(Self::read(container)?.select(info))
+    }
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -625,7 +680,7 @@ mod csr_matrix_index_tests {
             ],
         );
         expected_csr = CsrMatrix::from(&expected);
-        let (new_offsets, new_indices, new_data) = cs_majorXminor_index(
+        let (new_offsets, new_indices, new_data) = cs_major_minor_index(
             ridx.into_iter(),
             cidx.into_iter(),
             csr.ncols(),

@@ -1,10 +1,6 @@
-use crate::backend::{
-    Backend, BackendData, DataContainer, DatasetOp, GroupOp, LocationOp, WriteConfig,
-};
-use crate::data::data_traits::{ReadData, WriteData};
+use crate::backend::{Backend, BackendData, DatasetOp};
 use crate::data::{ArrayData, DynArray, DynCsrMatrix};
 use crate::data::{SelectInfoElem, Shape};
-use crate::s;
 
 use anyhow::{bail, Result};
 use itertools::Itertools;
@@ -13,14 +9,6 @@ use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::{Array, Axis, IxDyn};
 use ndarray::{ArrayView, Dimension};
 use smallvec::SmallVec;
-
-pub struct CsrIterator<I>(I);
-
-impl<I: Iterator<Item = CsrMatrix<T>>, T: BackendData> CsrIterator<I> {
-    pub fn new(iterator: I) -> Self {
-        Self(iterator)
-    }
-}
 
 pub struct ExtendableDataset<B: Backend> {
     dataset: B::Dataset,
@@ -193,7 +181,7 @@ pub fn cs_major_slice<'a, T>(
     (new_offsets, &indices[i..j], &data[i..j])
 }
 
-pub fn cs_majorXminor_index<I1, I2, T>(
+pub fn cs_major_minor_index<I1, I2, T>(
     major_idx: I1,
     minor_idx: I2,
     len_minor: usize,
