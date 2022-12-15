@@ -7,19 +7,20 @@ use crate::{
     backend::{Backend, DataContainer, FileOp, GroupOp},
     container::{
         ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
+        ChunkedArrayElem,
         InnerDataFrameElem, Slot,
     },
     data::*,
-    traits::AnnDataOp,
+    traits::{AnnDataOp, AnnDataIterator},
 };
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{ensure, Context, Result, bail};
 use itertools::Itertools;
 use parking_lot::{Mutex, MutexGuard};
 use polars::prelude::DataFrame;
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::Arc, ops::Deref,
 };
 
 pub struct AnnData<B: Backend> {
@@ -90,8 +91,24 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
 impl<B: Backend> AnnData<B> {
     pub(crate) fn lock(&self) -> AnnDataLock<'_> {
         AnnDataLock {
-            n_obs: self.n_obs.lock(),
-            n_vars: self.n_vars.lock(),
+            n_obs: self.lock_obs(),
+            n_vars: self.lock_vars(),
+        }
+    }
+    pub(crate) fn lock_obs(&self) -> Lock<'_> {
+        Lock {
+            guard: self.n_obs.lock(),
+            is_empty: self.x.is_empty() && self.obs.is_empty() &&
+                (self.obsm.is_empty() || self.obsm.inner().is_empty()) &&
+                (self.obsp.is_empty() || self.obsp.inner().is_empty()),
+        }
+    }
+    pub(crate) fn lock_vars(&self) -> Lock<'_> {
+        Lock {
+            guard: self.n_vars.lock(),
+            is_empty: self.x.is_empty() && self.var.is_empty() &&
+                (self.varm.is_empty() || self.varm.inner().is_empty()) &&
+                (self.varp.is_empty() || self.varp.inner().is_empty()),
         }
     }
 
@@ -118,58 +135,6 @@ impl<B: Backend> AnnData<B> {
     }
     pub fn get_uns(&self) -> &ElemCollection<B> {
         &self.uns
-    }
-
-    /// Change the number of observations.
-    /// `n_obs` can be changed only if the number of observations in current object is 0.
-    /// When modified, it will return a lock guard of `n_obs` to prevent other
-    /// threads from modifying it.
-    fn set_n_obs(&self, n: usize) -> Option<MutexGuard<usize>> {
-        let mut n_obs = self.n_obs.lock();
-        if *n_obs != n {
-            if self.obs.is_empty()
-                && self.x.is_empty()
-                && (self.obsm.is_empty() || self.obsm.inner().is_empty())
-                && (self.obsp.is_empty() || self.obsp.inner().is_empty())
-            {
-                *n_obs = n;
-                Some(n_obs)
-            } else {
-                panic!(
-                    "fail to set n_obs to {}: \
-                    obs, obsm, obsp, X must be empty so that we can change n_obs",
-                    n,
-                );
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Change the number of variables.
-    /// `n_vars` can be changed only if the number of variables in current object is 0.
-    /// When modified, it will return a lock guard of `n_vars` to prevent other
-    /// threads from modifying it.
-    fn set_n_vars(&self, n: usize) -> Option<MutexGuard<usize>> {
-        let mut n_vars = self.n_vars.lock();
-        if *n_vars != n {
-            if self.var.is_empty()
-                && self.x.is_empty()
-                && (self.varm.is_empty() || self.varm.inner().is_empty())
-                && (self.varp.is_empty() || self.varp.inner().is_empty())
-            {
-                *n_vars = n;
-                Some(n_vars)
-            } else {
-                panic!(
-                    "fail to set n_vars to {}: \
-                    var, varm, varp, X must be empty so that we can change n_vars",
-                    n,
-                );
-            }
-        } else {
-            None
-        }
     }
 
     /// Open an existing AnnData.
@@ -439,7 +404,7 @@ impl<B: Backend> AnnData<B> {
             .as_ref()
             .map(|obsp| obsp.subset(obs_ix))
             .transpose()?;
-        *lock.n_obs = BoundedSelectInfoElem::new(obs_ix, *lock.n_obs).len();
+        lock.n_obs.set(BoundedSelectInfoElem::new(obs_ix, *lock.n_obs).len());
 
         self.var
             .lock()
@@ -456,19 +421,46 @@ impl<B: Backend> AnnData<B> {
             .as_ref()
             .map(|varp| varp.subset(var_ix))
             .transpose()?;
-        *lock.n_vars = BoundedSelectInfoElem::new(var_ix, *lock.n_vars).len();
+        lock.n_vars.set(BoundedSelectInfoElem::new(var_ix, *lock.n_vars).len());
 
         Ok(())
     }
 }
 
 pub(crate) struct AnnDataLock<'a> {
-    pub(crate) n_obs: MutexGuard<'a, usize>,
-    pub(crate) n_vars: MutexGuard<'a, usize>,
+    pub(crate) n_obs: Lock<'a>,
+    pub(crate) n_vars: Lock<'a>,
 }
 
-type Obs_Lock<'a> = MutexGuard<'a, usize>;
-type Var_Lock<'a> = MutexGuard<'a, usize>;
+pub(crate) struct Lock<'a> {
+    guard: MutexGuard<'a, usize>,
+    is_empty: bool,
+}
+
+impl Deref for Lock<'_> {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl Lock<'_> {
+    pub fn set(&mut self, n: usize) {
+        *self.guard = n;
+    }
+
+    pub fn try_set(&mut self, n: usize) -> Result<()> {
+        if *self.guard != n {
+            if self.is_empty {
+                *self.guard = n;
+            } else {
+                bail!("cannot change n_obs or n_vars");
+            }
+        }
+        Ok(())
+    }
+}
 
 impl<B: Backend> AnnDataOp for AnnData<B> {
     fn read_x<D>(&self) -> Result<Option<D>>
@@ -499,47 +491,20 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
+        let mut lock = self.lock();
         let shape = data.shape();
         ensure!(
             shape.ndim() >= 2,
             "X must be a N dimensional array, where N >= 2"
         );
-        let _obs_lock = self.set_n_obs(shape[0]);
-        let _var_lock = self.set_n_vars(shape[1]);
+        lock.n_obs.try_set(shape[0])?;
+        lock.n_vars.try_set(shape[1])?;
         if !self.x.is_empty() {
             self.x.inner().save(data)?;
         } else {
             let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
             self.x.swap(&new_elem);
         }
-        Ok(())
-    }
-
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
-        let mut obs_lock = self.n_obs.lock();
-        let mut var_lock = self.n_vars.lock();
-        self.del_x()?;
-        let new_elem =
-            ArrayElem::try_from(WriteArrayData::write_from_iter(iter, &self.file, "X")?)?;
-
-        let shape = new_elem.inner().shape().clone();
-        if *obs_lock == 0 {
-            *obs_lock = shape[0];
-        } else {
-            ensure!(
-                shape[0] == *obs_lock,
-                "X must have the same number of rows as obs"
-            );
-        }
-        if *var_lock == 0 {
-            *var_lock = shape[1];
-        } else {
-            ensure!(
-                shape[1] == *var_lock,
-                "X must have the same number of columns as var"
-            );
-        }
-        self.x.swap(&new_elem);
         Ok(())
     }
 
@@ -569,7 +534,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        let _obs_lock = self.set_n_obs(index.len());
+        let mut obs_lock = self.lock_obs();
+        obs_lock.try_set(index.len())?;
         if self.obs.is_empty() {
             let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
             self.obs.insert(df);
@@ -580,7 +546,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.set_n_vars(index.len());
+        let mut var_lock = self.lock_vars();
+        var_lock.try_set(index.len())?;
         if self.var.is_empty() {
             let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
             self.var.insert(df);
@@ -631,7 +598,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_obs(&self, obs: DataFrame) -> Result<()> {
         let nrows = obs.height();
         if nrows != 0 {
-            let _obs_lock = self.set_n_obs(nrows);
+            let mut obs_lock = self.lock_obs();
+            obs_lock.try_set(nrows)?;
             if self.obs.is_empty() {
                 self.obs.insert(InnerDataFrameElem::new(
                     &self.file,
@@ -649,7 +617,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_var(&self, var: DataFrame) -> Result<()> {
         let nrows = var.height();
         if nrows != 0 {
-            let _vars_lock = self.set_n_vars(nrows);
+            let mut vars_lock = self.lock_vars();
+            vars_lock.try_set(nrows)?;
             if self.var.is_empty() {
                 self.var.insert(InnerDataFrameElem::new(
                     &self.file,
@@ -824,4 +793,58 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         }
         self.varp.inner().add_data(key, data)
     }
+}
+
+impl<B: Backend> AnnDataIterator for AnnData<B> {
+    type ArrayIter<'a, T> = ChunkedArrayElem<B, T>
+    where
+        B: 'a,
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.get_x().chunked(chunk_size)
+    }
+
+    /// Set the 'X' element from an iterator. Note that the original data will be
+    /// lost if an error occurs during the writing.
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>
+    {
+        let mut lock = self.lock();
+        self.del_x()?;
+        let new_elem =
+            ArrayElem::try_from(WriteArrayData::write_from_iter(iter, &self.file, "X")?)?;
+        let shape = new_elem.inner().shape().clone();
+
+        match lock.n_obs.try_set(shape[0]).and(lock.n_vars.try_set(shape[1])) {
+            Ok(_) => {
+                self.x.swap(&new_elem);
+                Ok(())
+            },
+            Err(e) => {
+                new_elem.clear()?;
+                Err(e)
+            }
+        }
+    }
+ 
+    fn fetch_obsm_iter<'a, T>(
+        &'a self,
+        key: &str,
+        chunk_size: usize,
+    ) -> Result<Self::ArrayIter<'a, T>>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+        {todo!()}
+
+    fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: WriteArrayData,
+        {todo!()}
 }

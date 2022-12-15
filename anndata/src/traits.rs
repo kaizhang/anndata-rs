@@ -18,10 +18,6 @@ pub trait AnnDataOp {
 
     fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()>;
 
-    /// Set the 'X' element from an iterator. Note that the original data will be
-    /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>;
-
     /// Delete the 'X' element.
     fn del_x(&self) -> Result<()>;
 
@@ -105,4 +101,35 @@ pub trait AnnDataOp {
         key: &str,
         data: D,
     ) -> Result<()>;
+}
+
+pub trait AnnDataIterator: AnnDataOp {
+    type ArrayIter<'a, T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+        Self: 'a;
+
+    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    /// Set the 'X' element from an iterator. Note that the original data will be
+    /// lost if an error occurs during the writing.
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>;
+
+    fn fetch_obsm_iter<'a, T>(
+        &'a self,
+        key: &str,
+        chunk_size: usize,
+    ) -> Result<Self::ArrayIter<'a, T>>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: WriteArrayData;
 }

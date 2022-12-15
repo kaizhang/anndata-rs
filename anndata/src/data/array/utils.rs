@@ -1,4 +1,4 @@
-use crate::backend::{Backend, BackendData, DatasetOp};
+use crate::backend::{Backend, BackendData, DatasetOp, GroupOp};
 use crate::data::{ArrayData, DynArray, DynCsrMatrix};
 use crate::data::{SelectInfoElem, Shape};
 
@@ -10,19 +10,22 @@ use ndarray::{Array, Axis, IxDyn};
 use ndarray::{ArrayView, Dimension};
 use smallvec::SmallVec;
 
-pub struct ExtendableDataset<B: Backend> {
+pub struct ExtendableDataset<B: Backend, T> {
     dataset: B::Dataset,
     capacity: Shape,
     size: Shape,
+    elem_type: std::marker::PhantomData<T>,
 }
 
-impl<B: Backend> ExtendableDataset<B> {
-    pub fn with_capacity(dataset: B::Dataset, capacity: Shape) -> Self {
-        Self {
+impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
+    pub fn with_capacity(group: &B::Group, name: &str, capacity: Shape) -> Result<Self> {
+        let dataset = group.new_dataset::<T>(name, &capacity, Default::default())?;
+        Ok(Self {
             dataset,
             size: std::iter::repeat(0).take(capacity.ndim()).collect(),
             capacity,
-        }
+            elem_type: std::marker::PhantomData,
+        })
     }
 
     pub fn reserve(&mut self, additional: &Shape) -> Result<()> {
@@ -55,28 +58,35 @@ impl<B: Backend> ExtendableDataset<B> {
         Ok(())
     }
 
-    pub fn extend<'a, T: BackendData, D: Dimension>(
+    pub fn extend<'a, D: Dimension>(
         &mut self,
         data: ArrayView<'a, T, D>,
     ) -> Result<()> {
-        let new_size = self
-            .size
-            .as_ref()
-            .iter()
-            .zip(data.shape())
-            .map(|(x, y)| *x + *y)
-            .collect();
-        self.check_or_grow(&new_size, 100000)?;
-        let slice: SmallVec<[SelectInfoElem; 3]> = self
-            .size
-            .as_ref()
-            .iter()
-            .zip(new_size.as_ref())
-            .map(|(x, y)| (*x..*y).into())
-            .collect();
-        self.dataset.write_array_slice(data, slice.as_ref())?;
-        self.size = new_size;
+        if !data.is_empty() {
+            let new_size = self
+                .size
+                .as_ref()
+                .iter()
+                .zip(data.shape())
+                .map(|(x, y)| *x + *y)
+                .collect();
+            self.check_or_grow(&new_size, 100000)?;
+            let slice: SmallVec<[SelectInfoElem; 3]> = self
+                .size
+                .as_ref()
+                .iter()
+                .zip(new_size.as_ref())
+                .map(|(x, y)| (*x..*y).into())
+                .collect();
+            self.dataset.write_array_slice(data, slice.as_ref())?;
+            self.size = new_size;
+        }
         Ok(())
+    }
+
+    pub fn finish(self) -> Result<B::Dataset> {
+        self.dataset.reshape(&self.size)?;
+        Ok(self.dataset)
     }
 }
 

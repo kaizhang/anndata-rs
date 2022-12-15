@@ -488,18 +488,16 @@ impl<T: BackendData> WriteArrayData for &CsrMatrix<T> {
         I: Iterator<Item = Self>,
     {
         let group = location.create_group(name)?;
-        group.write_str_attr("encoding_type", "csr_matrix")?;
+        group.write_str_attr("encoding-type", "csr_matrix")?;
         group.write_str_attr("encoding-version", "0.2.0")?;
         group.write_str_attr("h5sparse_format", "csr")?;
 
-        let mut data: ExtendableDataset<B> = ExtendableDataset::with_capacity(
-            group.new_dataset::<T>("data", &0.into(), Default::default())?,
-            100000.into(),
-        );
-        let mut indices: ExtendableDataset<B> = ExtendableDataset::with_capacity(
-            group.new_dataset::<i64>("indices", &0.into(), Default::default())?,
-            100000.into(),
-        );
+        let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
+            &group, "data", 100000.into(),
+        )?;
+        let mut indices: ExtendableDataset<B, i64> = ExtendableDataset::with_capacity(
+            &group, "indices", 100000.into(),
+        )?;
         let mut indptr: Vec<i64> = Vec::new();
         let mut num_rows = 0;
         let mut num_cols: Option<usize> = None;
@@ -517,12 +515,14 @@ impl<T: BackendData> WriteArrayData for &CsrMatrix<T> {
                     .iter()
                     .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
                 data.extend(ArrayView1::from_shape(data_.len(), data_)?)?;
-                indices.extend(ArrayView1::from_shape(indices_.len(), indices_)?)
+                indices.extend(ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
             } else {
                 bail!("All matrices must have the same number of columns");
             }
         })?;
 
+        indices.finish()?;
+        data.finish()?;
         group.create_array_data("indptr", &indptr, Default::default())?;
         group.write_arr_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
