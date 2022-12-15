@@ -39,6 +39,19 @@ fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i64> {
     (&CooMatrix::try_from_triplets(nrow, ncol, row_indices, col_indices, values).unwrap()).into()
 }
 
+fn rand_chunks(nrow: usize, ncol: usize, chunk_size: usize) -> (CsrMatrix<i64>, impl Iterator<Item = CsrMatrix<i64>>) {
+    let n = nalgebra::Dynamic::new(nrow);
+    let c = nalgebra::Dynamic::new(ncol);
+    let mat: DMatrix<i64> = DMatrix::new_random_generic(n, c);
+    let csr = CsrMatrix::from(&mat);
+    let iter = (0..nrow).into_iter().step_by(chunk_size)
+        .map(move |i| {
+            let m = mat.index((i..i+chunk_size, ..));
+            CsrMatrix::from(&m)
+        });
+    (csr, iter)
+}
+
 fn csr_select<I1, I2>(
     csr: &CsrMatrix<i64>,
     row_indices: I1,
@@ -128,6 +141,24 @@ where
     Ok(())
 }
 
+fn test_iterator<B: Backend>() -> Result<()> {
+    with_tmp_path(|file| -> Result<()> {
+        let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
+        let (csr, chunks) = rand_chunks(1997, 100, 241);
+
+        adata.set_x_from_iter(chunks)?;
+
+        assert_eq!(adata.n_obs(), 1997);
+        assert_eq!(adata.n_vars(), 100);
+        assert_eq!(adata.read_x::<CsrMatrix<i64>>()?.unwrap(), csr);
+
+        adata.add_obsm_from_iter::<_, CsrMatrix<i64>>("key", adata.read_x_iter(111).map(|x| x.0))?;
+        assert_eq!(adata.fetch_obsm::<CsrMatrix<i64>>("key")?.unwrap(), csr);
+
+        Ok(())
+    })
+}
+
 fn test_io<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
@@ -139,11 +170,6 @@ fn test_io<B: Backend>() -> Result<()> {
 
         adata.set_x(&arr_x)?;
         assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
-
-        assert!(adata.set_x_from_iter(std::iter::repeat(&csr_x).take(6)).is_err());
-        adata.set_x_from_iter(std::iter::repeat(&csr_x).take(6))?;
-        adata.read_x::<CsrMatrix<i64>>()?;
-        adata.del_x()?;
 
         obs_io(&adata, df!(
             "Fruit" => &["Apple", "Pear"],
@@ -287,6 +313,11 @@ fn test_subset<B: Backend>() -> Result<()> {
 #[test]
 fn test_io_h5() -> Result<()> {
     test_io::<H5>()
+}
+
+#[test]
+fn test_iterator_h5() -> Result<()> {
+    test_iterator::<H5>()
 }
 
 #[test]

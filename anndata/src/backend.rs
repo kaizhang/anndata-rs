@@ -32,6 +32,12 @@ pub trait Backend {
 
     /// Create a new file at the given path.
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File>;
+
+    /// Opens a file as read-only, file must exist.
+    fn open<P: AsRef<Path>>(path: P) -> Result<Self::File>;
+
+    /// Opens a file as read/write, file must exist.
+    fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self::File>;
 }
 
 pub trait FileOp {

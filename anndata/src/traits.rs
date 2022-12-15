@@ -80,6 +80,7 @@ pub trait AnnDataOp {
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;  
+
     fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
     fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,

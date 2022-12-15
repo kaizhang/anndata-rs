@@ -90,6 +90,16 @@ impl Backend for N5 {
             })
         ))
     }
+
+    /// Opens a file as read-only, file must exist.
+    fn open<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+        todo!()
+    }
+
+    /// Opens a file as read/write, file must exist.
+    fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+        todo!()
+    }
 }
 
 impl FileOp for Root {

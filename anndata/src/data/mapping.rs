@@ -1,6 +1,5 @@
-use crate::backend::*;
-use crate::data::data_traits::*;
-use crate::data::Data;
+use crate::backend::{Backend, GroupOp, DataContainer, iter_containers};
+use crate::data::{Data, ReadData, WriteData};
 
 use std::collections::HashMap;
 use anyhow::Result;
@@ -20,6 +19,9 @@ impl WriteData for Mapping {
 
 impl ReadData for Mapping {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        todo!()
+        let data: Result<_> = iter_containers::<B>(container.as_group()?).map(|(k, v)| {
+            Ok((k.to_owned(), Data::read(&v)?))
+        }).collect();
+        Ok(Mapping(data?))
     }
 }

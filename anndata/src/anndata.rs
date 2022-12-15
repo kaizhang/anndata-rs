@@ -24,20 +24,20 @@ use std::{
 };
 
 pub struct AnnData<B: Backend> {
-    pub(crate) file: B::File,
+    file: B::File,
     // Put n_obs in a mutex to allow concurrent access to different slots
     // because modifying n_obs requires modifying slots will also modify n_obs.
     // Operations that modify n_obs must acquire a lock until the end of the operation.
-    pub(crate) n_obs: Arc<Mutex<usize>>,
-    pub(crate) n_vars: Arc<Mutex<usize>>,
-    pub(crate) x: ArrayElem<B>,
-    pub(crate) obs: DataFrameElem<B>,
-    pub(crate) obsm: AxisArrays<B>,
-    pub(crate) obsp: AxisArrays<B>,
-    pub(crate) var: DataFrameElem<B>,
-    pub(crate) varm: AxisArrays<B>,
-    pub(crate) varp: AxisArrays<B>,
-    pub(crate) uns: ElemCollection<B>,
+    n_obs: Arc<Mutex<usize>>,
+    n_vars: Arc<Mutex<usize>>,
+    x: ArrayElem<B>,
+    obs: DataFrameElem<B>,
+    obsm: AxisArrays<B>,
+    obsp: AxisArrays<B>,
+    var: DataFrameElem<B>,
+    varm: AxisArrays<B>,
+    varp: AxisArrays<B>,
+    uns: ElemCollection<B>,
 }
 
 impl<B: Backend> std::fmt::Display for AnnData<B> {
@@ -112,28 +112,28 @@ impl<B: Backend> AnnData<B> {
         }
     }
 
-    pub fn get_x(&self) -> &ArrayElem<B> {
+    pub(crate) fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
-    pub fn get_obs(&self) -> &DataFrameElem<B> {
+    pub(crate) fn get_obs(&self) -> &DataFrameElem<B> {
         &self.obs
     }
-    pub fn get_obsm(&self) -> &AxisArrays<B> {
+    pub(crate) fn get_obsm(&self) -> &AxisArrays<B> {
         &self.obsm
     }
-    pub fn get_obsp(&self) -> &AxisArrays<B> {
+    pub(crate) fn get_obsp(&self) -> &AxisArrays<B> {
         &self.obsp
     }
-    pub fn get_var(&self) -> &DataFrameElem<B> {
+    pub(crate) fn get_var(&self) -> &DataFrameElem<B> {
         &self.var
     }
-    pub fn get_varm(&self) -> &AxisArrays<B> {
+    pub(crate) fn get_varm(&self) -> &AxisArrays<B> {
         &self.varm
     }
-    pub fn get_varp(&self) -> &AxisArrays<B> {
+    pub(crate) fn get_varp(&self) -> &AxisArrays<B> {
         &self.varp
     }
-    pub fn get_uns(&self) -> &ElemCollection<B> {
+    pub(crate) fn get_uns(&self) -> &ElemCollection<B> {
         &self.uns
     }
 

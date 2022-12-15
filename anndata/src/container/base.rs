@@ -672,6 +672,10 @@ impl<B: Backend> std::fmt::Display for InnerStackedArrayElem<B> {
 }
 
 impl<B: Backend> InnerStackedArrayElem<B> {
+    pub(crate) fn get_index(&self) -> &VecVecIndex {
+        &self.index
+    }
+
     pub fn shape(&self) -> &Shape {
         &self.shape
     }
@@ -929,7 +933,7 @@ where
 pub(crate) struct VecVecIndex(SmallVec<[usize; 96]>);
 
 impl VecVecIndex {
-    pub fn new<T>(vec_of_vec: &[Vec<T>]) -> Self {
+    pub fn _new<T>(vec_of_vec: &[Vec<T>]) -> Self {
         vec_of_vec.iter().map(|x| x.len()).collect()
     }
 
@@ -954,7 +958,7 @@ impl VecVecIndex {
     }
 
     /// The inverse of ix.
-    pub fn inv_ix(&self, idx: (usize, usize)) -> usize {
+    pub fn _inv_ix(&self, idx: (usize, usize)) -> usize {
         self.0[idx.0] + idx.1
     }
 
@@ -966,6 +970,7 @@ impl VecVecIndex {
         }
     }
 
+    /// Get the slice for each individual component.
     pub fn split_select(&self, select: &SelectInfoElem) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
         match select {
             SelectInfoElem::Slice(slice) => {

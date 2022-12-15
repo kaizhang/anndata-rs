@@ -6,7 +6,7 @@ use anndata::{
     data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Result, Ok};
 use hdf5::{
     dataset::Dataset,
     types::IntSize::*,
@@ -67,6 +67,16 @@ impl Backend for H5 {
 
     fn create<P: AsRef<Path>>(path: P) -> Result<Self::File> {
         Ok(H5File(File::create(path)?))
+    }
+
+    /// Opens a file as read-only, file must exist.
+    fn open<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+        Ok(File::open(path).map(H5File)?)
+    }
+
+    /// Opens a file as read/write, file must exist.
+    fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+        Ok(File::open_rw(path).map(H5File)?)
     }
 }
 
@@ -661,7 +671,6 @@ where
 mod tests {
     use super::*;
     use anndata::s;
-    use ndarray_rand::rand_distr::Standard;
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
     use ndarray::{Axis, concatenate};
