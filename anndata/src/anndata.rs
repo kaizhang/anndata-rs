@@ -1,13 +1,15 @@
 mod dataset;
 
-pub use dataset::AnnDataSet;
+pub use dataset::{AnnDataSet, StackedAnnData};
+use smallvec::SmallVec;
 
 use crate::{
     backend::{Backend, DataContainer, FileOp, GroupOp},
-    data::{*, array::slice::get_slice_by_axis},
-    element::{
-        ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection, InnerDataFrameElem, Slot,
+    container::{
+        ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
+        InnerDataFrameElem, Slot,
     },
+    data::*,
     traits::AnnDataOp,
 };
 
@@ -301,27 +303,27 @@ impl<B: Backend> AnnData<B> {
         self.get_obsm()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("obsm")?))
+            .map(|x| x.export::<O, _>(&file, "obsm"))
             .transpose()?;
         self.get_obsp()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("obsp")?))
+            .map(|x| x.export::<O, _>(&file, "obsp"))
             .transpose()?;
         self.get_varm()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("varm")?))
+            .map(|x| x.export::<O, _>(&file, "varm"))
             .transpose()?;
         self.get_varp()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("varp")?))
+            .map(|x| x.export::<O, _>(&file, "varp"))
             .transpose()?;
         self.get_uns()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O>(&file.create_group("uns")?))
+            .map(|x| x.export::<O, _>(&file, "uns"))
             .transpose()?;
         file.close()?;
         Ok(())
@@ -333,12 +335,13 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[SelectInfoElem]>,
         P: AsRef<Path>,
     {
+        let slice: SmallVec<[_; 3]> = selection.as_ref().iter().collect();
         let _lock = self.lock();
         let file = O::create(filename)?;
         self.get_x()
             .lock()
             .as_mut()
-            .map(|x| x.export_select::<O, _, _, _>(selection, &file, "X"))
+            .map(|x| x.export_select::<O, _>(slice.as_slice(), &file, "X"))
             .transpose()?;
 
         /*
@@ -407,60 +410,54 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[SelectInfoElem]>,
     {
         let mut lock = self.lock();
+        let slice = selection.as_ref();
+        ensure!(
+            slice.len() == 2,
+            format!("subset only supports 2D selections, got {}", slice.len())
+        );
+        let obs_ix = &slice[0];
+        let var_ix = &slice[1];
 
         self.x
             .lock()
             .as_mut()
-            .map(|x| x.subset(&selection))
+            .map(|x| x.subset(slice))
             .transpose()?;
 
-        selection
-            .as_ref()
-            .get(0)
-            .map(|i| {
-                self.obs
-                    .lock()
-                    .as_mut()
-                    .map(|x| x.subset_rows(i))
-                    .transpose()?;
-                self.obsm
-                    .lock()
-                    .as_ref()
-                    .map(|obsm| obsm.subset(i))
-                    .transpose()?;
-                self.obsp
-                    .lock()
-                    .as_ref()
-                    .map(|obsp| obsp.subset(i))
-                    .transpose()?;
-                *lock.n_obs = BoundedSelectInfoElem::new(i.as_ref(), *lock.n_obs).len();
-                Ok::<(), anyhow::Error>(())
-            })
+        self.obs
+            .lock()
+            .as_mut()
+            .map(|x| x.subset_axis(0, obs_ix))
             .transpose()?;
+        self.obsm
+            .lock()
+            .as_ref()
+            .map(|obsm| obsm.subset(obs_ix))
+            .transpose()?;
+        self.obsp
+            .lock()
+            .as_ref()
+            .map(|obsp| obsp.subset(obs_ix))
+            .transpose()?;
+        *lock.n_obs = BoundedSelectInfoElem::new(obs_ix, *lock.n_obs).len();
 
-        selection
-            .as_ref()
-            .get(1)
-            .map(|i| {
-                self.var
-                    .lock()
-                    .as_mut()
-                    .map(|x| x.subset_rows(i))
-                    .transpose()?;
-                self.varm
-                    .lock()
-                    .as_ref()
-                    .map(|varm| varm.subset(i))
-                    .transpose()?;
-                self.varp
-                    .lock()
-                    .as_ref()
-                    .map(|varp| varp.subset(i))
-                    .transpose()?;
-                *lock.n_vars = BoundedSelectInfoElem::new(i.as_ref(), *lock.n_vars).len();
-                Ok::<(), anyhow::Error>(())
-            })
+        self.var
+            .lock()
+            .as_mut()
+            .map(|x| x.subset_axis(0, var_ix))
             .transpose()?;
+        self.varm
+            .lock()
+            .as_ref()
+            .map(|varm| varm.subset(var_ix))
+            .transpose()?;
+        self.varp
+            .lock()
+            .as_ref()
+            .map(|varp| varp.subset(var_ix))
+            .transpose()?;
+        *lock.n_vars = BoundedSelectInfoElem::new(var_ix, *lock.n_vars).len();
+
         Ok(())
     }
 }
@@ -497,7 +494,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if x.is_empty() {
             Ok(None)
         } else {
-            x.inner().select(select).map(Option::Some)
+            x.inner().select(select.as_ref()).map(Option::Some)
         }
     }
 
@@ -631,54 +628,48 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .as_mut()
             .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
     }
-    fn set_obs(&self, obs_: Option<DataFrame>) -> Result<()> {
-        if let Some(obs) = obs_ {
-            let nrows = obs.height();
-            if nrows != 0 {
-                let _obs_lock = self.set_n_obs(nrows);
-                if self.obs.is_empty() {
-                    self.obs.insert(InnerDataFrameElem::new(
-                        &self.file,
-                        "obs",
-                        DataFrameIndex::from(nrows),
-                        &obs,
-                    )?);
-                } else {
-                    self.obs.inner().save(obs)?;
-                }
-            }
-        } else {
-            if !self.obs.is_empty() {
-                self.file.delete("obs")?;
-                self.obs.drop();
+    fn set_obs(&self, obs: DataFrame) -> Result<()> {
+        let nrows = obs.height();
+        if nrows != 0 {
+            let _obs_lock = self.set_n_obs(nrows);
+            if self.obs.is_empty() {
+                self.obs.insert(InnerDataFrameElem::new(
+                    &self.file,
+                    "obs",
+                    DataFrameIndex::from(nrows),
+                    &obs,
+                )?);
+            } else {
+                self.obs.inner().save(obs)?;
             }
         }
         Ok(())
     }
 
-    fn set_var(&self, var_: Option<DataFrame>) -> Result<()> {
-        if let Some(var) = var_ {
-            let nrows = var.height();
-            if nrows != 0 {
-                let _vars_lock = self.set_n_vars(nrows);
-                if self.var.is_empty() {
-                    self.var.insert(InnerDataFrameElem::new(
-                        &self.file,
-                        "var",
-                        DataFrameIndex::from(nrows),
-                        &var,
-                    )?);
-                } else {
-                    self.var.inner().save(var)?;
-                }
-            }
-        } else {
-            if !self.var.is_empty() {
-                self.file.delete("var")?;
-                self.var.drop();
+    fn set_var(&self, var: DataFrame) -> Result<()> {
+        let nrows = var.height();
+        if nrows != 0 {
+            let _vars_lock = self.set_n_vars(nrows);
+            if self.var.is_empty() {
+                self.var.insert(InnerDataFrameElem::new(
+                    &self.file,
+                    "var",
+                    DataFrameIndex::from(nrows),
+                    &var,
+                )?);
+            } else {
+                self.var.inner().save(var)?;
             }
         }
         Ok(())
+    }
+
+    fn del_obs(&self) -> Result<()> {
+        self.get_obs().clear()
+    }
+
+    fn del_var(&self) -> Result<()> {
+        self.get_var().clear()
     }
 
     fn uns_keys(&self) -> Vec<String> {

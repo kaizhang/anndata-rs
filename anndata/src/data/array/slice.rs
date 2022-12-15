@@ -1,7 +1,7 @@
 use ndarray::{Array1, Array2, Slice, SliceInfo, SliceInfoElem, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
-use std::ops::{RangeFull, Range, Index, IndexMut};
+use std::ops::{RangeFull, Range, Index, IndexMut, RangeFrom, RangeTo};
 use smallvec::{SmallVec, smallvec};
 
 #[derive(Clone, Debug)]
@@ -48,6 +48,12 @@ impl IndexMut<usize> for Shape {
 impl From<Vec<usize>> for Shape {
     fn from(shape: Vec<usize>) -> Self {
         Self(SmallVec::from_vec(shape))
+    }
+}
+
+impl From<(usize, usize)> for Shape {
+    fn from(shape: (usize, usize)) -> Self {
+        Self(smallvec![shape.0, shape.1])
     }
 }
 
@@ -198,6 +204,42 @@ impl From<RangeFull> for SelectInfoElem {
     }
 }
 
+impl From<RangeFrom<usize>> for SelectInfoElem {
+    fn from(x: RangeFrom<usize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeFrom<isize>> for SelectInfoElem {
+    fn from(x: RangeFrom<isize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeFrom<i32>> for SelectInfoElem {
+    fn from(x: RangeFrom<i32>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeTo<usize>> for SelectInfoElem {
+    fn from(x: RangeTo<usize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeTo<isize>> for SelectInfoElem {
+    fn from(x: RangeTo<isize>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
+impl From<RangeTo<i32>> for SelectInfoElem {
+    fn from(x: RangeTo<i32>) -> Self {
+        Self::Slice(x.into())
+    }
+}
+
 impl AsRef<SelectInfoElem> for SelectInfoElem {
     fn as_ref(&self) -> &SelectInfoElem {
         self
@@ -219,6 +261,12 @@ impl SelectInfoElem {
             end: None,
             step: 1,
         })
+    }
+
+    pub(crate) fn set_axis<'a>(&'a self, axis: usize, ndim: usize, fill: &'a Self) -> SmallVec<[&'a Self; 3]> {
+        let mut slice = smallvec![fill; ndim];
+        slice[axis] = self;
+        slice
     }
 
     pub fn is_full(&self) -> bool {
@@ -379,6 +427,17 @@ impl<'a> BoundedSelectInfoElem<'a> {
         }
     }
 
+    pub fn to_vec(&self) -> Vec<usize> {
+        match self {
+            Self::Index(idx) => idx.iter().copied().collect(),
+            Self::Slice(slice) => if slice.step > 0 {
+                (slice.start..slice.end).step_by(slice.step as usize).collect()
+            } else {
+                (slice.start..slice.end).step_by(slice.step.abs() as usize).rev().collect()
+            },
+        }
+    }
+
     pub fn iter(&self) -> Box<dyn ExactSizeIterator<Item=usize> + 'a> {
         match self {
             Self::Index(idx) => Box::new(idx.iter().copied()),
@@ -475,12 +534,6 @@ pub(crate) fn unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (V
     (unique, mapping)
 }
 
-pub(crate) fn get_slice_by_axis<'a>(slice: &'a [SelectInfoElem], axis: usize, fill: &'a SelectInfoElem) -> SmallVec<[&'a SelectInfoElem; 3]> {
-    let mut new_slice = smallvec![fill; slice.len()];
-    new_slice[axis] = slice.get(axis).unwrap();
-    new_slice
-}
-
 /// Slice argument constructor.
 ///
 /// `s![]` takes a list of ranges/slices/indices/new-axes, separated by comma,
@@ -506,7 +559,7 @@ pub(crate) fn get_slice_by_axis<'a>(slice: &'a [SelectInfoElem], axis: usize, fi
 /// For example,
 ///
 /// ```
-/// # use anndata_rs::s;
+/// # use anndata::s;
 /// #
 /// # fn main() {
 /// println!("{:?}", s![1..3 , ..]);
@@ -535,7 +588,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_indices(input: Vec<u16>) {
-            let max = (*input.iter().max().unwrap_or(&0) + 1) as usize;
+            let max = (*input.iter().max().unwrap_or(&0) as usize) + 1;
             let indices = input.into_iter().map(|x| x as usize).collect::<Vec<_>>();
             let sorted_expected = indices.iter().map(|x| *x).unique().sorted().collect::<Vec<_>>();
             let (sorted, mapping) = unique_indices_sorted(indices.as_slice(), max);

@@ -7,14 +7,14 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct WriteConfig {
-    pub compression: u8,
+    pub compression: Option<u8>,
     pub block_size: Option<Shape>,
 }
 
 impl Default for WriteConfig {
     fn default() -> Self {
         Self {
-            compression: 3,
+            compression: Some(3),
             block_size: None,
         }
     }
@@ -95,8 +95,13 @@ pub trait GroupOp {
         } else {
             shape.iter().map(|&x| x.min(100)).collect()
         });
+        let compression = if arr_view.len() > 100 {
+            config.compression
+        } else {
+            None
+        };
         let new_config = WriteConfig {
-            compression: config.compression,
+            compression: compression,
             block_size: Some(block_size),
         };
         let dataset = self.new_dataset::<D>(name, &shape.into(), new_config)?;
@@ -142,13 +147,12 @@ pub trait DatasetOp {
     where
         D: Dimension,
     {
-        self.read_array_slice(SelectInfo::all(self.shape().ndim()))
+        self.read_array_slice(SelectInfo::all(self.shape().ndim()).as_ref())
     }
 
-    fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
+    fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension;
 
     fn write_array<'a, A, D, Dim>(
@@ -162,19 +166,18 @@ pub trait DatasetOp {
     {
         let arr = data.into();
         let ndim = arr.ndim();
-        self.write_array_slice(arr, SelectInfo::all(ndim))
+        self.write_array_slice(arr, SelectInfo::all(ndim).as_ref())
     }
 
-    fn write_array_slice<'a, A, S, T, D, E>(
+    fn write_array_slice<'a, A, S, T, D>(
         &self,
         data: A,
-        selection: S,
+        selection: &[S],
     ) -> Result<()>
     where
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension;
 }
 

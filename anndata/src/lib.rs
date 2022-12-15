@@ -4,15 +4,13 @@ mod anndata;
 pub mod traits;
 pub mod backend;
 pub mod data;
-pub mod element;
-//pub mod io;
-//pub mod iterator;
+pub mod container;
 
 pub use traits::AnnDataOp;
 pub use crate::anndata::{AnnData, AnnDataSet};
 pub use backend::Backend;
 pub use data::{HasShape, Data, ReadData, WriteData, ArrayData, WriteArrayData, ReadArrayData, ArrayOp};
-pub use element::{
+pub use container::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 
     StackedAxisArrays, StackedDataFrame, StackedArrayElem,
 };

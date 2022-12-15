@@ -132,8 +132,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        df.write(location, name)?;
-        let container = index.write(location, name)?;
+        let container = index.overwrite(df.write(location, name)?)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -151,6 +150,10 @@ impl<B: Backend> std::fmt::Display for InnerDataFrameElem<B> {
 }
 
 impl<B: Backend> InnerDataFrameElem<B> {
+    pub fn width(&self) -> usize {
+        self.column_names.len()
+    }
+
     pub fn height(&self) -> usize {
         self.index.len()
     }
@@ -191,9 +194,22 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        df.write(location, name)?;
-        self.index.write(location, name)?;
+        self.index.overwrite(df.write(location, name)?)?;
         Ok(())
+    }
+
+    pub fn select<S>(&mut self, selection: &[S]) -> Result<DataFrame>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        Ok(ArrayOp::select(self.data()?, selection))
+    }
+
+    pub fn select_axis<S>(&mut self, axis: usize, selection: S) -> Result<DataFrame>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        Ok(ArrayOp::select_axis(self.data()?, axis, selection))
     }
 
     pub fn save(&mut self, data: DataFrame) -> Result<()> {
@@ -210,8 +226,25 @@ impl<B: Backend> InnerDataFrameElem<B> {
         Ok(())
     }
 
-    pub fn subset_rows<S: AsRef<SelectInfoElem>>(&mut self, selection: S) -> Result<()> {
-        todo!()
+    pub fn subset<S>(&mut self, selection: &[S]) -> Result<()>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        self.index = self.index.select(&selection[..1]);
+        replace_with::replace_with_or_abort(&mut self.container, |x| {
+            self.index.overwrite(x).unwrap()
+        });
+        let df = self.select(selection)?;
+        self.save(df)
+    }
+
+    pub fn subset_axis<S>(&mut self, axis: usize, selection: S) -> Result<()>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection.as_ref().set_axis(axis, 2, &full);
+        self.subset(slice.as_slice())
     }
 }
 
@@ -243,34 +276,16 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
     }
 }
 
-/*
-
-    pub fn subset_rows(&self, idx: &[usize]) -> Result<()> {
-        let subset = self
-            .with_data_ref(|x| {
-                x.map(|(index, df)| {
-                    let new_df = df.take_iter(idx.into_iter().map(|x| *x))?;
-                    let new_index: DataFrameIndex =
-                        idx.into_iter().map(|i| index.names[*i].clone()).collect();
-                    Ok::<_, anyhow::Error>((new_index, new_df))
-                })
-            })?
-            .transpose()?;
-
-        if let Some((index, df)) = subset {
-            let mut inner = self.inner();
-            inner.container = df.update(&inner.container)?;
-            index.write(&inner.container)?;
-            inner.column_names = df.get_column_names_owned().into_iter().collect();
-            if inner.element.is_some() {
-                inner.element = Some(df);
-            }
-            inner.index = index;
+impl<B: Backend> DataFrameElem<B> {
+    /// Delete and Remove the data from the element.
+    pub fn clear(&self) -> Result<()> {
+        if let Some(elem) = self.extract() {
+            DataContainer::delete(elem.container)?;
         }
         Ok(())
     }
 }
-*/
+
 
 /// Container holding general data types.
 pub struct InnerElem<B: Backend, T> {
@@ -337,7 +352,7 @@ impl<B: Backend, T: Clone> InnerElem<B, T> {
 }
 
 impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
-    pub fn export<O: Backend>(&mut self, location: &O::Group, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
         match self.element.as_ref() {
             Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
@@ -364,6 +379,17 @@ impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
     }
 }
 
+impl<B: Backend> Elem<B> {
+    /// Delete and Remove the data from the element.
+    pub fn clear(&self) -> Result<()> {
+        if let Some(elem) = self.extract() {
+            DataContainer::delete(elem.container)?;
+        }
+        Ok(())
+    }
+}
+
+
 pub struct InnerArrayElem<B: Backend, T> {
     dtype: DataType,
     shape: Shape,
@@ -383,6 +409,7 @@ impl<B: Backend, T> std::fmt::Display for InnerArrayElem<B, T> {
         )
     }
 }
+
 
 impl<B: Backend, T> InnerArrayElem<B, T> {
     pub fn dtype(&self) -> DataType {
@@ -434,7 +461,7 @@ impl<B: Backend, T: Clone> InnerArrayElem<B, T> {
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerArrayElem<B, T> {
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&mut self, location: &G, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
         match self.element.as_ref() {
             Some(data) => data.write(location, name)?,
             None => T::read(&self.container)?.write(location, name)?,
@@ -444,11 +471,10 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerArrayElem<B, T>
 }
 
 impl<B: Backend, T: ArrayOp + Clone> InnerArrayElem<B, T> {
-    pub fn select<D, S, E>(&mut self, selection: S) -> Result<D>
+    pub fn select<D, S>(&mut self, selection: &[S]) -> Result<D>
     where
         D: Into<T> + TryFrom<T> + ReadArrayData + Clone,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         <D as TryFrom<T>>::Error: Into<anyhow::Error>,
     {
         if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
@@ -463,30 +489,22 @@ impl<B: Backend, T: ArrayOp + Clone> InnerArrayElem<B, T> {
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArrayElem<B, T> {
-    pub fn export_select<O, G, S, E>(
-        &mut self,
-        selection: S,
-        location: &G,
-        name: &str,
-    ) -> Result<()>
+    pub fn export_select<O, G>(&mut self, selection: &[&SelectInfoElem], location: &G, name: &str) -> Result<()>
     where
         O: Backend,
         G: GroupOp<Backend = O>,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
     {
-        if selection.as_ref().iter().all(|x| x.as_ref().is_full()) {
+        if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            self.select::<T, _, _>(selection)?.write(location, name)?;
+            self.select::<T, _>(selection)?.write(location, name)?;
             Ok(())
         }
     }
 
-    pub(crate) fn subset<S, E>(&mut self, selection: S) -> Result<()>
+    pub(crate) fn subset<S>(&mut self, selection: &[S]) -> Result<()>
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         let data = match self.element.as_ref() {
             Some(data) => data.select(selection),
@@ -500,6 +518,16 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArray
         }
         Ok(())
     }
+
+    pub(crate) fn subset_axis<S>(&mut self, axis: usize, selection: S) -> Result<()>
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection.as_ref().set_axis(axis, self.shape().ndim(), &full);
+        self.subset(slice.as_slice())
+    }
+
 }
 
 pub type ArrayElem<B> = Slot<InnerArrayElem<B, ArrayData>>;
@@ -674,47 +702,45 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
     }
 
-    pub fn select<D, S, E>(&self, selection: S) -> Result<D>
+    pub fn select<D, S>(&self, selection: &[S]) -> Result<D>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
         let array = self.elems.iter().enumerate().flat_map(|(i, el)|
             indices.get(&i).map(|idx| {
                 let select: SmallVec<[_; 3]> = std::iter::once(idx).chain(selection.as_ref()[1..].iter().map(|x| x.as_ref())).collect();
-                el.inner().select(select)
+                el.inner().select(select.as_slice())
             })
         ).collect::<Result<Vec<_>>>().and_then(concat_array_data)?;
         if let Some(m) = mapping {
             let select: SmallVec<[SelectInfoElem; 3]> = std::iter::once(m.into()).chain(
                 std::iter::repeat((..).into()).take(selection.as_ref().len() - 1)
             ).collect();
-            array.select(select).try_into().map_err(Into::into)
+            array.select(select.as_slice()).try_into().map_err(Into::into)
         } else {
             array.try_into().map_err(Into::into)
         }
     }
 
-    pub fn par_select<D, S, E>(&self, selection: S) -> Result<D>
+    pub fn par_select<D, S>(&self, selection: &[S]) -> Result<D>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        S: AsRef<[E]> + Sync,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem> + Sync,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
         let array = self.elems.par_iter().enumerate().flat_map(|(i, el)|
             indices.get(&i).map(|idx| {
                 let select: SmallVec<[_; 3]> = std::iter::once(idx).chain(selection.as_ref()[1..].iter().map(|x| x.as_ref())).collect();
-                el.inner().select(select)
+                el.inner().select(select.as_slice())
             })
         ).collect::<Result<Vec<_>>>().and_then(concat_array_data)?;
         if let Some(m) = mapping {
             let select: [SelectInfoElem; 1] = [m.into()];
-            array.select(select).try_into().map_err(Into::into)
+            array.select(select.as_slice()).try_into().map_err(Into::into)
         } else {
             array.try_into().map_err(Into::into)
         }
@@ -823,7 +849,7 @@ where
             let i = self.current_position;
             let j = std::cmp::min(self.num_items, self.current_position + self.chunk_size);
             self.current_position = j;
-            let data = self.elem.inner().select(s![i..j]).unwrap();
+            let data = self.elem.inner().select(s![i..j].as_ref()).unwrap();
             Some((data, i, j))
         }
     }
@@ -912,7 +938,6 @@ impl VecVecIndex {
     ///
     /// # Example
     ///
-    /// ```
     /// let vec_of_vec = vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]];
     /// let flatten_view = vec![0, 1, 2, 3, 4, 5, 6];
     /// let index = VecVecIndex::new(vec_of_vec);
@@ -923,7 +948,6 @@ impl VecVecIndex {
     /// assert_eq!(index.ix(4), (1, 1));
     /// assert_eq!(index.ix(5), (2, 0));
     /// assert_eq!(index.ix(6), (2, 1));
-    /// ```
     pub fn ix(&self, i: &usize) -> (usize, usize) {
         let j = self.outer_ix(i);
         (j, i - self.0[j])

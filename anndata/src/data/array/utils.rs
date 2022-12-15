@@ -74,7 +74,7 @@ impl<B: Backend> ExtendableDataset<B> {
             .zip(new_size.as_ref())
             .map(|(x, y)| (*x..*y).into())
             .collect();
-        self.dataset.write_array_slice(data, slice)?;
+        self.dataset.write_array_slice(data, slice.as_ref())?;
         self.size = new_size;
         Ok(())
     }

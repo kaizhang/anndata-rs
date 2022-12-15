@@ -182,10 +182,9 @@ impl ArrayOp for DynArray {
         }
     }
 
-    fn select<S, E>(&self, info: S) -> Self
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         match self {
             DynArray::I8(array) => ArrayOp::select(array, info).into(),
@@ -216,11 +215,10 @@ impl ReadArrayData for DynArray {
         Ok(container.as_dataset()?.shape().into())
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         match container {
             DataContainer::Dataset(dataset) => match dataset.dtype()? {
@@ -307,10 +305,9 @@ impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
         self.view().into_dyn().get(index).map(|x| x.into_dyn())
     }
 
-    fn select<S, E>(&self, info: S) -> Self
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         let arr = self.view().into_dyn();
         let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
@@ -373,11 +370,10 @@ impl<T: BackendData, D: Dimension> ReadArrayData for Array<T, D> {
         Ok(container.as_dataset()?.shape().into())
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
         where
             B: Backend,
-            S: AsRef<[E]>,
-            E: AsRef<SelectInfoElem>,
+            S: AsRef<SelectInfoElem>,
     {
         container.as_dataset()?.read_array_slice(info)
     }
@@ -468,11 +464,10 @@ impl ReadArrayData for CategoricalArray {
         Ok(codes.into())
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
         where
             B: Backend,
-            S: AsRef<[E]>,
-            E: AsRef<SelectInfoElem>,
+            S: AsRef<SelectInfoElem>,
     {
         let group = container.as_group()?;
         let codes = group.open_dataset("codes")?.read_array_slice(info)?;

@@ -145,10 +145,9 @@ impl ArrayOp for DynCsrMatrix {
         impl_dyn_csr_matrix!(self, get)
     }
 
-    fn select<S, E>(&self, info: S) -> Self
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         macro_rules! select {
             ($data:expr) => {
@@ -169,12 +168,10 @@ impl ReadArrayData for DynCsrMatrix {
             .into())
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
-        Self: Sized,
+        S: AsRef<SelectInfoElem>,
     {
         if let DataType::CsrMatrix(ty) = container.encoding_type()? {
             match ty {
@@ -232,20 +229,18 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
         */
     }
 
-    fn select<S, E>(&self, info: S) -> Self
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         let info = BoundedSelectInfo::new(&info, &self.shape());
         if info.ndim() != 2 {
             panic!("index must have length 2");
         }
-        let out_shape = info.out_shape();
         let row_idx = &info.as_ref()[0];
         let col_idx = &info.as_ref()[1];
         let (row_offsets, col_indices, data) = self.csr_data();
-        let (new_row_offsets, new_col_indices, new_data) = if col_idx.is_full(out_shape[1]) {
+        let (new_row_offsets, new_col_indices, new_data) = if col_idx.is_full(info.in_shape()[1]) {
             match row_idx {
                 &BoundedSelectInfoElem::Slice(BoundedSlice { step, start, end }) => {
                     if step == 1 {
@@ -278,18 +273,14 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
             }
         } else {
             match row_idx {
-                &BoundedSelectInfoElem::Slice(BoundedSlice { step, start, end }) => {
-                    if step < 0 {
+                &BoundedSelectInfoElem::Slice(BoundedSlice { start: row_start,end: row_end, step: row_step }) => {
+                    if row_step < 0 {
                         match col_idx {
-                            &BoundedSelectInfoElem::Slice(BoundedSlice {
-                                step: col_step,
-                                start: col_start,
-                                end: col_end,
-                            }) => {
-                                if col_step < 0 {
+                            &BoundedSelectInfoElem::Slice(col) => {
+                                if col.step < 0 {
                                     cs_major_minor_index(
-                                        (start..end).step_by(step.abs() as usize).rev(),
-                                        (col_start..col_end).step_by(col_step.abs() as usize).rev(),
+                                        (row_start..row_end).step_by(row_step.abs() as usize).rev(),
+                                        (col.start..col.end).step_by(col.step.abs() as usize).rev(),
                                         self.ncols(),
                                         row_offsets,
                                         col_indices,
@@ -297,8 +288,8 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 } else {
                                     cs_major_minor_index(
-                                        (start..end).step_by(step.abs() as usize).rev(),
-                                        (col_start..col_end).step_by(col_step as usize),
+                                        (row_start..row_end).step_by(row_step.abs() as usize).rev(),
+                                        (col.start..col.end).step_by(col.step as usize),
                                         self.ncols(),
                                         row_offsets,
                                         col_indices,
@@ -307,7 +298,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                 }
                             }
                             BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
-                                (start..end).step_by(step.abs() as usize).rev(),
+                                (row_start..row_end).step_by(row_step.abs() as usize).rev(),
                                 idx.iter().copied(),
                                 self.ncols(),
                                 row_offsets,
@@ -317,15 +308,11 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                         }
                     } else {
                         match col_idx {
-                            &BoundedSelectInfoElem::Slice(BoundedSlice {
-                                step: col_step,
-                                start: col_start,
-                                end: col_end,
-                            }) => {
-                                if col_step < 0 {
+                            &BoundedSelectInfoElem::Slice(col) => {
+                                if col.step < 0 {
                                     cs_major_minor_index(
-                                        (start..end).step_by(step as usize),
-                                        (col_start..col_end).step_by(col_step.abs() as usize).rev(),
+                                        (row_start..row_end).step_by(row_step as usize),
+                                        (col.start..col.end).step_by(col.step.abs() as usize).rev(),
                                         self.ncols(),
                                         row_offsets,
                                         col_indices,
@@ -333,8 +320,8 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 } else {
                                     cs_major_minor_index(
-                                        (start..end).step_by(step as usize),
-                                        (col_start..col_end).step_by(col_step as usize),
+                                        (row_start..row_end).step_by(row_step as usize),
+                                        (col.start..col.end).step_by(col.step as usize),
                                         self.ncols(),
                                         row_offsets,
                                         col_indices,
@@ -343,7 +330,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                                 }
                             }
                             BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
-                                (start..end).step_by(step as usize),
+                                (row_start..row_end).step_by(row_step as usize),
                                 idx.iter().copied(),
                                 self.ncols(),
                                 row_offsets,
@@ -354,15 +341,11 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                     }
                 }
                 BoundedSelectInfoElem::Index(i) => match col_idx {
-                    &BoundedSelectInfoElem::Slice(BoundedSlice {
-                        step: col_step,
-                        start: col_start,
-                        end: col_end,
-                    }) => {
-                        if col_step < 0 {
+                    &BoundedSelectInfoElem::Slice(col) => {
+                        if col.step < 0 {
                             cs_major_minor_index(
                                 i.iter().copied(),
-                                (col_start..col_end).step_by(col_step.abs() as usize).rev(),
+                                (col.start..col.end).step_by(col.step.abs() as usize).rev(),
                                 self.ncols(),
                                 row_offsets,
                                 col_indices,
@@ -371,7 +354,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                         } else {
                             cs_major_minor_index(
                                 i.iter().copied(),
-                                (col_start..col_end).step_by(col_step as usize),
+                                (col.start..col.end).step_by(col.step as usize),
                                 self.ncols(),
                                 row_offsets,
                                 col_indices,
@@ -390,6 +373,7 @@ impl<T: Clone> ArrayOp for CsrMatrix<T> {
                 },
             }
         };
+        let out_shape = info.out_shape();
         let pattern = unsafe {
             SparsityPattern::from_offset_and_indices_unchecked(
                 out_shape[0],
@@ -565,12 +549,10 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
             .into())
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
-        Self: Sized,
+        S: AsRef<SelectInfoElem>,
     {
         if info.as_ref().len() != 2 {
             panic!("index must have length 2");
@@ -633,26 +615,40 @@ mod csr_matrix_index_tests {
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
 
-    fn csr_select(
+    fn csr_select<I1, I2>(
         csr: &CsrMatrix<i64>,
-        row_indices: &[usize],
-        col_indices: &[usize],
-    ) -> CsrMatrix<i64> {
+        row_indices: I1,
+        col_indices: I2,
+    ) -> CsrMatrix<i64>
+    where
+        I1: Iterator<Item = usize>,
+        I2: Iterator<Item = usize>,
+    {
+        let i = row_indices.collect::<Vec<_>>();
+        let j = col_indices.collect::<Vec<_>>();
         let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
         csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_rows(row_indices).select_columns(col_indices))
+        CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
     }
 
-    fn csr_select_rows(csr: &CsrMatrix<i64>, row_indices: &[usize]) -> CsrMatrix<i64> {
+    fn csr_select_rows<I>(csr: &CsrMatrix<i64>, row_indices: I) -> CsrMatrix<i64>
+    where
+        I: Iterator<Item = usize>,
+    {
+        let i = row_indices.collect::<Vec<_>>();
         let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
         csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_rows(row_indices))
+        CsrMatrix::from(&dm.select_rows(&i))
     }
 
-    fn csr_select_cols(csr: &CsrMatrix<i64>, col_indices: &[usize]) -> CsrMatrix<i64> {
+    fn csr_select_cols<I>(csr: &CsrMatrix<i64>, col_indices: I) -> CsrMatrix<i64>
+    where
+        I: Iterator<Item = usize>,
+    {
+        let j = col_indices.collect::<Vec<_>>();
         let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
         csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_columns(col_indices))
+        CsrMatrix::from(&dm.select_columns(&j))
     }
 
     #[test]
@@ -660,6 +656,7 @@ mod csr_matrix_index_tests {
         let dense = DMatrix::from_row_slice(3, 3, &[1, 0, 3, 2, 0, 1, 0, 0, 4]);
         let csr = CsrMatrix::from(&dense);
 
+        // Column fancy indexing
         let cidx = [1, 2, 0, 1, 1, 2];
         let mut expected = DMatrix::from_row_slice(
             3,
@@ -667,9 +664,11 @@ mod csr_matrix_index_tests {
             &[0, 3, 1, 0, 0, 3, 0, 1, 2, 0, 0, 1, 0, 4, 0, 0, 0, 4],
         );
         let mut expected_csr = CsrMatrix::from(&expected);
+        assert_eq!(csr.select(s![.., cidx.as_ref()].as_ref()), expected_csr,);
 
-        // Column fancy indexing
-        assert_eq!(csr.select(s![.., cidx.as_ref()]), expected_csr,);
+        expected = DMatrix::from_row_slice(3, 2, &[1, 0, 2, 0, 0, 0]);
+        expected_csr = CsrMatrix::from(&expected);
+        assert_eq!(csr.select(s![.., 0..2].as_ref()), expected_csr);
 
         let ridx = [1, 2, 0, 1];
         expected = DMatrix::from_row_slice(
@@ -712,36 +711,42 @@ mod csr_matrix_index_tests {
 
         // Row slice
         assert_eq!(
-            csr_matrix.select(s![2..177, ..]),
-            csr_select_rows(&csr_matrix, (2..177).collect::<Vec<_>>().as_slice()),
+            csr_matrix.select(s![2..177, ..].as_ref()),
+            csr_select_rows(&csr_matrix, 2..177),
         );
 
         // Row fancy indexing
         assert_eq!(
-            csr_matrix.select(s![&ridx, ..]),
-            csr_select_rows(&csr_matrix, &ridx),
+            csr_matrix.select(s![&ridx, ..].as_ref()),
+            csr_select_rows(&csr_matrix, ridx.iter().cloned()),
         );
 
         // Column slice
         assert_eq!(
-            csr_matrix.select(s![.., 77..200]),
-            csr_select_cols(&csr_matrix, (77..200).collect::<Vec<_>>().as_slice()),
+            csr_matrix.select(s![.., 77..200].as_ref()),
+            csr_select_cols(&csr_matrix, 77..200),
         );
 
         // Column fancy indexing
         assert_eq!(
-            csr_matrix.select(s![.., &cidx]),
-            csr_select_cols(&csr_matrix, &cidx),
+            csr_matrix.select(s![.., &cidx].as_ref()),
+            csr_select_cols(&csr_matrix, cidx.iter().cloned()),
+        );
+
+        // Both
+        assert_eq!(
+            csr_matrix.select(s![2..49, 0..77].as_ref()),
+            csr_select(&csr_matrix, 2..49, 0..77),
         );
 
         assert_eq!(
-            csr_matrix.select(s![2..177, &cidx]),
-            csr_select(&csr_matrix, (2..177).collect::<Vec<_>>().as_slice(), &cidx),
+            csr_matrix.select(s![2..177, &cidx].as_ref()),
+            csr_select(&csr_matrix, 2..177, cidx.iter().cloned()),
         );
 
         assert_eq!(
-            csr_matrix.select(s![&ridx, &cidx]),
-            csr_select(&csr_matrix, &ridx, &cidx),
+            csr_matrix.select(s![&ridx, &cidx].as_ref()),
+            csr_select(&csr_matrix, ridx.iter().cloned(), cidx.iter().cloned()),
         );
     }
 }

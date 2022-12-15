@@ -366,10 +366,9 @@ impl DatasetOp for Dataset {
         BackendData::from_dyn(val)
     }
 
-    fn read_array_slice<T: BackendData, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
+    fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
         macro_rules! impl_read {
@@ -414,12 +413,11 @@ impl DatasetOp for Dataset {
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
-    fn write_array_slice<'a, A, S, T, D, E>(&self, data: A, selection: S) -> Result<()>
+    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
     where
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
         // TODO: check array dimension matches the selectioin

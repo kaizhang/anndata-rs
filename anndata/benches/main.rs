@@ -97,12 +97,12 @@ fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
 
         group.bench_function(
             BenchmarkId::new("Serial read slice", "10 x 1000 (x5)"),
-            |b| b.iter(|| dataset.get_x().select::<ArrayData, _, _>(s![0..10, 0..1000]).unwrap()),
+            |b| b.iter(|| dataset.get_x().select::<ArrayData, _>(s![0..10, 0..1000].as_ref()).unwrap()),
         );
 
         group.bench_function(
             BenchmarkId::new("Parallel read slice", "10 x 1000 (x5)"),
-            |b| b.iter(|| dataset.get_x().par_select::<ArrayData, _, _>(s![0..10, 0..1000]).unwrap()),
+            |b| b.iter(|| dataset.get_x().par_select::<ArrayData, _>(&s![0..10, 0..1000].as_ref()).unwrap()),
         );
     })
 }

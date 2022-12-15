@@ -102,87 +102,31 @@ fn new_dataset<T: BackendData>(
     shape: &Shape,
     config: WriteConfig,
 ) -> Result<H5Dataset> {
+    let builder = match T::DTYPE {
+        ScalarType::U8 => group.new_dataset::<u8>(),
+        ScalarType::U16 => group.new_dataset::<u16>(),
+        ScalarType::U32 => group.new_dataset::<u32>(),
+        ScalarType::U64 => group.new_dataset::<u64>(),
+        ScalarType::Usize => group.new_dataset::<usize>(),
+        ScalarType::I8 => group.new_dataset::<i8>(),
+        ScalarType::I16 => group.new_dataset::<i16>(),
+        ScalarType::I32 => group.new_dataset::<i32>(),
+        ScalarType::I64 => group.new_dataset::<i64>(),
+        ScalarType::F32 => group.new_dataset::<f32>(),  
+        ScalarType::F64 => group.new_dataset::<f64>(),
+        ScalarType::Bool => group.new_dataset::<bool>(),
+        ScalarType::String => group.new_dataset::<VarLenUnicode>(),
+    };
     let block_size = config.block_size.unwrap_or(vec![100; shape.ndim()].into());
     let s: hdf5::Extents = hdf5::SimpleExtents::resizable(shape.as_ref()).into();
-    let dataset = match T::DTYPE {
-        ScalarType::U8 => group
-            .new_dataset::<u8>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
+    let dataset = if let Some(compression) = config.compression {
+        builder.deflate(compression).chunk(block_size.as_ref())
             .shape(s)
-            .create(name)?,
-        ScalarType::U16 => group
-            .new_dataset::<u16>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
+            .create(name)?
+    } else {
+        builder.chunk(block_size.as_ref())
             .shape(s)
-            .create(name)?,
-        ScalarType::U32 => group
-            .new_dataset::<u32>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::U64 => group
-            .new_dataset::<u64>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::Usize => group
-            .new_dataset::<usize>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::I8 => group
-            .new_dataset::<i8>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::I16 => group
-            .new_dataset::<i16>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::I32 => group
-            .new_dataset::<i32>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::I64 => group
-            .new_dataset::<i64>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::F32 => group
-            .new_dataset::<f32>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::F64 => group
-            .new_dataset::<f64>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::Bool => group
-            .new_dataset::<bool>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
-        ScalarType::String => group
-            .new_dataset::<VarLenUnicode>()
-            .deflate(config.compression)
-            .chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?,
+            .create(name)?
     };
     Ok(H5Dataset(dataset))
 }
@@ -323,21 +267,19 @@ impl DatasetOp for H5Dataset {
         BackendData::from_dyn(val)
     }
 
-    fn read_array_slice<T, S, E, D>(&self, selection: S) -> Result<Array<T, D>>
+    fn read_array_slice<T, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
         T: BackendData,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        fn read_arr<T, S, E, D>(dataset: &H5Dataset, selection: S) -> Result<Array<T, D>>
+        fn read_arr<T, S, D>(dataset: &H5Dataset, selection: &[S]) -> Result<Array<T, D>>
         where
             T: H5Type + BackendData,
-            S: AsRef<[E]>,
-            E: AsRef<SelectInfoElem>,
+            S: AsRef<SelectInfoElem>,
             D: Dimension,
         {
-            if selection.as_ref().iter().any(|x| x.as_ref().is_index()) {
+            if selection.iter().any(|x| x.as_ref().is_index()) {
                 // fancy indexing is too slow, just read all
                 let arr = dataset.deref().read::<T, D>()?;
                 Ok(ArrayOp::select(&arr, selection))
@@ -355,18 +297,18 @@ impl DatasetOp for H5Dataset {
         }
 
         let array: DynArray = match T::DTYPE {
-            ScalarType::I8 => read_arr::<i8, _, _, D>(self, selection)?.into(),
-            ScalarType::I16 => read_arr::<i16, _, _, D>(self, selection)?.into(),
-            ScalarType::I32 => read_arr::<i32, _, _, D>(self, selection)?.into(),
-            ScalarType::I64 => read_arr::<i64, _, _, D>(self, selection)?.into(),
-            ScalarType::U8 => read_arr::<u8, _, _, D>(self, selection)?.into(),
-            ScalarType::U16 => read_arr::<u16, _, _, D>(self, selection)?.into(),
-            ScalarType::U32 => read_arr::<u32, _, _, D>(self, selection)?.into(),
-            ScalarType::U64 => read_arr::<u64, _, _, D>(self, selection)?.into(),
-            ScalarType::Usize => read_arr::<usize, _, _, D>(self, selection)?.into(),
-            ScalarType::F32 => read_arr::<f32, _, _, D>(self, selection)?.into(),
-            ScalarType::F64 => read_arr::<f64, _, _, D>(self, selection)?.into(),
-            ScalarType::Bool => read_arr::<bool, _, _, D>(self, selection)?.into(),
+            ScalarType::I8 => read_arr::<i8, _, D>(self, selection)?.into(),
+            ScalarType::I16 => read_arr::<i16, _, D>(self, selection)?.into(),
+            ScalarType::I32 => read_arr::<i32, _, D>(self, selection)?.into(),
+            ScalarType::I64 => read_arr::<i64, _, D>(self, selection)?.into(),
+            ScalarType::U8 => read_arr::<u8, _, D>(self, selection)?.into(),
+            ScalarType::U16 => read_arr::<u16, _, D>(self, selection)?.into(),
+            ScalarType::U32 => read_arr::<u32, _, D>(self, selection)?.into(),
+            ScalarType::U64 => read_arr::<u64, _, D>(self, selection)?.into(),
+            ScalarType::Usize => read_arr::<usize, _, D>(self, selection)?.into(),
+            ScalarType::F32 => read_arr::<f32, _, D>(self, selection)?.into(),
+            ScalarType::F64 => read_arr::<f64, _, D>(self, selection)?.into(),
+            ScalarType::Bool => read_arr::<bool, _, D>(self, selection)?.into(),
             ScalarType::String => {
                 if selection.as_ref().iter().any(|x| x.as_ref().is_index()) {
                     // fancy indexing is too slow, just read all
@@ -397,24 +339,22 @@ impl DatasetOp for H5Dataset {
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
-    fn write_array_slice<'a, A, S, T, D, E>(&self, data: A, selection: S) -> Result<()>
+    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
     where
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        fn write_array_impl<'a, T, D, S, E>(
+        fn write_array_impl<'a, T, D, S>(
             container: &H5Dataset,
             arr: ArrayView<'a, T, D>,
-            selection: S,
+            selection: &[S],
         ) -> Result<()>
         where
             T: H5Type,
             D: Dimension,
-            S: AsRef<[E]>,
-            E: AsRef<SelectInfoElem>,
+            S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
             container.deref().write_slice(arr, select)?;
@@ -762,15 +702,15 @@ mod tests {
             let arr = Array::random((20, 50), Uniform::new(0, 100));
 
             // Repeatitive writes
-            dataset.write_array_slice(&arr, s![.., ..])?;
-            dataset.write_array_slice(&arr, s![.., ..])?;
+            dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
+            dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
 
             // Out-of-bounds writes should fail
-            assert!(dataset.write_array_slice(&arr, s![20..40, ..]).is_err());
+            assert!(dataset.write_array_slice(&arr, s![20..40, ..].as_ref()).is_err());
 
             // Reshape and write
             dataset.reshape(&[40, 50].as_slice().into())?;
-            dataset.write_array_slice(&arr, s![20..40, ..])?;
+            dataset.write_array_slice(&arr, s![20..40, ..].as_ref())?;
 
             // Read back is OK
             let merged = concatenate(Axis(0), &[arr.view(), arr.view()])?;

@@ -1,11 +1,12 @@
 use crate::{
     backend::{iter_containers, GroupOp, Backend},
     data::*,
-    element::base::*,
+    container::base::*,
 };
 
 use anyhow::{ensure, Result};
 use parking_lot::Mutex;
+use smallvec::{SmallVec, smallvec};
 use std::{
     collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
@@ -42,17 +43,7 @@ impl<B: Backend> std::fmt::Display for InnerElemCollection<B> {
     }
 }
 
-impl<B> InnerElemCollection<B>
-where
-    B: Backend,
-{
-    pub fn export<O: Backend>(&self, location: &O::Group) -> Result<()> {
-        for (key, val) in self.iter() {
-            val.inner().export::<O>(location, key)?;
-        }
-        Ok(())
-    }
-
+impl<B: Backend> InnerElemCollection<B> {
     pub fn add_data<D: WriteData + Into<Data>>(&mut self, key: &str, data: D) -> Result<()> {
         match self.get_mut(key) {
             None => {
@@ -60,6 +51,14 @@ where
                 self.insert(key.to_string(), container.try_into()?);
             }
             Some(elem) => elem.inner().save(data)?,
+        }
+        Ok(())
+    }
+
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
+        let group = location.create_group(name)?;
+        for (key, val) in self.iter() {
+            val.inner().export::<O, _>(&group, key)?;
         }
         Ok(())
     }
@@ -190,32 +189,33 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
+        let group = location.create_group(name)?;
         for (key, val) in self.iter() {
-            val.inner().export::<O, _>(location, key)?;
+            val.inner().export::<O, _>(&group, key)?;
         }
         Ok(())
     }
 
-    pub fn export_select<O, G, S>(&self, selection: S, location: &G) -> Result<()>
+    pub fn export_select<O, G>(&self, selection: &SelectInfoElem, location: &G, name: &str) -> Result<()>
     where
         O: Backend,
         G: GroupOp<Backend = O>,
-        S: AsRef<SelectInfoElem>,
     {
-        if selection.as_ref().is_full() {
-            self.export::<O, _>(location)
+        if selection.is_full() {
+            self.export::<O, _>(location, name)
         } else {
+            let group = location.create_group(name)?;
             match self.axis {
                 Axis::Row => {
                     let s = vec![selection];
                     self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select::<O, _, _, _>(&s, location, k))
+                        .try_for_each(|(k, x)| x.inner().export_select::<O, _>(s.as_ref(), &group, k))
                 }
                 Axis::RowColumn => {
-                    let s = vec![selection.as_ref(), selection.as_ref()];
+                    let s = vec![selection, selection];
                     self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select::<O, _, _, _>(&s, location, k))
+                        .try_for_each(|(k, x)| x.inner().export_select::<O, _>(s.as_ref(), &group, k))
                 }
             }
         }
@@ -224,12 +224,16 @@ impl<B: Backend> InnerAxisArrays<B> {
     pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
         match self.axis {
             Axis::Row => {
-                let s = vec![selection.as_ref()];
-                self.values().try_for_each(|x| x.inner().subset(&s))?;
+                self.values().try_for_each(|x| x.inner().subset_axis(0, &selection))?;
             }
             Axis::RowColumn => {
-                let s = vec![selection.as_ref(), selection.as_ref()];
-                self.values().try_for_each(|x| x.inner().subset(&s))?;
+                self.values().try_for_each(|x| {
+                    let full = SelectInfoElem::full();
+                    let mut slice: SmallVec<[_; 3]> = smallvec![&full; x.inner().shape().ndim()];
+                    slice[0] = selection.as_ref();
+                    slice[1] = selection.as_ref();
+                    x.inner().subset(slice.as_slice())
+                })?;
             }
         }
         Ok(())

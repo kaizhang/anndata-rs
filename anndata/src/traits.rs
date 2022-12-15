@@ -16,11 +16,13 @@ pub trait AnnDataOp {
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
-    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()>;
+    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()>;
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
     fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>;
+
+    /// Delete the 'X' element.
     fn del_x(&self) -> Result<()>;
 
     /// Return the number of observations (rows).
@@ -44,12 +46,17 @@ pub trait AnnDataOp {
     fn read_obs(&self) -> Result<DataFrame>;
     fn read_var(&self) -> Result<DataFrame>;
 
-    /// Change the observation annotations. If `obs == None`, the `obs` will be
-    /// removed.
-    fn set_obs(&self, obs: Option<DataFrame>) -> Result<()>;
-    /// Change the variable annotations. If `var == None`, the `var` will be
-    /// removed.
-    fn set_var(&self, var: Option<DataFrame>) -> Result<()>;
+    /// Change the observation annotations.
+    fn set_obs(&self, obs: DataFrame) -> Result<()>;
+
+    /// Change the variable annotations.
+    fn set_var(&self, var: DataFrame) -> Result<()>;
+
+    /// Delete the observation annotations.
+    fn del_obs(&self) -> Result<()>;
+
+    /// Delete the variable annotations.
+    fn del_var(&self) -> Result<()>;
 
     fn uns_keys(&self) -> Vec<String>;
     fn obsm_keys(&self) -> Vec<String>;

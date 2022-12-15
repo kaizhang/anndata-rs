@@ -1,18 +1,16 @@
 pub mod array;
 pub mod data_traits;
-pub mod dataframe;
 pub mod mapping;
 pub mod scalar;
 
 pub use array::*;
 pub use data_traits::*;
-pub use dataframe::*;
 pub use mapping::*;
 pub use scalar::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 
-use ::ndarray::{Array, ArrayD, Dimension};
+use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
@@ -39,9 +37,9 @@ macro_rules! impl_into_data {
                 Data::Scalar(DynScalar::$to_type(data))
             }
         }
-        impl From<ArrayD<$from_type>> for Data {
-            fn from(data: ArrayD<$from_type>) -> Self {
-                Data::ArrayData(ArrayData::Array(DynArray::$to_type(data)))
+        impl<D: Dimension> From<Array<$from_type, D>> for Data {
+            fn from(data: Array<$from_type, D>) -> Self {
+                Data::ArrayData(ArrayData::Array(DynArray::$to_type(data.into_dyn())))
             }
         }
         impl From<CsrMatrix<$from_type>> for Data {

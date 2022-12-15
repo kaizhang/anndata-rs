@@ -3,6 +3,8 @@ use anndata::backend::Backend;
 use anndata_hdf5::H5;
 use anndata_n5::N5;
 
+use polars::df;
+use polars::prelude::{DataFrame, NamedFrom};
 use proptest::prelude::*;
 
 use anyhow::Result;
@@ -50,6 +52,24 @@ where
     let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
     csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
     CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
+}
+
+fn obs_io<B>(adata: &AnnData<B>, input: DataFrame) -> Result<()>
+where
+    B: Backend,
+{
+    adata.set_obs(input.clone())?;
+    assert_eq!(input, adata.read_obs()?);
+    Ok(())
+}
+
+fn var_io<B>(adata: &AnnData<B>, input: DataFrame) -> Result<()>
+where
+    B: Backend,
+{
+    adata.set_var(input.clone())?;
+    assert_eq!(input, adata.read_var()?);
+    Ok(())
 }
 
 fn uns_io<B, T>(adata: &AnnData<B>, input: T) -> Result<()>
@@ -110,23 +130,37 @@ where
 fn test_io<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
-        let arr_x = Array::random((2, 2), Uniform::new(-100, 100));
-        let csr_x = rand_csr(2, 2, 1);
+        let arr_x = Array::random((2, 3), Uniform::new(-100, 100));
+        let csr_x = rand_csr(2, 3, 2);
         adata.set_x(&csr_x)?;
         assert_eq!(csr_x, adata.read_x::<CsrMatrix<i64>>()?.unwrap());
 
         adata.set_x(&arr_x)?;
         assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
-        adata.del_x()?;
+
+        obs_io(&adata, df!(
+            "Fruit" => &["Apple", "Pear"],
+            "Color" => &["Red", "Green"]
+        ).unwrap())?;
+        var_io(&adata, df!(
+            "Fruit" => &["Apple", "Apple", "Pear"],
+            "Color" => &["Red", "Yellow", "Green"]
+        ).unwrap())?;
 
         uns_io(&adata, 3i32)?;
         uns_io(&adata, "test".to_string())?;
 
         obsm_io(&adata, Array::random((2, 5), Uniform::new(0, 100)))?;
-        varm_io(&adata, Array::random((2, 5), Uniform::new(0, 100)))?;
+        varm_io(&adata, Array::random((3, 5), Uniform::new(0, 100)))?;
 
         obsp_io(&adata, Array::random((2, 2), Uniform::new(0, 100)))?;
-        varp_io(&adata, Array::random((2, 2), Uniform::new(0, 100)))?;
+        varp_io(&adata, Array::random((3, 3), Uniform::new(0, 100)))?;
+
+        with_tmp_path(|file| -> Result<()> { adata.write::<B, _>(file) })?;
+
+        adata.del_x()?;
+        adata.del_obs()?;
+        adata.del_var()?;
 
         Ok(())
     })
@@ -195,28 +229,70 @@ fn test_fancy_index<B: Backend>() -> Result<()> {
     })
 }
 
+fn test_subset<B: Backend>() -> Result<()> {
+    with_tmp_path(|file| -> Result<()> {
+        let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
+
+        let csr: CsrMatrix<i64> = rand_csr(100, 150, 2000);
+        let arr1: Array2<i32> = Array::random((100, 200), Uniform::new(0, 100));
+        let arr2: Array2<i32> = Array::random((100, 100), Uniform::new(0, 100));
+        let arr3: Array2<i32> = Array::random((150, 50), Uniform::new(0, 100));
+        let arr4: Array2<i32> = Array::random((150, 150), Uniform::new(0, 100));
+        let obs = df!(
+            "Fruit" => (0..100).map(|i| format!("Fruit {}", i)).collect::<Vec<_>>(),
+            "Color" => (0..100).map(|i| format!("Color {}", i)).collect::<Vec<_>>()
+        ).unwrap();
+        let var = df!(
+            "Fruit" => (0..150).map(|i| format!("Fruit {}", i)).collect::<Vec<_>>(),
+            "Color" => (0..150).map(|i| format!("Color {}", i)).collect::<Vec<_>>()
+        ).unwrap();
+
+        adata.set_x(&csr)?;
+        adata.set_obs(obs.clone())?;
+        adata.set_var(var.clone())?;
+        adata.add_obsm("test1", &arr1)?;
+        adata.add_obsp("test1", &arr2)?;
+        adata.add_varm("test1", &arr3)?;
+        adata.add_varp("test1", &arr4)?;
+        adata.add_uns("test1", &arr1)?;
+
+        adata.subset(s![..50, ..100])?;
+
+        assert_eq!(adata.n_obs(), 50);
+        assert_eq!(adata.n_vars(), 100);
+        assert_eq!(adata.read_obs()?, obs.take_iter(0..50).unwrap());
+        assert_eq!(adata.read_var()?, var.take_iter(0..100).unwrap());
+        assert_eq!(adata.read_x::<CsrMatrix<i64>>()?.unwrap(), csr_select(&csr, 0..50, 0..100));
+        assert_eq!(adata.fetch_obsm::<Array2<i32>>("test1")?.unwrap(), arr1.slice(ndarray::s![0..50, ..]));
+        assert_eq!(adata.fetch_obsp::<Array2<i32>>("test1")?.unwrap(), arr2.slice(ndarray::s![0..50, 0..50]));
+        assert_eq!(adata.fetch_varm::<Array2<i32>>("test1")?.unwrap(), arr3.slice(ndarray::s![0..100, ..]));
+        assert_eq!(adata.fetch_varp::<Array2<i32>>("test1")?.unwrap(), arr4.slice(ndarray::s![0..100, 0..100]));
+        assert_eq!(adata.fetch_uns::<Array2<i32>>("test1")?.unwrap(), arr1);
+
+        Ok(())
+    })
+}
 
 // Begin of tests
+
+// H5 backend tests
 
 #[test]
 fn test_io_h5() -> Result<()> {
     test_io::<H5>()
-}
-#[test]
-fn test_io_n5() -> Result<()> {
-    test_io::<N5>()
 }
 
 #[test]
 fn test_slice_h5() -> Result<()> {
     test_slice::<H5>()
 }
-#[test]
-fn test_slice_n5() -> Result<()> {
-    test_slice::<N5>()
-}
 
 #[test]
 fn test_fancy_index_h5() -> Result<()> {
     test_fancy_index::<H5>()
+}
+
+#[test]
+fn test_subset_h5() -> Result<()> {
+    test_subset::<H5>()
 }

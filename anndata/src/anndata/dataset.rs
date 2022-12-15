@@ -1,13 +1,12 @@
-use crate::element::base::VecVecIndex;
+use crate::container::base::VecVecIndex;
 use crate::{
     anndata::AnnData,
     backend::{Backend, FileOp, GroupOp},
     data::*,
-    element::{
-        base::InnerDataFrameElem,
+    container::{
         collection::{AxisArrays, InnerAxisArrays},
     },
-    element::{collection::InnerElemCollection, *},
+    container::{collection::InnerElemCollection, *},
     traits::AnnDataOp,
 };
 
@@ -20,8 +19,6 @@ use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
 use std::{
-    collections::HashMap,
-    ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -172,7 +169,7 @@ impl<B: Backend> AnnDataSet<B> {
                     .flatten()
                     .collect::<Series>(),
             );
-            annotation.set_obs(Some(DataFrame::new(vec![keys])?))?;
+            annotation.set_obs(DataFrame::new(vec![keys])?)?;
         }
         { // Set VAR.
             let adata = anndatas.values().next().unwrap();
@@ -457,14 +454,14 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        Ok(Some(self.anndatas.x.select(select)?))
+        Ok(Some(self.anndatas.x.select(select.as_ref())?))
     }
 
-    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, data_: D) -> Result<()> {
+    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, _: D) -> Result<()> {
         bail!("cannot set X in AnnDataSet")
     }
 
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, _: I) -> Result<()> {
         bail!("cannot set X in AnnDataSet")
     }
 
@@ -504,11 +501,17 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn read_var(&self) -> Result<DataFrame> {
         self.annotation.read_var()
     }
-    fn set_obs(&self, obs: Option<DataFrame>) -> Result<()> {
+    fn set_obs(&self, obs: DataFrame) -> Result<()> {
         self.annotation.set_obs(obs)
     }
-    fn set_var(&self, var: Option<DataFrame>) -> Result<()> {
+    fn set_var(&self, var: DataFrame) -> Result<()> {
         self.annotation.set_var(var)
+    }
+    fn del_obs(&self) -> Result<()> {
+        self.annotation.del_obs()
+    }
+    fn del_var(&self) -> Result<()> {
+        self.annotation.del_var()
     }
 
     fn uns_keys(&self) -> Vec<String> {
@@ -659,10 +662,6 @@ impl<B: Backend> StackedAnnData<B> {
             let arrays: Vec<AxisArrays<_>> = adatas.values().map(|x| x.obsm.clone()).collect();
             StackedAxisArrays::new(Axis::Row, arrays)?
         };
-
-        let index_: VecVecIndex = adatas.values().map(|x| x.n_obs()).collect();
-        let n_obs = Arc::new(Mutex::new(index_.len()));
-        let index = Arc::new(Mutex::new(index_));
 
         Ok(Self {
             n_obs: adatas.values().map(|x| x.n_obs()).sum(),

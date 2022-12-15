@@ -37,21 +37,42 @@ pub trait HasShape {
 
 pub trait ArrayOp: HasShape {
     fn get(&self, index: &[usize]) -> Option<DynScalar>;
-    fn select<S, E>(&self, info: S) -> Self
+
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>;
+        S: AsRef<SelectInfoElem>;
+
+    fn select_axis<S>(&self, axis: usize, slice: S) -> Self
+    where
+        S: AsRef<SelectInfoElem>,
+        Self: Sized,
+    {
+        let full = SelectInfoElem::full();
+        let selection = slice.as_ref().set_axis(axis, self.shape().ndim(), &full);
+        self.select(selection.as_slice())
+    }
 }
 
 pub trait ReadArrayData: ReadData {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape>;
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
         Self: Sized;
+
+    fn read_axis<B, S>(container: &DataContainer<B>, axis: usize, slice: S) -> Result<Self>
+    where
+        B: Backend,
+        S: AsRef<SelectInfoElem>,
+        Self: Sized,
+    {
+        let ndim = Self::get_shape(container)?.ndim();
+        let full = SelectInfoElem::full();
+        let selection = slice.as_ref().set_axis(axis, ndim, &full);
+        Self::read_select(container, selection.as_slice())
+    }
 }
 
 pub trait WriteArrayData: WriteData {

@@ -1,11 +1,13 @@
 mod ndarray;
 pub mod slice;
+pub mod dataframe;
 mod sparse;
 pub(crate) mod utils;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
+pub use dataframe::DataFrameIndex;
 
 use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
@@ -121,10 +123,9 @@ impl ArrayOp for ArrayData {
         }
     }
 
-    fn select<S, E>(&self, info: S) -> Self
+    fn select<S>(&self, info: &[S]) -> Self
     where
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
+        S: AsRef<SelectInfoElem>,
     {
         match self {
             ArrayData::Array(data) => data.select(info).into(),
@@ -142,12 +143,10 @@ impl ReadArrayData for ArrayData {
         }
     }
 
-    fn read_select<B, S, E>(container: &DataContainer<B>, info: S) -> Result<Self>
+    fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
-        S: AsRef<[E]>,
-        E: AsRef<SelectInfoElem>,
-        Self: Sized,
+        S: AsRef<SelectInfoElem>,
     {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => {
