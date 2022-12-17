@@ -46,7 +46,8 @@ fn rand_chunks(nrow: usize, ncol: usize, chunk_size: usize) -> (CsrMatrix<i64>, 
     let csr = CsrMatrix::from(&mat);
     let iter = (0..nrow).into_iter().step_by(chunk_size)
         .map(move |i| {
-            let m = mat.index((i..i+chunk_size, ..));
+            let j = (i + chunk_size).min(nrow);
+            let m = mat.index((i..j, ..));
             CsrMatrix::from(&m)
         });
     (csr, iter)

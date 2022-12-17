@@ -6,15 +6,10 @@ use crate::utils::{
     to_indices,
 };
 
-use anndata_rs::{
-    data::{Data, MatrixData},
-    element::DataFrameIndex,
-    AnnDataOp,
-    {
-        anndata,
-        element::{Inner, Slot},
-    },
-};
+use anndata::{Data, ArrayData, AnnDataOp};
+use anndata::data::DataFrameIndex;
+use anndata::container::{Slot, Inner};
+use anndata_hdf5::H5;
 use anyhow::Result;
 use paste::paste;
 use polars::frame::DataFrame;
@@ -153,7 +148,7 @@ macro_rules! def_arr_accessor {
 #[pyo3(text_signature = "(*, filename, X, n_obs, n_vars, obs, var, obsm, varm, uns)")]
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct AnnData(pub(crate) Slot<anndata::AnnData>);
+pub struct AnnData(pub(crate) Slot<anndata::AnnData<H5>>);
 
 impl AnnData {
     pub fn inner(&self) -> Inner<'_, anndata::AnnData> {
@@ -246,39 +241,9 @@ impl AnnData {
         Ok(anndata)
     }
 
-    /// Shape of data matrix (`n_obs`, `n_vars`).
-    ///
-    /// Returns
-    /// -------
-    /// tuple[int, int]
-    #[getter]
-    pub fn shape(&self) -> (usize, usize) {
-        (self.n_obs(), self.n_vars())
-    }
-
-    /// Number of observations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub fn n_obs(&self) -> usize {
-        self.0.inner().n_obs()
-    }
-
     #[setter(n_obs)]
     pub fn set_n_obs(&self, n: usize) {
         self.0.inner().set_n_obs(n)
-    }
-
-    /// Number of variables/features.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub fn n_vars(&self) -> usize {
-        self.0.inner().n_vars()
     }
 
     #[setter(n_vars)]
@@ -286,79 +251,14 @@ impl AnnData {
         self.0.inner().set_n_vars(n)
     }
 
-    /// Names of variables.
-    ///
-    /// Returns
-    /// -------
-    /// list[str]
-    #[getter]
-    pub fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names()
-    }
-
-    #[setter(var_names)]
-    pub fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
-        let var_names: PyResult<DataFrameIndex> = names
-            .iter()?
-            .map(|x| x.unwrap().extract::<String>())
-            .collect();
-        self.0.inner().set_var_names(var_names?).unwrap();
-        Ok(())
-    }
-
     #[pyo3(text_signature = "($self, names)")]
     pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().var_ix(&names).unwrap()
     }
 
-    /// Names of observations.
-    ///
-    /// Returns
-    /// -------
-    /// list[str]
-    #[getter]
-    pub fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names()
-    }
-
-    #[setter(obs_names)]
-    pub fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
-        let obs_names: PyResult<DataFrameIndex> = names
-            .iter()?
-            .map(|x| x.unwrap().extract::<String>())
-            .collect();
-        self.0.inner().set_obs_names(obs_names?).unwrap();
-        Ok(())
-    }
-
     #[pyo3(text_signature = "($self, names)")]
     pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().obs_ix(&names).unwrap()
-    }
-
-    /// Data matrix of shape n_obs × n_vars.
-    ///
-    /// Returns
-    /// -------
-    /// PyMatrixElem
-    #[getter(X)]
-    pub fn get_x(&self) -> PyMatrixElem {
-        PyMatrixElem(self.0.inner().get_x().clone())
-    }
-
-    #[setter(X)]
-    pub fn set_x<'py>(&self, py: Python<'py>, data: Option<&'py PyAny>) -> PyResult<()> {
-        if let Some(d) = data {
-            if is_iterator(py, d)? {
-                panic!("Setting X by an iterator is not implemented");
-            } else {
-                let d_: Box<dyn MatrixData> = d.into_rust(py)?;
-                self.0.inner().set_x(Some(d_)).unwrap();
-            }
-        } else {
-            self.0.inner().set_x::<Box<dyn MatrixData>>(None).unwrap();
-        }
-        Ok(())
     }
 
     /// Unstructured annotation (ordered dictionary).
@@ -432,16 +332,6 @@ impl AnnData {
         })
     }
 
-    /// Filename of the backing .h5ad file.
-    ///
-    /// Returns
-    /// -------
-    /// str
-    #[getter]
-    pub fn filename(&self) -> String {
-        self.0.inner().filename()
-    }
-
     /// Copy the AnnData object.
     ///
     /// Parameters
@@ -468,25 +358,7 @@ impl AnnData {
         self.0.inner().write(None, None, filename).unwrap();
     }
 
-    /// Close the AnnData object.
-    #[pyo3(text_signature = "($self)")]
-    pub fn close(&self) {
-        if let Some(anndata) = self.0.extract() {
-            anndata.close().unwrap();
-        }
-    }
-
-    /// Whether the AnnData object is backed. This is always true.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    #[getter]
-    pub fn isbacked(&self) -> bool {
-        true
-    }
-
-    /// Return an iterator over the rows of the data matrix X.
+        /// Return an iterator over the rows of the data matrix X.
     ///
     /// Parameters
     /// ----------
@@ -511,16 +383,6 @@ impl AnnData {
     #[pyo3(text_signature = "($self)")]
     pub fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyObject> {
         Ok(PyAnnData::from_anndata(py, self.inner().deref())?.to_object(py))
-    }
-
-    /// If the AnnData object has been closed.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    #[pyo3(text_signature = "($self)")]
-    pub fn is_closed(&self) -> bool {
-        self.0.inner().0.is_none()
     }
 
     fn __repr__(&self) -> String {

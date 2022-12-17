@@ -112,28 +112,28 @@ impl<B: Backend> AnnData<B> {
         }
     }
 
-    pub(crate) fn get_x(&self) -> &ArrayElem<B> {
+    pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
-    pub(crate) fn get_obs(&self) -> &DataFrameElem<B> {
+    pub fn get_obs(&self) -> &DataFrameElem<B> {
         &self.obs
     }
-    pub(crate) fn get_obsm(&self) -> &AxisArrays<B> {
+    pub fn get_obsm(&self) -> &AxisArrays<B> {
         &self.obsm
     }
-    pub(crate) fn get_obsp(&self) -> &AxisArrays<B> {
+    pub fn get_obsp(&self) -> &AxisArrays<B> {
         &self.obsp
     }
-    pub(crate) fn get_var(&self) -> &DataFrameElem<B> {
+    pub fn get_var(&self) -> &DataFrameElem<B> {
         &self.var
     }
-    pub(crate) fn get_varm(&self) -> &AxisArrays<B> {
+    pub fn get_varm(&self) -> &AxisArrays<B> {
         &self.varm
     }
-    pub(crate) fn get_varp(&self) -> &AxisArrays<B> {
+    pub fn get_varp(&self) -> &AxisArrays<B> {
         &self.varp
     }
-    pub(crate) fn get_uns(&self) -> &ElemCollection<B> {
+    pub fn get_uns(&self) -> &ElemCollection<B> {
         &self.uns
     }
 

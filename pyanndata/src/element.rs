@@ -4,7 +4,7 @@ use crate::utils::{
     instance::is_none_slice,
     to_indices,
 };
-use anndata_rs::{data::DataType, element::*, Data, MatrixData};
+use anndata::{data::DataType, element::*, Data, MatrixData};
 use pyo3::{
     exceptions::{PyKeyError, PyTypeError},
     prelude::*,
