@@ -1,17 +1,17 @@
-use crate::container::{PyArrayElem, PyElem};
-use crate::data::PyArrayData;
+use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection};
+use crate::data::{to_select_elem, to_select_info, PyArrayData, PyData, PyDataFrame};
+use crate::anndata::PyAnnData;
 
-use anndata::data::DataFrameIndex;
-use pyo3::prelude::*;
 use anndata;
-use anndata::{Backend, ArrayData, AnnDataOp};
-use anndata::container::{Inner, Slot};
+use anndata::container::Slot;
+use anndata::data::{DataFrameIndex, SelectInfoElem};
+use anndata::{AnnDataOp, ArrayData, Backend, Data};
 use anndata_hdf5::H5;
+use anyhow::{bail, Result};
+use downcast_rs::{impl_downcast, Downcast};
+use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::ops::BitOrAssign;
 use std::path::PathBuf;
-use anyhow::{Result, bail};
-use downcast_rs::{Downcast, impl_downcast};
 
 /** An annotated data matrix.
 
@@ -63,9 +63,26 @@ pub struct AnnData(Slot<Box<dyn AnnDataTrait>>);
 
 impl AnnData {
     pub fn into_inner<B: Backend + 'static>(self) -> Option<anndata::AnnData<B>> {
-        self.0.extract().map(|adata|
-            *adata.into_any().downcast::<anndata::AnnData<B>>().expect("downcast failed")
-        )
+        self.0.extract().map(|adata| {
+            *adata
+                .into_any()
+                .downcast::<anndata::AnnData<B>>()
+                .expect("downcast failed")
+        })
+    }
+
+    pub fn open(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
+        match backend.unwrap_or("hdf5") {
+            "hdf5" => {
+                let file = match mode {
+                    "r" => H5::open(filename)?,
+                    "r+" => H5::open_rw(filename)?,
+                    _ => bail!("Unknown mode: {}", mode),
+                };
+                anndata::AnnData::<H5>::open(file).map(|adata| adata.into())
+            }
+            x => bail!("Unknown backend: {}", x),
+        }
     }
 }
 
@@ -89,7 +106,7 @@ impl AnnData {
         obsm = "None",
         varm = "None",
         uns = "None",
-        backend = "\"hdf5\"",
+        backend = "\"hdf5\""
     )]
     pub fn new<'py>(
         py: Python<'py>,
@@ -97,38 +114,41 @@ impl AnnData {
         X: Option<PyArrayData>,
         n_obs: Option<usize>,
         n_vars: Option<usize>,
-        obs: Option<&'py PyAny>,
-        var: Option<&'py PyAny>,
-        obsm: Option<HashMap<String, &'py PyAny>>,
+        obs: Option<PyDataFrame>,
+        var: Option<PyDataFrame>,
+        obsm: Option<HashMap<String, PyArrayData>>,
         varm: Option<HashMap<String, &'py PyAny>>,
-        uns: Option<HashMap<String, &'py PyAny>>,
+        uns: Option<HashMap<String, PyData>>,
         backend: &str,
     ) -> Result<Self> {
         let adata: AnnData = match backend {
-            "hdf5" => anndata::AnnData::<H5>::new(filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0))?.into(),
+            "hdf5" => {
+                anndata::AnnData::<H5>::new(filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0))?
+                    .into()
+            }
             backend => bail!("Unknown backend: {}", backend),
         };
 
         if X.is_some() {
             adata.set_x(X)?;
         }
-        /*
         if obs.is_some() {
-            anndata.set_obs(py, obs)?;
+            adata.set_obs(obs)?;
         }
         if var.is_some() {
-            anndata.set_var(py, var)?;
+            adata.set_var(var)?;
         }
         if obsm.is_some() {
-            anndata.set_obsm(py, obsm)?;
+            adata.set_obsm(obsm)?;
         }
+        /*
         if varm.is_some() {
             anndata.set_varm(py, varm)?;
         }
-        if uns.is_some() {
-            anndata.set_uns(py, uns)?;
-        }
         */
+        if uns.is_some() {
+            adata.set_uns(uns)?;
+        }
         Ok(adata)
     }
 
@@ -196,12 +216,96 @@ impl AnnData {
     /// -------
     /// PyArrayElem
     #[getter(X)]
-    pub fn get_x(&self) -> PyArrayElem {
+    pub fn get_x(&self) -> Option<PyArrayElem> {
         self.0.inner().get_x()
     }
     #[setter(X)]
     pub fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
         self.0.inner().set_x(data)
+    }
+
+    /// Observation annotations.
+    ///
+    /// Returns
+    /// -------
+    /// PyDataFrameElem
+    #[getter(obs)]
+    fn get_obs(&self) -> Option<PyDataFrameElem> {
+        self.0.inner().get_obs()
+    }
+    #[setter(obs)]
+    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
+        self.0.inner().set_obs(obs)
+    }
+
+    /// Variable annotations.
+    ///
+    /// Returns
+    /// -------
+    /// PyDataFrameElem
+    #[getter(var)]
+    fn get_var(&self) -> Option<PyDataFrameElem> {
+        self.0.inner().get_var()
+    }
+    #[setter(var)]
+    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
+        self.0.inner().set_var(var)
+    }
+
+    /// Unstructured annotation (ordered dictionary).
+    ///
+    /// Returns
+    /// -------
+    /// PyElemCollection
+    #[getter(uns)]
+    pub fn get_uns(&self) -> Option<PyElemCollection> {
+        self.0.inner().get_uns()
+    }
+    #[setter(uns)]
+    pub fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
+        self.0.inner().set_uns(uns)
+    }
+
+    #[getter(obsm)]
+    pub fn get_obsm(&self) -> Option<PyAxisArrays> {
+        self.0.inner().get_obsm()
+    }
+    #[setter(obsm)]
+    pub fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        self.0.inner().set_obsm(obsm)
+    }
+
+    /// Subsetting the AnnData object.
+    ///
+    /// Parameters
+    /// ----------
+    /// obs_indices
+    ///     obs indices
+    /// var_indices
+    ///     var indices
+    /// out: Path | None
+    ///     File name of the output `.h5ad` file. If provided, the result will be
+    ///     saved to a new file and the original AnnData object remains unchanged.
+    /// backend: str | None
+    ///
+    /// Returns
+    /// -------
+    /// Optional[AnnData]
+    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
+    pub fn subset(
+        &self,
+        obs_indices: Option<&PyAny>,
+        var_indices: Option<&PyAny>,
+        out: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<Option<AnnData>> {
+        let i = obs_indices
+            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        let j = var_indices
+            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        self.0.inner().subset([i, j].as_slice(), out, backend)
     }
 
     /// Filename of the backing .h5ad file.
@@ -239,6 +343,56 @@ impl AnnData {
     pub fn close(&self) {
         self.0.drop();
     }
+
+    /// Write .h5ad-formatted hdf5 file.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename: Path
+    ///     File name of the output `.h5ad` file.
+    /// backend: str | None
+    #[pyo3(text_signature = "($self, filename, backend)")]
+    pub fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
+        self.0.inner().write(filename, backend)
+    }
+
+    /// Copy the AnnData object.
+    ///
+    /// Parameters
+    /// ----------
+    /// filename
+    ///     File name of the output `.h5ad` file.
+    /// backend: str | None
+    ///
+    /// Returns
+    /// -------
+    /// AnnData
+    #[pyo3(text_signature = "($self, filename, backend)")]
+    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<Self> {
+        self.0.inner().copy(filename, backend)
+    }
+
+    /// Return a new AnnData object with all backed arrays loaded into memory.
+    ///
+    /// Returns
+    /// -------
+    /// AnnData
+    #[pyo3(text_signature = "($self)")]
+    pub fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>> {
+        self.0.inner().to_memory(py)
+    }
+
+    fn __repr__(&self) -> String {
+        if self.is_closed() {
+            "Closed AnnData object".to_string()
+        } else {
+            self.0.inner().show()
+        }
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 trait AnnDataTrait: Send + Downcast {
@@ -247,9 +401,32 @@ trait AnnDataTrait: Send + Downcast {
     fn set_obs_names(&self, names: &PyAny) -> Result<()>;
     fn var_names(&self) -> Vec<String>;
     fn set_var_names(&self, names: &PyAny) -> Result<()>;
-    fn get_x(&self) -> PyArrayElem;
+
+    fn get_x(&self) -> Option<PyArrayElem>;
+    fn get_obs(&self) -> Option<PyDataFrameElem>;
+    fn get_var(&self) -> Option<PyDataFrameElem>;
+    fn get_uns(&self) -> Option<PyElemCollection>;
+    fn get_obsm(&self) -> Option<PyAxisArrays>;
+
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()>;
+    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()>;
+    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()>;
+    fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()>;
+    fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+
+    fn subset(
+        &self,
+        slice: &[SelectInfoElem],
+        out: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<Option<AnnData>>;
+
+    fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()>;
+    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData>;
+    fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
+
     fn filename(&self) -> PathBuf;
+    fn show(&self) -> String;
 }
 impl_downcast!(AnnDataTrait);
 
@@ -263,10 +440,8 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
     }
 
     fn set_obs_names(&self, names: &PyAny) -> Result<()> {
-      let obs_names: Result<DataFrameIndex> = names
-            .iter()?
-            .map(|x| Ok(x?.extract::<String>()?))
-            .collect();
+        let obs_names: Result<DataFrameIndex> =
+            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
         AnnDataOp::set_obs_names(self, obs_names?)
     }
 
@@ -275,15 +450,50 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
     }
 
     fn set_var_names(&self, names: &PyAny) -> Result<()> {
-      let var_names: Result<DataFrameIndex> = names
-            .iter()?
-            .map(|x| Ok(x?.extract::<String>()?))
-            .collect();
+        let var_names: Result<DataFrameIndex> =
+            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
         AnnDataOp::set_var_names(self, var_names?)
     }
 
-    fn get_x(&self) -> PyArrayElem {
-        self.get_x().clone().into()
+    fn get_x(&self) -> Option<PyArrayElem> {
+        let x = self.get_x();
+        if x.is_empty() {
+            None
+        } else {
+            Some(x.clone().into())
+        }
+    }
+    fn get_obs(&self) -> Option<PyDataFrameElem> {
+        let obs = self.get_obs();
+        if obs.is_empty() {
+            None
+        } else {
+            Some(obs.clone().into())
+        }
+    }
+    fn get_var(&self) -> Option<PyDataFrameElem> {
+        let var = self.get_var();
+        if var.is_empty() {
+            None
+        } else {
+            Some(var.clone().into())
+        }
+    }
+    fn get_uns(&self) -> Option<PyElemCollection> {
+        let uns = self.get_uns();
+        if uns.is_empty() {
+            None
+        } else {
+            Some(uns.clone().into())
+        }
+    }
+    fn get_obsm(&self) -> Option<PyAxisArrays> {
+        let obsm = self.get_obsm();
+        if obsm.is_empty() {
+            None
+        } else {
+            Some(obsm.clone().into())
+        }
     }
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
@@ -294,8 +504,80 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
         }
         Ok(())
     }
+    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
+        if let Some(o) = obs {
+            AnnDataOp::set_obs(self, o.into())?;
+        } else {
+            self.del_obs()?;
+        }
+        Ok(())
+    }
+    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
+        if let Some(v) = var {
+            AnnDataOp::set_var(self, v.into())?;
+        } else {
+            self.del_var()?;
+        }
+        Ok(())
+    }
+    fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
+        if let Some(u) = uns {
+            AnnDataOp::set_uns(self, u.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            self.del_uns()?;
+        }
+        Ok(())
+    }
+    fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        if let Some(o) = obsm {
+            AnnDataOp::set_obsm(self, o.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            self.del_obsm()?;
+        }
+        Ok(())
+    }
+
+    fn subset(
+        &self,
+        slice: &[SelectInfoElem],
+        out: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<Option<AnnData>> {
+        if let Some(out) = out {
+            match backend.unwrap_or("hdf5") {
+                "hdf5" => {
+                    self.write_select::<H5, _, _>(slice, &out)?;
+                    Ok(Some(AnnData::open(out, "r+", backend)?))
+                }
+                x => bail!("Unsupported backend: {}", x),
+            }
+        } else {
+            self.subset(slice)?;
+            Ok(None)
+        }
+    }
+
+    fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
+        match backend.unwrap_or("hdf5") {
+            "hdf5" => self.write::<H5, _>(filename),
+            x => bail!("Unsupported backend: {}", x),
+        }
+    }
+
+    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData> {
+        AnnDataTrait::write(self, filename.clone(), backend)?;
+        AnnData::open(filename, "r+", backend)
+    }
+
+    fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>> {
+        Ok(PyAnnData::from_anndata(py, self)?)
+    }
 
     fn filename(&self) -> PathBuf {
         self.filename()
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
     }
 }

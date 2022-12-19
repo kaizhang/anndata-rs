@@ -1,8 +1,11 @@
 mod instance;
 mod slice;
+mod dataframe;
 
+use dataframe::{to_py_df, to_rust_df};
 pub(crate) use instance::*;
-pub(crate) use slice::to_select_info;
+use polars::prelude::DataFrame;
+pub(crate) use slice::{to_select_info, to_select_elem};
 
 use nalgebra_sparse::CsrMatrix;
 use ndarray::ArrayD;
@@ -62,6 +65,39 @@ macro_rules! proc_py_numeric {
     };
 }
 
+pub struct PyDataFrame(DataFrame);
+
+impl From<DataFrame> for PyDataFrame {
+    fn from(value: DataFrame) -> Self {
+        PyDataFrame(value)
+    }
+}
+
+impl Into<DataFrame> for PyDataFrame {
+    fn into(self) -> DataFrame {
+        self.0
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyDataFrame {
+    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+        let py = ob.py();
+        let df = if isinstance_of_pandas(py, ob)? {
+            py.import("polars")?.call_method1("from_pandas", (ob, ))?
+        } else if ob.is_instance_of::<pyo3::types::PyDict>()? {
+            py.import("polars")?.call_method1("from_dict", (ob, ))?
+        } else {
+            ob
+        };
+        Ok(to_rust_df(ob.py(), df)?.into())
+    }
+}
+
+impl IntoPy<PyObject> for PyDataFrame {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        to_py_df(py, self.0).unwrap()
+    }
+}
 
 pub struct PyArrayData(ArrayData);
 

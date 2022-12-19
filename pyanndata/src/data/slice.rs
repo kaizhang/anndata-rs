@@ -17,7 +17,7 @@ pub fn to_select_info(ob: &PyAny, shape: &Shape) -> PyResult<SelectInfo> {
     }
 }
 
-fn to_select_elem(ob: &PyAny, length: usize) -> PyResult<SelectInfoElem> {
+pub fn to_select_elem(ob: &PyAny, length: usize) -> PyResult<SelectInfoElem> {
     let py = ob.py();
     let select = if let Ok(slice) = ob.downcast::<pyo3::types::PySlice>() {
         let s = slice.indices(length as i64)?;

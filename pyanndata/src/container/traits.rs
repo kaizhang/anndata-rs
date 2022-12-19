@@ -1,16 +1,19 @@
-use crate::data::{PyData, PyArrayData, is_none_slice, to_select_info};
+use crate::data::{is_none_slice, to_select_info, PyArrayData, PyData};
 
-use pyo3::prelude::*;
-use anndata::{ArrayData, Data, Elem, Backend, ArrayElem};
 use anndata::backend::DataType;
-use anyhow::{Result, bail};
+use anndata::{ArrayData, ArrayElem, Backend, Data, DataFrameElem, Elem, AxisArrays, ElemCollection};
+use anyhow::{bail, Result, Context};
+use polars::prelude::DataFrame;
+use pyo3::prelude::*;
+
+use super::{PyArrayElem, PyElem};
 
 /// Trait for `Elem` to abtract over different backends.
 pub trait ElemTrait: Send {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn is_scalar(&self) -> bool;
-    fn data<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyData>;
+    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyData>;
     fn show(&self) -> String;
 }
 
@@ -30,7 +33,7 @@ impl<B: Backend> ElemTrait for Elem<B> {
         }
     }
 
-    fn data<'py>(&self, py: Python<'py>, slice: &'py PyAny) -> Result<PyData> {
+    fn get<'py>(&self, py: Python<'py>, slice: &'py PyAny) -> Result<PyData> {
         if is_none_slice(py, slice)? {
             Ok(self.inner().data::<Data>()?.into())
         } else {
@@ -48,7 +51,7 @@ pub trait ArrayElemTrait: Send {
     fn disable_cache(&self);
     fn is_scalar(&self) -> bool;
     fn show(&self) -> String;
-    fn data<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData>;
+    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData>;
 
     /// Shape of array.
     fn shape(&self) -> Vec<usize>;
@@ -104,9 +107,11 @@ impl<B: Backend> ArrayElemTrait for ArrayElem<B> {
         }
     }
 
-    fn data<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
+    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.inner().shape())?;
-        self.inner().select::<ArrayData, _>(slice.as_ref()).map(|x| x.into())
+        self.inner()
+            .select::<ArrayData, _>(slice.as_ref())
+            .map(|x| x.into())
     }
 
     fn show(&self) -> String {
@@ -127,5 +132,108 @@ impl<B: Backend> ArrayElemTrait for ArrayElem<B> {
         todo!()
     }
 
-    fn chunked(&self, chunk_size: usize) -> usize {todo!()}
+    fn chunked(&self, chunk_size: usize) -> usize {
+        todo!()
+    }
 }
+
+pub trait DataFrameElemTrait: Send {
+    fn get<'py>(&self, subscript: &'py PyAny) -> Result<DataFrame>;
+    fn set<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()>;
+    fn contains(&self, key: &str) -> bool;
+    fn show(&self) -> String;
+}
+
+impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
+    fn get<'py>(&self, subscript: &'py PyAny) -> Result<DataFrame> {
+        let shape = [self.inner().width(), self.inner().height()].as_slice().into();
+        let slice = to_select_info(subscript, &shape)?;
+        self.inner().select(slice.as_ref())
+    }
+
+    fn set<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()> {
+        todo!()
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.lock()
+            .as_ref()
+            .map(|x| x.get_column_names().contains(key))
+            .unwrap_or(false)
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+}
+
+pub trait AxisArrayTrait: Send {
+    fn keys(&self) -> Vec<String>;
+    fn contains(&self, key: &str) -> bool;
+    fn get(&self, key: &str) -> Result<PyArrayData>;
+    fn el(&self, key: &str) -> Result<PyArrayElem>;
+    fn set(&self, key: &str, data: PyArrayData) -> Result<()>;
+    fn show(&self) -> String;
+}
+
+impl<B: Backend + 'static> AxisArrayTrait for AxisArrays<B> {
+    fn keys(&self) -> Vec<String> {
+        self.inner().keys().map(|x| x.to_string()).collect()
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.inner().contains_key(key)
+    }
+
+    fn get(&self, key: &str) -> Result<PyArrayData> {
+        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.inner().data::<ArrayData>()?.into())
+    }
+
+    fn el(&self, key: &str) -> Result<PyArrayElem> {
+        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.clone().into())
+    }
+
+    fn set(&self, key: &str, data: PyArrayData) -> Result<()> {
+        self.inner().add_data::<ArrayData>(key, data.into())
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+}
+
+pub trait ElemCollectionTrait: Send {
+    fn keys(&self) -> Vec<String>;
+    fn contains(&self, key: &str) -> bool;
+    fn get(&self, key: &str) -> Result<PyData>;
+    fn el(&self, key: &str) -> Result<PyElem>;
+    fn set(&self, key: &str, data: PyData) -> Result<()>;
+    fn show(&self) -> String;
+}
+
+impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
+    fn keys(&self) -> Vec<String> {
+        self.inner().keys().map(|x| x.to_string()).collect()
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.inner().contains_key(key)
+    }
+
+    fn get(&self, key: &str) -> Result<PyData> {
+        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.inner().data::<Data>()?.into())
+    }
+
+    fn el(&self, key: &str) -> Result<PyElem> {
+        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.clone().into())
+    }
+
+    fn set(&self, key: &str, data: PyData) -> Result<()> {
+        self.inner().add_data::<Data>(key, data.into())
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+}
+

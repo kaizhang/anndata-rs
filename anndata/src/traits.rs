@@ -54,6 +54,9 @@ pub trait AnnDataOp {
     /// Delete the variable annotations.
     fn del_var(&self) -> Result<()>;
 
+    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()>;
+    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()>;
+
     fn uns_keys(&self) -> Vec<String>;
     fn obsm_keys(&self) -> Vec<String>;
     fn obsp_keys(&self) -> Vec<String>;
@@ -102,6 +105,12 @@ pub trait AnnDataOp {
         key: &str,
         data: D,
     ) -> Result<()>;
+
+    fn del_uns(&self) -> Result<()>;
+    fn del_obsm(&self) -> Result<()>;
+    fn del_obsp(&self) -> Result<()>;
+    fn del_varm(&self) -> Result<()>;
+    fn del_varp(&self) -> Result<()>;
 }
 
 pub trait AnnDataIterator: AnnDataOp {

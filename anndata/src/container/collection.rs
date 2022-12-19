@@ -1,5 +1,5 @@
 use crate::{
-    backend::{iter_containers, GroupOp, Backend},
+    backend::{iter_containers, GroupOp, LocationOp, Backend},
     data::*,
     container::base::*,
 };
@@ -10,7 +10,7 @@ use smallvec::{SmallVec, smallvec};
 use std::{
     collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::Arc, fmt::Display,
 };
 
 pub struct InnerElemCollection<B: Backend> {
@@ -80,6 +80,12 @@ impl<B: Backend> Deref for ElemCollection<B> {
     }
 }
 
+impl<B: Backend> Display for ElemCollection<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl<B: Backend> DerefMut for ElemCollection<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -100,6 +106,15 @@ impl<B: Backend> ElemCollection<B> {
             data: data?,
         };
         Ok(Self(Slot::new(collection)))
+    }
+
+    pub fn clear(&self) -> Result<()> {
+        self.0.lock().as_ref().map(|x| {
+            let g = &x.container;
+            g.file()?.delete(&g.path().to_string_lossy())
+        }).transpose()?;
+        self.0.drop();
+        Ok(())
     }
 }
 
@@ -242,6 +257,12 @@ impl<B: Backend> InnerAxisArrays<B> {
 
 pub struct AxisArrays<B: Backend>(Slot<InnerAxisArrays<B>>);
 
+impl<B: Backend> std::fmt::Display for AxisArrays<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl<B: Backend> Clone for AxisArrays<B> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -303,6 +324,15 @@ impl<B: Backend> AxisArrays<B> {
             data,
         };
         Ok(Self(Slot::new(arrays)))
+    }
+
+    pub fn clear(&self) -> Result<()> {
+        self.0.lock().as_ref().map(|x| {
+            let g = &x.container;
+            g.file()?.delete(&g.path().to_string_lossy())
+        }).transpose()?;
+        self.0.drop();
+        Ok(())
     }
 }
 

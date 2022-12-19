@@ -430,6 +430,14 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         self.annotation.del_var()
     }
 
+    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
+        self.annotation.set_uns(data)
+    }
+
+    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        self.annotation.set_obsm(data)
+    }
+
     fn uns_keys(&self) -> Vec<String> {
         self.annotation.uns_keys()
     }
@@ -520,6 +528,22 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         data: D,
     ) -> Result<()> {
         self.annotation.add_varp(key, data)
+    }
+
+    fn del_uns(&self) -> Result<()> {
+        self.annotation.del_uns()
+    }
+    fn del_obsm(&self) -> Result<()> {
+        self.annotation.del_obsm()
+    }
+    fn del_obsp(&self) -> Result<()> {
+        self.annotation.del_obsp()
+    }
+    fn del_varm(&self) -> Result<()> {
+        self.annotation.del_varm()
+    }
+    fn del_varp(&self) -> Result<()> {
+        self.annotation.del_varp()
     }
 }
 

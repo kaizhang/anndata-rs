@@ -20,7 +20,7 @@ use parking_lot::{Mutex, MutexGuard};
 use polars::prelude::DataFrame;
 use std::{
     path::{Path, PathBuf},
-    sync::Arc, ops::Deref,
+    sync::Arc, ops::Deref, collections::HashMap,
 };
 
 pub struct AnnData<B: Backend> {
@@ -641,6 +641,31 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         self.get_var().clear()
     }
 
+
+    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
+        self.del_uns()?;
+        let uns: ElemCollection<B> = ElemCollection::new(self.file.create_group("uns")?)?;
+        data.try_for_each(|(k, v)| {
+            uns.inner().add_data(&k, v)
+        })?;
+        self.get_uns().swap(&uns);
+        Ok(())
+    }
+
+    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_obsm()?;
+        let obsm = AxisArrays::new(
+            self.file.create_group("obsm")?,
+            Axis::Row,
+            self.n_obs.clone(),
+        )?;
+        data.try_for_each(|(k, v)| {
+            obsm.inner().add_data(&k, v)
+        })?;
+        self.get_obsm().swap(&obsm);
+        Ok(())
+    }
+
     fn uns_keys(&self) -> Vec<String> {
         self.get_uns()
             .lock()
@@ -792,6 +817,22 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             self.varp.swap(&arrays);
         }
         self.varp.inner().add_data(key, data)
+    }
+
+    fn del_uns(&self) -> Result<()> {
+        self.get_uns().clear()
+    }
+    fn del_obsm(&self) -> Result<()> {
+        self.get_obsm().clear()
+    }
+    fn del_obsp(&self) -> Result<()> {
+        self.get_obsp().clear()
+    }
+    fn del_varm(&self) -> Result<()> {
+        self.get_varm().clear()
+    }
+    fn del_varp(&self) -> Result<()> {
+        self.get_varp().clear()
     }
 }
 
