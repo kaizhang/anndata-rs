@@ -16,7 +16,7 @@ use ndarray::{ArrayView1, Ix1};
 
 use super::slice::BoundedSlice;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DynCsrMatrix {
     I8(CsrMatrix<i8>),
     I16(CsrMatrix<i16>),

@@ -15,7 +15,7 @@ use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use polars::frame::DataFrame;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Data {
     ArrayData(ArrayData),
     Scalar(DynScalar),

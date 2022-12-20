@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::Result;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Mapping(HashMap<String, Data>);
 
 impl Into<HashMap<String, Data>> for Mapping {

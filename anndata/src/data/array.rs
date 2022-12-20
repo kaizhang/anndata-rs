@@ -17,7 +17,7 @@ use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArrayData {
     Array(DynArray),
     CsrMatrix(DynCsrMatrix),

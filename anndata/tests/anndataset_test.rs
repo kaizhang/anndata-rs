@@ -6,6 +6,7 @@ use proptest::prelude::*;
 use anyhow::Result;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra::base::DMatrix;
 use ndarray::{Axis, Array, Array1, Array2, Array3, concatenate};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
@@ -23,14 +24,30 @@ fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
     with_tmp_dir(|dir| func(dir.join("temp.h5")))
 }
 
-fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i32> {
+fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i64> {
     let mut rng = rand::thread_rng();
-    let values: Vec<i32> = Array::random((nnz,), Uniform::new(0, 100)).to_vec();
+    let values: Vec<i64> = Array::random((nnz,), Uniform::new(0, 100)).to_vec();
 
     let (row_indices, col_indices) = (0..nnz)
         .map(|_| (rng.gen_range(0..nrow), rng.gen_range(0..ncol)))
         .unzip();
     (&CooMatrix::try_from_triplets(nrow, ncol, row_indices, col_indices, values).unwrap()).into()
+}
+
+fn csr_select<I1, I2>(
+    csr: &CsrMatrix<i64>,
+    row_indices: I1,
+    col_indices: I2,
+) -> CsrMatrix<i64>
+where
+    I1: Iterator<Item = usize>,
+    I2: Iterator<Item = usize>,
+{
+    let i = row_indices.collect::<Vec<_>>();
+    let j = col_indices.collect::<Vec<_>>();
+    let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
+    csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
+    CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
 }
 
 fn uns_io<T>(input: T)
@@ -101,7 +118,63 @@ fn test_slice<B: Backend>() -> Result<()> {
     })
 }
 
+fn test_write<B: Backend>() -> Result<()> {
+    with_tmp_dir(|dir| -> Result<()> {
+        let arr = Array::random((30, 50), Uniform::new(-100, 100));
+        let merged = concatenate(Axis(0), &[arr.view(), arr.view(), arr.view()])?;
+        
+        let d1: AnnData<H5> = AnnData::new(dir.join("1.h5ad"), 0, 0)?;
+        let d2: AnnData<H5> = AnnData::new(dir.join("2.h5ad"), 0, 0)?;
+        let d3: AnnData<H5> = AnnData::new(dir.join("3.h5ad"), 0, 0)?;
+        d1.set_x(&arr)?;
+        d2.set_x(&arr)?;
+        d3.set_x(&arr)?;
+
+        let dataset = AnnDataSet::new([("1", d1), ("2", d2), ("3", d3)], dir.join("dataset.h5ads"), "key")?;
+        let csr = rand_csr(90, 10, 500);
+        dataset.add_obsm("test", &csr)?;
+
+        dataset.write_select::<B, _, _>(s![..50, ..], dir.join("subset"))?;
+        let sub: AnnDataSet<B> = AnnDataSet::open(B::open(dir.join("subset/_dataset.h5ads"))?, None)?;
+
+        assert_eq!(
+            merged.slice(ndarray::s![..50, ..]).to_owned(),
+            sub.read_x::<Array<i32, _>>()?.unwrap(),
+        );
+        sub.close()?;
+
+        // Fancy index
+        let indices1 = Array::random(300, Uniform::new(0, 89)).to_vec();
+        let indices2 = Array::random(300, Uniform::new(0, 50)).to_vec();
+        let order = dataset.write_select::<B, _, _>(s![&indices1, &indices2], dir.join("subset"))?;
+        let (e_arr, e_csr)= if let Some(order) = order {
+            let indices1_ = order.into_iter().map(|i| indices1[i]).collect::<Vec<_>>();
+            (
+                merged.select(ndarray::Axis(0), indices1_.as_slice())
+                    .select(ndarray::Axis(1), indices2.as_slice()),
+                csr_select(&csr, indices1_.into_iter(), indices2.into_iter()),
+            )
+        } else {
+            (
+                merged.select(ndarray::Axis(0), indices1.as_slice())
+                    .select(ndarray::Axis(1), indices2.as_slice()),
+                csr_select(&csr, indices1.into_iter(), indices2.into_iter())
+            )
+        };
+        let sub2: AnnDataSet<B> = AnnDataSet::open(B::open(dir.join("subset/_dataset.h5ads"))?, None)?;
+        assert_eq!(e_arr, sub2.read_x::<Array<i32, _>>()?.unwrap());
+        assert_eq!(e_csr, sub2.fetch_obsm("test")?.unwrap());
+
+        Ok(())
+    })
+}
+
 #[test]
 fn test_slice_h5() -> Result<()> {
     test_slice::<H5>()
+}
+
+#[test]
+fn test_write_h5() -> Result<()> {
+    test_write::<H5>()
 }

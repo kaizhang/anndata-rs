@@ -1,9 +1,9 @@
 use crate::container::base::VecVecIndex;
-use crate::traits::{AnnDataOp, AnnDataIterator};
+use crate::traits::{AnnDataIterator, AnnDataOp};
 use crate::{
     anndata::AnnData,
     backend::Backend,
-    container::{Axis, StackedAxisArrays, StackedArrayElem, StackedDataFrame, AxisArrays},
+    container::{Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame},
     data::*,
 };
 
@@ -15,11 +15,7 @@ use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 pub struct AnnDataSet<B: Backend> {
     annotation: AnnData<B>,
@@ -235,6 +231,11 @@ impl<B: Backend> AnnDataSet<B> {
         })
     }
 
+    /// AnnDataSet will not move data across underlying AnnData objects. So the
+    /// orders of rows in the resultant AnnDataSet object may not be consistent
+    /// with the input `obs_indices`. This function will return a vector that can
+    /// be used to reorder the `obs_indices` to match the final order of rows in
+    /// the AnnDataSet.
     pub fn write_select<O: Backend, S: AsRef<[SelectInfoElem]>, P: AsRef<Path>>(
         &self,
         selection: S,
@@ -338,34 +339,6 @@ fn update_anndata_locations<B: Backend>(
     ann.add_uns("AnnDataSet", data)?;
     Ok(())
 }
-
-/*
-    /// Subsetting an AnnDataSet will not rearrange the data between
-    /// AnnData objects.
-    pub fn subset(
-        &self,
-        obs_idx: Option<&[usize]>,
-        var_idx: Option<&[usize]>,
-    ) -> Result<Option<Vec<usize>>> {
-        match self.anndatas.inner().0.deref() {
-            None => {
-                self.annotation.subset(obs_idx, var_idx)?;
-                Ok(None)
-            }
-            Some(ann) => {
-                let obs_idx_order = ann.subset(obs_idx, var_idx)?;
-                if let Some(order) = obs_idx_order.as_ref() {
-                    let new_idx = obs_idx.map(|x| order.iter().map(|i| x[*i]).collect::<Vec<_>>());
-                    self.annotation
-                        .subset(new_idx.as_ref().map(|x| x.as_slice()), var_idx)?;
-                } else {
-                    self.annotation.subset(obs_idx, var_idx)?;
-                };
-                Ok(obs_idx_order)
-            }
-        }
-    }
-*/
 
 impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn read_x<D>(&self) -> Result<Option<D>>
@@ -678,21 +651,35 @@ impl<B: Backend> StackedAnnData<B> {
             .elems
             .par_iter()
             .enumerate()
-            .map(|(i, (k, adata))| {
-                let file = dir.as_ref().join(k.to_string() + suffix);
-                let filename = (
-                    k.clone(),
-                    file.file_name().unwrap().to_str().unwrap().to_string(),
-                );
+            .flat_map(|(i, (k, adata))| {
                 if let Some(s) = slices.get(&i) {
-                    adata.write_select::<O, _, _>([s.clone(), slice[1].clone()], file)?;
+                    let file = dir.as_ref().join(k.to_string() + suffix);
+                    let filename = (
+                        k.clone(),
+                        file.file_name().unwrap().to_str().unwrap().to_string(),
+                    );
+                    Some(
+                        adata
+                            .write_select::<O, _, _>([s.clone(), slice[1].clone()], file)
+                            .map(|_| filename),
+                    )
                 } else {
-                    adata.write::<O, _>(file)?;
+                    None
                 }
-                Ok(filename)
             })
             .collect();
 
-        Ok((files?, mapping))
+        let order = mapping.map(|x| {
+            let n = self.n_obs;
+            let len = slices.values().map(|x| BoundedSelectInfoElem::new(x, n).len()).sum();
+            reverse_mapping(x.as_slice(), len)
+        });
+        Ok((files?, order))
     }
+}
+
+fn reverse_mapping(mapping: &[usize], n: usize) -> Vec<usize> {
+    let mut res = vec![0; n];
+    mapping.iter().enumerate().for_each(|(i, &x)| res[x] = i);
+    res
 }

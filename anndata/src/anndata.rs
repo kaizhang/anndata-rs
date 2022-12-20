@@ -6,21 +6,21 @@ use smallvec::SmallVec;
 use crate::{
     backend::{Backend, DataContainer, FileOp, GroupOp},
     container::{
-        ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
-        ChunkedArrayElem,
+        ArrayElem, Axis, AxisArrays, ChunkedArrayElem, DataFrameElem, ElemCollection,
         InnerDataFrameElem, Slot,
     },
     data::*,
-    traits::{AnnDataOp, AnnDataIterator},
+    traits::{AnnDataIterator, AnnDataOp},
 };
 
-use anyhow::{ensure, Context, Result, bail};
+use anyhow::{bail, ensure, Context, Result};
 use itertools::Itertools;
 use parking_lot::{Mutex, MutexGuard};
 use polars::prelude::DataFrame;
 use std::{
+    ops::Deref,
     path::{Path, PathBuf},
-    sync::Arc, ops::Deref,
+    sync::Arc,
 };
 
 pub struct AnnData<B: Backend> {
@@ -98,17 +98,19 @@ impl<B: Backend> AnnData<B> {
     pub(crate) fn lock_obs(&self) -> Lock<'_> {
         Lock {
             guard: self.n_obs.lock(),
-            is_empty: self.x.is_empty() && self.obs.is_empty() &&
-                (self.obsm.is_empty() || self.obsm.inner().is_empty()) &&
-                (self.obsp.is_empty() || self.obsp.inner().is_empty()),
+            is_empty: self.x.is_empty()
+                && self.obs.is_empty()
+                && (self.obsm.is_empty() || self.obsm.inner().is_empty())
+                && (self.obsp.is_empty() || self.obsp.inner().is_empty()),
         }
     }
     pub(crate) fn lock_vars(&self) -> Lock<'_> {
         Lock {
             guard: self.n_vars.lock(),
-            is_empty: self.x.is_empty() && self.var.is_empty() &&
-                (self.varm.is_empty() || self.varm.inner().is_empty()) &&
-                (self.varp.is_empty() || self.varp.inner().is_empty()),
+            is_empty: self.x.is_empty()
+                && self.var.is_empty()
+                && (self.varm.is_empty() || self.varm.inner().is_empty())
+                && (self.varp.is_empty() || self.varp.inner().is_empty()),
         }
     }
 
@@ -192,27 +194,30 @@ impl<B: Backend> AnnData<B> {
             Slot::empty()
         };
 
-        let obsm = AxisArrays::new(
-            file.open_group("obsm").or(file.create_group("obsm"))?,
-            Axis::Row,
-            n_obs.clone(),
-        )?;
-        let obsp = AxisArrays::new(
-            file.open_group("obsp").or(file.create_group("obsp"))?,
-            Axis::RowColumn,
-            n_obs.clone(),
-        )?;
-        let varm = AxisArrays::new(
-            file.open_group("varm").or(file.create_group("varm"))?,
-            Axis::Row,
-            n_vars.clone(),
-        )?;
-        let varp = AxisArrays::new(
-            file.open_group("varp").or(file.create_group("varp"))?,
-            Axis::RowColumn,
-            n_vars.clone(),
-        )?;
-        let uns = ElemCollection::new(file.open_group("uns").or(file.create_group("uns"))?)?;
+        let obsm = match file.open_group("obsm").or(file.create_group("obsm")) {
+            Ok(group) => AxisArrays::new(group, Axis::Row, n_obs.clone())?,
+            _ => AxisArrays::empty(),
+        };
+
+        let obsp = match file.open_group("obsp").or(file.create_group("obsp")) {
+            Ok(group) => AxisArrays::new(group, Axis::RowColumn, n_obs.clone())?,
+            _ => AxisArrays::empty(),
+        };
+
+        let varm = match file.open_group("varm").or(file.create_group("varm")) {
+            Ok(group) => AxisArrays::new(group, Axis::Row, n_vars.clone())?,
+            _ => AxisArrays::empty(),
+        };
+
+        let varp = match file.open_group("varp").or(file.create_group("varp")) {
+            Ok(group) => AxisArrays::new(group, Axis::RowColumn, n_vars.clone())?,
+            _ => AxisArrays::empty(),
+        };
+
+        let uns = match file.open_group("uns").or(file.create_group("uns")) {
+            Ok(group) => ElemCollection::new(group)?,
+            _ => ElemCollection::empty(),
+        };
 
         Ok(Self {
             file,
@@ -237,26 +242,10 @@ impl<B: Backend> AnnData<B> {
             x: Slot::empty(),
             obs: Slot::empty(),
             var: Slot::empty(),
-            obsm: AxisArrays::new(
-                file.create_group("obsm")?,
-                Axis::Row,
-                n_obs.clone(),
-            )?,
-            obsp: AxisArrays::new(
-                file.create_group("obsp")?,
-                Axis::RowColumn,
-                n_obs.clone(),
-            )?,
-            varm: AxisArrays::new(
-                file.create_group("varm")?,
-                Axis::Row,
-                n_vars.clone(),
-            )?,
-            varp: AxisArrays::new(
-                file.create_group("varp")?,
-                Axis::RowColumn,
-                n_vars.clone(),
-            )?,
+            obsm: AxisArrays::new(file.create_group("obsm")?, Axis::Row, n_obs.clone())?,
+            obsp: AxisArrays::new(file.create_group("obsp")?, Axis::RowColumn, n_obs.clone())?,
+            varm: AxisArrays::new(file.create_group("varm")?, Axis::Row, n_vars.clone())?,
+            varp: AxisArrays::new(file.create_group("varp")?, Axis::RowColumn, n_vars.clone())?,
             uns: ElemCollection::new(file.create_group("uns")?)?,
             file,
             n_obs,
@@ -420,7 +409,8 @@ impl<B: Backend> AnnData<B> {
             .as_ref()
             .map(|obsp| obsp.subset(obs_ix))
             .transpose()?;
-        lock.n_obs.set(BoundedSelectInfoElem::new(obs_ix, *lock.n_obs).len());
+        lock.n_obs
+            .set(BoundedSelectInfoElem::new(obs_ix, *lock.n_obs).len());
 
         self.var
             .lock()
@@ -437,7 +427,8 @@ impl<B: Backend> AnnData<B> {
             .as_ref()
             .map(|varp| varp.subset(var_ix))
             .transpose()?;
-        lock.n_vars.set(BoundedSelectInfoElem::new(var_ix, *lock.n_vars).len());
+        lock.n_vars
+            .set(BoundedSelectInfoElem::new(var_ix, *lock.n_vars).len());
 
         Ok(())
     }
@@ -657,13 +648,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         self.get_var().clear()
     }
 
-
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
         self.del_uns()?;
         let uns: ElemCollection<B> = ElemCollection::new(self.file.create_group("uns")?)?;
-        data.try_for_each(|(k, v)| {
-            uns.inner().add_data(&k, v)
-        })?;
+        data.try_for_each(|(k, v)| uns.inner().add_data(&k, v))?;
         self.get_uns().swap(&uns);
         Ok(())
     }
@@ -675,9 +663,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             Axis::Row,
             self.n_obs.clone(),
         )?;
-        data.try_for_each(|(k, v)| {
-            obsm.inner().add_data(&k, v)
-        })?;
+        data.try_for_each(|(k, v)| obsm.inner().add_data(&k, v))?;
         self.get_obsm().swap(&obsm);
         Ok(())
     }
@@ -689,9 +675,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             Axis::RowColumn,
             self.n_obs.clone(),
         )?;
-        data.try_for_each(|(k, v)| {
-            obsp.inner().add_data(&k, v)
-        })?;
+        data.try_for_each(|(k, v)| obsp.inner().add_data(&k, v))?;
         self.get_obsp().swap(&obsp);
         Ok(())
     }
@@ -703,9 +687,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             Axis::Row,
             self.n_vars.clone(),
         )?;
-        data.try_for_each(|(k, v)| {
-            varm.inner().add_data(&k, v)
-        })?;
+        data.try_for_each(|(k, v)| varm.inner().add_data(&k, v))?;
         self.get_varm().swap(&varm);
         Ok(())
     }
@@ -717,9 +699,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             Axis::RowColumn,
             self.n_vars.clone(),
         )?;
-        data.try_for_each(|(k, v)| {
-            varp.inner().add_data(&k, v)
-        })?;
+        data.try_for_each(|(k, v)| varp.inner().add_data(&k, v))?;
         self.get_varp().swap(&varp);
         Ok(())
     }
@@ -904,33 +884,36 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
     fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         self.get_x().chunked(chunk_size)
     }
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>
-    {
+    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
         let mut lock = self.lock();
         self.del_x()?;
         let new_elem =
             ArrayElem::try_from(WriteArrayData::write_from_iter(iter, &self.file, "X")?)?;
         let shape = new_elem.inner().shape().clone();
 
-        match lock.n_obs.try_set(shape[0]).and(lock.n_vars.try_set(shape[1])) {
+        match lock
+            .n_obs
+            .try_set(shape[0])
+            .and(lock.n_vars.try_set(shape[1]))
+        {
             Ok(_) => {
                 self.x.swap(&new_elem);
                 Ok(())
-            },
+            }
             Err(e) => {
                 new_elem.clear()?;
                 Err(e)
             }
         }
     }
- 
+
     fn fetch_obsm_iter<'a, T>(
         &'a self,
         key: &str,
@@ -938,12 +921,16 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
     ) -> Result<Self::ArrayIter<'a, T>>
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
-        {todo!()}
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        todo!()
+    }
 
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
         D: WriteArrayData,
-        {todo!()}
+    {
+        todo!()
+    }
 }

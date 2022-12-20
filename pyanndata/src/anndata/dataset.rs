@@ -11,7 +11,7 @@ use anndata;
 use anndata::{AnnDataOp, ArrayData, Backend, Data, StackedArrayElem};
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
@@ -234,8 +234,51 @@ impl AnnDataSet {
         self.0.inner().set_varp(varp)
     }
 
+    /// Subsetting the AnnDataSet object.
+    ///
+    /// Note
+    /// ----
+    /// AnnDataSet will not move data across underlying AnnData objects. So the
+    /// orders of rows in the resultant AnnDataSet object may not be consistent
+    /// with the input `obs_indices`. This function will return a vector that can
+    /// be used to reorder the `obs_indices` to match the final order of rows in
+    /// the AnnDataSet.
+    ///
+    /// Parameters
+    /// ----------
+    /// obs_indices
+    ///     obs indices
+    /// var_indices
+    ///     var indices
+    /// out
+    ///     Name of the directory used to store the new files. If provided,
+    ///     the result will be saved to the directory and the original files
+    ///     remains unchanged.
+    /// backend: str | None
+    ///
+    /// Returns
+    /// -------
+    /// Tuple[AnnDataSet, list[int] | None]
+    ///     A new AnnDataSet object will be returned.
+    ///     If the order of input `obs_indices` has been changed, it will
+    ///     return the indices that would sort the `obs_indices` array.
+    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
+    pub fn subset(
+        &self,
+        obs_indices: Option<&PyAny>,
+        var_indices: Option<&PyAny>,
+        out: PathBuf,
+        backend: Option<&str>,
+    ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
+        let i = obs_indices
+            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        let j = var_indices
+            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        self.0.inner().subset([i, j].as_slice(), out, backend)
+    }
 }
-
 
 /// Lazily concatenated AnnData objects.
 /*
@@ -267,6 +310,13 @@ trait AnnDataSetTrait: Send {
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+
+    fn subset(
+        &self,
+        slice: &[SelectInfoElem],
+        out: PathBuf,
+        backend: Option<&str>,
+    ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
 }
 
 impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
@@ -409,5 +459,21 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             self.del_varp()?;
         }
         Ok(())
+    }
+
+    fn subset(
+        &self,
+        slice: &[SelectInfoElem],
+        out: PathBuf,
+        backend: Option<&str>,
+    ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
+        match backend.unwrap_or(H5::NAME) {
+            H5::NAME => {
+                let order = self.write_select::<H5, _, _>(slice, &out)?;
+                let file = H5::open_rw(out.join("_dataset.h5ads"))?;
+                Ok((anndata::AnnDataSet::<H5>::open(file, None)?.into(), order))
+            }
+            x => bail!("Unsupported backend: {}", x),
+        }
     }
 }

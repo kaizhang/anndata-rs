@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::ops::Index;
 
 /// A dynamic-typed array.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DynArray {
     I8(ArrayD<i8>),
     I16(ArrayD<i16>),
@@ -326,35 +326,6 @@ impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
                 arr.index(new_idx.as_slice()).clone()
             })
         }.into_dimensionality::<D>().unwrap()
-        /*
-        // Perform slice operation on the array.
-        let slice_info: Vec<_> = info
-            .as_ref()
-            .iter()
-            .map(|x| match x.as_ref() {
-                SelectInfoElem::Index(_) => SLICE_FULL,
-                SelectInfoElem::Slice(s) => s.clone(),
-            })
-            .collect();
-        let arr = self.slice(slice_info.as_slice());
-
-        // Perform selection on the array.
-        info.as_ref()
-            .iter()
-            .enumerate()
-            .fold(None::<ArrayD<T>>, |acc, (axis, sel)| {
-                if let SelectInfoElem::Index(indices) = sel.as_ref() {
-                    if let Some(acc) = acc {
-                        Some(acc.select(Axis(axis), indices.as_slice()))
-                    } else {
-                        Some(arr.select(Axis(axis), indices.as_slice()))
-                    }
-                } else {
-                    acc
-                }
-            })
-            .unwrap_or(arr.to_owned())
-        */
     }
 
 }
@@ -384,7 +355,7 @@ impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
 impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
 impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CategoricalArray {
     pub codes: ArrayD<u32>,
     pub categories: Array1<String>,

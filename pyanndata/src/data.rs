@@ -102,10 +102,10 @@ impl IntoPy<PyObject> for PyData {
 
 impl FromPython<'_> for DynScalar {
     fn from_python(ob: &PyAny) -> PyResult<Self> {
-        if ob.is_instance_of::<pyo3::types::PyInt>()? {
-            ob.extract::<i64>().map(Into::into)
-        } else if ob.is_instance_of::<pyo3::types::PyBool>()? {
+        if ob.is_instance_of::<pyo3::types::PyBool>()? {
             ob.extract::<bool>().map(Into::into)
+        } else if ob.is_instance_of::<pyo3::types::PyInt>()? {
+            ob.extract::<i64>().map(Into::into)
         } else if ob.is_instance_of::<pyo3::types::PyString>()? {
             ob.extract::<String>().map(Into::into)
         } else if ob.is_instance_of::<pyo3::types::PyFloat>()? {

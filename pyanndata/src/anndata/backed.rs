@@ -628,8 +628,8 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
         backend: Option<&str>,
     ) -> Result<Option<AnnData>> {
         if let Some(out) = out {
-            match backend.unwrap_or("hdf5") {
-                "hdf5" => {
+            match backend.unwrap_or(H5::NAME) {
+                H5::NAME => {
                     self.write_select::<H5, _, _>(slice, &out)?;
                     Ok(Some(AnnData::open(out, "r+", backend)?))
                 }

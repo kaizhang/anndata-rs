@@ -30,6 +30,14 @@ pub fn to_select_elem(ob: &PyAny, length: usize) -> PyResult<SelectInfoElem> {
         SelectInfoElem::full()
     } else if ob.is_instance_of::<pyo3::types::PyInt>()? {
         ob.extract::<usize>()?.into()
+    } else if isinstance_of_arr(py, ob)? && ob.getattr("dtype")?.getattr("name")?.extract::<&str>()? == "bool" {
+        let arr = ob
+            .extract::<numpy::PyReadonlyArray1<bool>>()?;
+        if arr.len() == length {
+            boolean_mask_to_indices(arr.as_array().into_iter().map(|x| *x)).into()
+        } else {
+            panic!("boolean mask dimension mismatched")
+        }
     } else {
         let boolean_mask: PyResult<Vec<bool>> =
             ob.iter()?.map(|x| x.unwrap().extract()).collect();
