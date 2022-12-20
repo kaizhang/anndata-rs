@@ -139,6 +139,8 @@ impl ReadArrayData for DataFrame {
     }
 }
 
+impl WriteArrayData for DataFrame {}
+
 impl WriteData for Series {
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,

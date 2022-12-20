@@ -5,6 +5,7 @@ mod sparse;
 pub(crate) mod utils;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
+use polars::prelude::DataFrame;
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
 pub use dataframe::DataFrameIndex;
@@ -21,11 +22,18 @@ pub enum ArrayData {
     Array(DynArray),
     CsrMatrix(DynCsrMatrix),
     //CscMatrix(DynCscMatrix),
+    DataFrame(DataFrame),
 }
 
 impl<T: Clone + Into<ArrayData>> From<&T> for ArrayData {
     fn from(data: &T) -> Self {
         data.clone().into()
+    }
+}
+
+impl From<DataFrame> for ArrayData {
+    fn from(data: DataFrame) -> Self {
+        ArrayData::DataFrame(data)
     }
 }
 
@@ -38,6 +46,16 @@ impl From<DynArray> for ArrayData {
 impl From<DynCsrMatrix> for ArrayData {
     fn from(data: DynCsrMatrix) -> Self {
         ArrayData::CsrMatrix(data)
+    }
+}
+
+impl TryFrom<ArrayData> for DataFrame {
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        match value {
+            ArrayData::DataFrame(data) => Ok(data),
+            _ => bail!("Cannot convert {:?} to DataFrame", value),
+        }
     }
 }
 
@@ -89,6 +107,7 @@ impl WriteData for ArrayData {
         match self {
             ArrayData::Array(data) => data.write(location, name),
             ArrayData::CsrMatrix(data) => data.write(location, name),
+            ArrayData::DataFrame(data) => data.write(location, name),
         }
     }
 }
@@ -101,6 +120,7 @@ impl ReadData for ArrayData {
             }
             DataType::CsrMatrix(_) => DynCsrMatrix::read(container).map(ArrayData::CsrMatrix),
             DataType::CscMatrix(_) => todo!(),
+            DataType::DataFrame => DataFrame::read(container).map(ArrayData::DataFrame),
             ty => bail!("Cannot read type '{:?}' as matrix data", ty),
         }
     }
@@ -111,6 +131,7 @@ impl HasShape for ArrayData {
         match self {
             ArrayData::Array(data) => data.shape(),
             ArrayData::CsrMatrix(data) => data.shape(),
+            ArrayData::DataFrame(data) => HasShape::shape(data),
         }
     }
 }
@@ -120,6 +141,7 @@ impl ArrayOp for ArrayData {
         match self {
             ArrayData::Array(data) => data.get(index),
             ArrayData::CsrMatrix(data) => data.get(index),
+            ArrayData::DataFrame(data) => ArrayOp::get(data, index),
         }
     }
 
@@ -130,6 +152,7 @@ impl ArrayOp for ArrayData {
         match self {
             ArrayData::Array(data) => data.select(info).into(),
             ArrayData::CsrMatrix(data) => data.select(info).into(),
+            ArrayData::DataFrame(data) => ArrayOp::select(data,info).into(),
         }
     }
 }
@@ -139,6 +162,7 @@ impl ReadArrayData for ArrayData {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => DynArray::get_shape(container),
             DataType::CsrMatrix(_) => DynCsrMatrix::get_shape(container),
+            DataType::DataFrame => DataFrame::get_shape(container),
             ty => bail!("Cannot read shape information from type '{}'", ty),
         }
     }
@@ -149,12 +173,12 @@ impl ReadArrayData for ArrayData {
         S: AsRef<SelectInfoElem>,
     {
         match container.encoding_type()? {
-            DataType::Categorical | DataType::Array(_) => {
-                DynArray::read_select(container, info).map(ArrayData::Array)
-            }
-            DataType::CsrMatrix(_) => {
-                DynCsrMatrix::read_select(container, info).map(ArrayData::CsrMatrix)
-            }
+            DataType::Categorical | DataType::Array(_) =>
+                DynArray::read_select(container, info).map(ArrayData::Array),
+            DataType::CsrMatrix(_) =>
+                DynCsrMatrix::read_select(container, info).map(ArrayData::CsrMatrix),
+            DataType::DataFrame =>
+                DataFrame::read_select(container, info).map(ArrayData::DataFrame),
             ty => bail!("Cannot read type '{:?}' as matrix data", ty),
         }
     }

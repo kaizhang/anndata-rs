@@ -58,6 +58,8 @@ impl Deref for H5Dataset {
 ///////////////////////////////////////////////////////////////////////////////
 
 impl Backend for H5 {
+    const NAME: &'static str = "hdf5";
+
     type File = H5File;
 
     type Group = H5Group;
@@ -112,7 +114,7 @@ fn new_dataset<T: BackendData>(
     shape: &Shape,
     config: WriteConfig,
 ) -> Result<H5Dataset> {
-    let builder = match T::DTYPE {
+    let mut builder = match T::DTYPE {
         ScalarType::U8 => group.new_dataset::<u8>(),
         ScalarType::U16 => group.new_dataset::<u16>(),
         ScalarType::U32 => group.new_dataset::<u32>(),
@@ -127,17 +129,25 @@ fn new_dataset<T: BackendData>(
         ScalarType::Bool => group.new_dataset::<bool>(),
         ScalarType::String => group.new_dataset::<VarLenUnicode>(),
     };
-    let block_size = config.block_size.unwrap_or(vec![100; shape.ndim()].into());
-    let s: hdf5::Extents = hdf5::SimpleExtents::resizable(shape.as_ref()).into();
-    let dataset = if let Some(compression) = config.compression {
-        builder.deflate(compression).chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?
+
+    builder = if let Some(compression) = config.compression {
+        builder.deflate(compression)
     } else {
-        builder.chunk(block_size.as_ref())
-            .shape(s)
-            .create(name)?
+        builder
     };
+
+    builder = if let Some(s) = config.block_size {
+        if s.as_ref().iter().all(|&x| x > 0) {
+            builder.chunk(s.as_ref())
+        } else {
+            builder
+        }
+    } else {
+        builder
+    };
+
+    let s: hdf5::Extents = hdf5::SimpleExtents::resizable(shape.as_ref()).into();
+    let dataset = builder.shape(s).create(name)?;
     Ok(H5Dataset(dataset))
 }
 
@@ -673,7 +683,7 @@ mod tests {
     use anndata::s;
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
-    use ndarray::{Axis, concatenate};
+    use ndarray::{Array1, array, Axis, concatenate, Ix1};
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -700,9 +710,25 @@ mod tests {
     }
 
     #[test]
+    fn test_write_empty() -> Result<()> {
+        with_tmp_path(|path| {
+            let file = H5::create(&path)?;
+            let group = file.create_group("group")?;
+            let config = WriteConfig {
+                ..Default::default()
+            };
+
+            let empty = Array1::<u8>::from_vec(Vec::new());
+            let dataset = group.create_array_data("test", &empty, config)?;
+            assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
+            Ok(())
+        })
+    }
+
+    #[test]
     fn test_write_slice() -> Result<()> {
         with_tmp_path(|path| -> Result<()> {
-            let file = H5::create(path.clone())?;
+            let file = H5::create(&path)?;
             let config = WriteConfig {
                 ..Default::default()
             };

@@ -21,6 +21,8 @@ impl Default for WriteConfig {
 }
 
 pub trait Backend {
+    const NAME: &'static str;
+
     /// File represents the root of the hierarchy.
     type File: FileOp<Backend = Self> + GroupOp<Backend = Self> + Send + Sync;
 

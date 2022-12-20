@@ -119,36 +119,6 @@ impl StackedAnnData {
     }
 }
 
-/** Similar to `AnnData`, `AnnDataSet` contains annotations of
-    observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
-    and unstructured annotations `uns`. Additionally it provides lazy access to
-    concatenated component AnnData objects, including `X`, `obs`, `obsm`, `obsp`.
-
-    Parameters
-    ----------
-    adatas: list[(str, Path)] | list[(str, AnnData)]
-        List of key and file name (or backed AnnData object) pairs.
-    filename: Path
-        File name of the output file containing the AnnDataSet object.
-    add_key: str
-        The column name in obs to store the keys
-
-    Note
-    ----
-    AnnDataSet does not copy underlying AnnData objects. It stores the references
-    to individual anndata files. If you move the anndata files to a new location,
-    remember to update the anndata file locations when opening an AnnDataSet object.
-
-    See Also
-    --------
-    read_dataset
-*/
-#[pyclass]
-#[pyo3(text_signature = "(*, adatas, filename, add_key /)")]
-#[repr(transparent)]
-#[derive(Clone)]
-pub struct AnnDataSet(Slot<anndata::AnnDataSet>);
-
 impl AnnDataSet {
     pub fn inner(&self) -> Inner<'_, anndata::AnnDataSet> {
         self.0.inner()
@@ -204,81 +174,6 @@ pub enum AnnDataFile {
 
 #[pymethods]
 impl AnnDataSet {
-    #[new]
-    #[args("*", adatas, filename, add_key = "\"sample\"")]
-    pub fn new(
-        adatas: Vec<(String, AnnDataFile)>,
-        filename: PathBuf,
-        add_key: &str,
-    ) -> Result<Self> {
-        let anndatas = adatas
-            .into_par_iter()
-            .map(|(key, data_file)| {
-                let adata = match data_file {
-                    AnnDataFile::Data(data) => data.0.extract().unwrap(),
-                    AnnDataFile::Path(path) => {
-                        let file = hdf5::File::open(path)?;
-                        anndata::AnnData::read(file)?
-                    }
-                };
-                Ok((key, adata))
-            })
-            .collect::<Result<_>>()?;
-        Ok(AnnDataSet::wrap(anndata::AnnDataSet::new(
-            anndatas, filename, add_key,
-        )?))
-    }
-
-    /// Shape of data matrix (`n_obs`, `n_vars`).
-    ///
-    /// Returns
-    /// -------
-    /// tuple[int, int]
-    #[getter]
-    pub fn shape(&self) -> (usize, usize) {
-        (self.n_obs(), self.n_vars())
-    }
-
-    /// Number of observations.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub fn n_obs(&self) -> usize {
-        self.0.inner().n_obs()
-    }
-
-    /// Number of variables/features.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    #[getter]
-    pub fn n_vars(&self) -> usize {
-        self.0.inner().n_vars()
-    }
-
-    /// Names of variables.
-    ///
-    /// Returns
-    /// -------
-    /// list[str]
-    #[getter]
-    pub fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names()
-    }
-
-    #[setter(var_names)]
-    pub fn set_var_names(&self, names: &PyAny) -> PyResult<()> {
-        let var_names: PyResult<DataFrameIndex> = names
-            .iter()?
-            .map(|x| x.unwrap().extract::<String>())
-            .collect();
-        self.0.inner().set_var_names(var_names?).unwrap();
-        Ok(())
-    }
-
     #[pyo3(text_signature = "($self, names)")]
     pub fn var_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().var_ix(&names).unwrap()

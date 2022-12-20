@@ -163,12 +163,19 @@ fn test_iterator<B: Backend>() -> Result<()> {
 fn test_io<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
-        let arr_x = Array::random((2, 3), Uniform::new(-100, 100));
-        let csr_x = rand_csr(2, 3, 2);
 
+        let mut arr_x = Array::random((0, 0), Uniform::new(-100, 100));
+        let mut csr_x = rand_csr(0, 0, 0);
         adata.set_x(&csr_x)?;
         assert_eq!(csr_x, adata.read_x::<CsrMatrix<i64>>()?.unwrap());
+        adata.set_x(&arr_x)?;
+        assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
+        adata.del_x()?;
 
+        arr_x = Array::random((2, 3), Uniform::new(-100, 100));
+        csr_x = rand_csr(2, 3, 2);
+        adata.set_x(&csr_x)?;
+        assert_eq!(csr_x, adata.read_x::<CsrMatrix<i64>>()?.unwrap());
         adata.set_x(&arr_x)?;
         assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
 

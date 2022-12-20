@@ -1,7 +1,9 @@
-use crate::data::{is_none_slice, to_select_info, PyArrayData, PyData};
+use std::ops::Deref;
+
+use crate::data::{is_none_slice, to_select_info, PyArrayData, PyData, PySeries, IntoPython, PyDataFrame};
 
 use anndata::backend::DataType;
-use anndata::{ArrayData, ArrayElem, Backend, Data, DataFrameElem, Elem, AxisArrays, ElemCollection};
+use anndata::{ArrayData, ArrayElem, Backend, Data, DataFrameElem, Elem, AxisArrays, ElemCollection, StackedArrayElem, StackedDataFrame};
 use anyhow::{bail, Result, Context};
 use polars::prelude::DataFrame;
 use pyo3::prelude::*;
@@ -137,21 +139,75 @@ impl<B: Backend> ArrayElemTrait for ArrayElem<B> {
     }
 }
 
+impl<B: Backend> ArrayElemTrait for StackedArrayElem<B> {
+    fn enable_cache(&self) {
+        self.deref().enable_cache();
+    }
+
+    fn disable_cache(&self) {
+        self.deref().disable_cache();
+    }
+
+    fn is_scalar(&self) -> bool {
+        match self.dtype() {
+            DataType::Scalar(_) => true,
+            _ => false,
+        }
+    }
+
+    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
+        let slice = to_select_info(subscript, self.deref().shape())?;
+        self.select::<ArrayData, _>(slice.as_ref())
+            .map(|x| x.into())
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+
+    fn shape(&self) -> Vec<usize> {
+        self.deref().shape().as_ref().to_vec()
+    }
+
+    fn chunk<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        replace: bool,
+        seed: u64,
+    ) -> PyResult<PyObject> {
+        todo!()
+    }
+
+    fn chunked(&self, chunk_size: usize) -> usize {
+        todo!()
+    }
+}
+
+
 pub trait DataFrameElemTrait: Send {
-    fn get<'py>(&self, subscript: &'py PyAny) -> Result<DataFrame>;
-    fn set<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()>;
+    fn get(&self, subscript: &PyAny) -> Result<PyObject>;
+    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()>;
     fn contains(&self, key: &str) -> bool;
     fn show(&self) -> String;
 }
 
 impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
-    fn get<'py>(&self, subscript: &'py PyAny) -> Result<DataFrame> {
-        let shape = [self.inner().width(), self.inner().height()].as_slice().into();
-        let slice = to_select_info(subscript, &shape)?;
-        self.inner().select(slice.as_ref())
+    fn get(&self, subscript: &PyAny) -> Result<PyObject> {
+        let py = subscript.py();
+        if let Ok(key) = subscript.extract::<&str>() {
+            Ok(self.inner().column(key)?.into_python(py)?)
+        } else {
+            let width = self.inner().width();
+            let height = self.inner().height();
+            let shape = [width, height].as_slice().into();
+            let slice = to_select_info(subscript, &shape)?;
+            let df = self.inner().select(slice.as_ref())?;
+            Ok(PyDataFrame::from(df).into_py(py))
+        }
     }
 
-    fn set<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()> {
+    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()> {
         todo!()
     }
 
@@ -166,6 +222,35 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
         format!("{}", self)
     }
 }
+
+impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
+    fn get(&self, subscript: &PyAny) -> Result<PyObject> {
+        let py = subscript.py();
+        if let Ok(key) = subscript.extract::<&str>() {
+            Ok(self.column(key)?.into_python(py)?)
+        } else {
+            let width = self.width();
+            let height = self.height();
+            let shape = [width, height].as_slice().into();
+            let slice = to_select_info(subscript, &shape)?;
+            let df = self.select(slice.as_ref())?;
+            Ok(PyDataFrame::from(df).into_py(py))
+        }
+    }
+
+    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()> {
+        todo!()
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.get_column_names().contains(key)
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+}
+
 
 pub trait AxisArrayTrait: Send {
     fn keys(&self) -> Vec<String>;

@@ -321,14 +321,6 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         self.get_keys("varp").unwrap()
     }
 
-    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
-        todo!()
-    }
-
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
-        todo!()
-    }
-
     fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<Data> + TryFrom<Data> + Clone,
@@ -428,7 +420,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn del_uns(&self) -> Result<()> {
-        self.0.setattr("uns", None::<PyObject>)?;
+        self.0.setattr("uns", pyo3::types::PyDict::new(self.py()))?;
         Ok(())
     }
 

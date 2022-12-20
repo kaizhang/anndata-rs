@@ -20,7 +20,7 @@ use parking_lot::{Mutex, MutexGuard};
 use polars::prelude::DataFrame;
 use std::{
     path::{Path, PathBuf},
-    sync::Arc, ops::Deref, collections::HashMap,
+    sync::Arc, ops::Deref,
 };
 
 pub struct AnnData<B: Backend> {
@@ -234,17 +234,33 @@ impl<B: Backend> AnnData<B> {
         let n_obs = Arc::new(Mutex::new(n_obs));
         let n_vars = Arc::new(Mutex::new(n_vars));
         Ok(Self {
+            x: Slot::empty(),
+            obs: Slot::empty(),
+            var: Slot::empty(),
+            obsm: AxisArrays::new(
+                file.create_group("obsm")?,
+                Axis::Row,
+                n_obs.clone(),
+            )?,
+            obsp: AxisArrays::new(
+                file.create_group("obsp")?,
+                Axis::RowColumn,
+                n_obs.clone(),
+            )?,
+            varm: AxisArrays::new(
+                file.create_group("varm")?,
+                Axis::Row,
+                n_vars.clone(),
+            )?,
+            varp: AxisArrays::new(
+                file.create_group("varp")?,
+                Axis::RowColumn,
+                n_vars.clone(),
+            )?,
+            uns: ElemCollection::new(file.create_group("uns")?)?,
             file,
             n_obs,
             n_vars,
-            x: Slot::empty(),
-            uns: ElemCollection::empty(),
-            obs: Slot::empty(),
-            obsm: AxisArrays::empty(),
-            obsp: AxisArrays::empty(),
-            var: Slot::empty(),
-            varm: AxisArrays::empty(),
-            varp: AxisArrays::empty(),
         })
     }
 
@@ -663,6 +679,48 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             obsm.inner().add_data(&k, v)
         })?;
         self.get_obsm().swap(&obsm);
+        Ok(())
+    }
+
+    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_obsp()?;
+        let obsp = AxisArrays::new(
+            self.file.create_group("obsp")?,
+            Axis::RowColumn,
+            self.n_obs.clone(),
+        )?;
+        data.try_for_each(|(k, v)| {
+            obsp.inner().add_data(&k, v)
+        })?;
+        self.get_obsp().swap(&obsp);
+        Ok(())
+    }
+
+    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_varm()?;
+        let varm = AxisArrays::new(
+            self.file.create_group("varm")?,
+            Axis::Row,
+            self.n_vars.clone(),
+        )?;
+        data.try_for_each(|(k, v)| {
+            varm.inner().add_data(&k, v)
+        })?;
+        self.get_varm().swap(&varm);
+        Ok(())
+    }
+
+    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_varp()?;
+        let varp = AxisArrays::new(
+            self.file.create_group("varp")?,
+            Axis::RowColumn,
+            self.n_vars.clone(),
+        )?;
+        data.try_for_each(|(k, v)| {
+            varp.inner().add_data(&k, v)
+        })?;
+        self.get_varp().swap(&varp);
         Ok(())
     }
 

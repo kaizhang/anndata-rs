@@ -125,6 +125,14 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
 }
 
 impl<B: Backend> AnnDataSet<B> {
+    pub fn get_x(&self) -> &StackedArrayElem<B> {
+        self.anndatas.get_x()
+    }
+
+    pub fn get_anno(&self) -> &AnnData<B> {
+        &self.annotation
+    }
+
     pub fn new<'a, T, S, P>(data: T, filename: P, add_key: &str) -> Result<Self>
     where
         T: IntoIterator<Item = (S, AnnData<B>)>,
@@ -433,9 +441,17 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
         self.annotation.set_uns(data)
     }
-
     fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
         self.annotation.set_obsm(data)
+    }
+    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        self.annotation.set_obsp(data)
+    }
+    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        self.annotation.set_varm(data)
+    }
+    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        self.annotation.set_varp(data)
     }
 
     fn uns_keys(&self) -> Vec<String> {

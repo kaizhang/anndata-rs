@@ -74,6 +74,8 @@ impl Location {
 }
 
 impl Backend for N5 {
+    const NAME: &'static str = "n5";
+
     type File = Root;
 
     type Group = Group;

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::data::*;
 
 use anyhow::Result;
@@ -54,8 +56,26 @@ pub trait AnnDataOp {
     /// Delete the variable annotations.
     fn del_var(&self) -> Result<()>;
 
-    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()>;
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()>;
+    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
+        self.del_uns()?;
+        data.try_for_each(|(k, v)| self.add_uns(&k, v))
+    }
+    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_obsm()?;
+        data.try_for_each(|(k, v)| self.add_obsm(&k, v))
+    }
+    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_obsp()?;
+        data.try_for_each(|(k, v)| self.add_obsp(&k, v))
+    }
+    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_varm()?;
+        data.try_for_each(|(k, v)| self.add_varm(&k, v))
+    }
+    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_varp()?;
+        data.try_for_each(|(k, v)| self.add_varp(&k, v))
+    }
 
     fn uns_keys(&self) -> Vec<String>;
     fn obsm_keys(&self) -> Vec<String>;

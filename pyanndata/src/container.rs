@@ -97,13 +97,13 @@ impl<T: DataFrameElemTrait + 'static> From<T> for PyDataFrameElem {
 
 #[pymethods]
 impl PyDataFrameElem {
-    fn __getitem__<'py>(&self, subscript: &'py PyAny) -> Result<PyDataFrame> {
-        Ok(self.0.get(subscript)?.into())
+    fn __getitem__(&self, subscript: &PyAny) -> Result<PyObject> {
+        self.0.get(subscript)
     }
 
     //TODO: pandas dataframe should set index as well.
     fn __setitem__<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()> {
-        self.0.set(py, key, data)
+        todo!()
     }
 
     fn __contains__(&self, key: &str) -> bool {

@@ -19,7 +19,6 @@ use polars::frame::DataFrame;
 pub enum Data {
     ArrayData(ArrayData),
     Scalar(DynScalar),
-    DataFrame(DataFrame),
     Mapping(Mapping),
 }
 
@@ -27,6 +26,12 @@ pub enum Data {
 impl<T: Clone + Into<Data>> From<&T> for Data {
     fn from(data: &T) -> Self {
         data.clone().into()
+    }
+}
+
+impl From<DataFrame> for Data {
+    fn from(data: DataFrame) -> Self {
+        Data::ArrayData(ArrayData::DataFrame(data))
     }
 }
 
@@ -75,7 +80,6 @@ macro_rules! impl_into_data2 {
 
 impl_into_data2!(DynScalar, Scalar);
 impl_into_data2!(ArrayData, ArrayData);
-impl_into_data2!(DataFrame, DataFrame);
 impl_into_data2!(Mapping, Mapping);
 
 macro_rules! impl_try_from_for_scalar {
@@ -112,9 +116,9 @@ impl_try_from_for_scalar!(
 impl TryFrom<Data> for DataFrame {
     type Error = anyhow::Error;
 
-    fn try_from(v: Data) -> Result<Self> {
-        match v {
-            Data::DataFrame(data) => Ok(data),
+    fn try_from(value: Data) -> Result<Self, Self::Error> {
+        match value {
+            Data::ArrayData(data) => data.try_into(),
             _ => bail!("Cannot convert data to DataFrame"),
         }
     }
@@ -140,7 +144,6 @@ impl WriteData for Data {
         match self {
             Data::ArrayData(data) => data.write(location, name),
             Data::Scalar(data) => data.write(location, name),
-            Data::DataFrame(data) => data.write(location, name),
             Data::Mapping(data) => data.write(location, name),
         }
     }
@@ -156,8 +159,8 @@ impl ReadData for Data {
                 DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into())
             }
             DataType::CscMatrix(_) => todo!(),
+            DataType::DataFrame => DataFrame::read(container).map(|x| ArrayData::from(x).into()),
             DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
-            DataType::DataFrame => DataFrame::read(container).map(|x| x.into()),
             DataType::Mapping => Mapping::read(container).map(|x| x.into()),
         }
     }

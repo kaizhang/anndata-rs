@@ -72,8 +72,8 @@ impl AnnData {
     }
 
     pub fn open(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
-        match backend.unwrap_or("hdf5") {
-            "hdf5" => {
+        match backend.unwrap_or(H5::NAME) {
+            H5::NAME => {
                 let file = match mode {
                     "r" => H5::open(filename)?,
                     "r+" => H5::open_rw(filename)?,
@@ -106,10 +106,9 @@ impl AnnData {
         obsm = "None",
         varm = "None",
         uns = "None",
-        backend = "\"hdf5\""
+        backend = "H5::NAME"
     )]
-    pub fn new<'py>(
-        py: Python<'py>,
+    pub fn new(
         filename: PathBuf,
         X: Option<PyArrayData>,
         n_obs: Option<usize>,
@@ -117,12 +116,12 @@ impl AnnData {
         obs: Option<PyDataFrame>,
         var: Option<PyDataFrame>,
         obsm: Option<HashMap<String, PyArrayData>>,
-        varm: Option<HashMap<String, &'py PyAny>>,
+        varm: Option<HashMap<String, PyArrayData>>,
         uns: Option<HashMap<String, PyData>>,
         backend: &str,
     ) -> Result<Self> {
         let adata: AnnData = match backend {
-            "hdf5" => {
+            H5::NAME => {
                 anndata::AnnData::<H5>::new(filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0))?
                     .into()
             }
@@ -141,11 +140,9 @@ impl AnnData {
         if obsm.is_some() {
             adata.set_obsm(obsm)?;
         }
-        /*
         if varm.is_some() {
-            anndata.set_varm(py, varm)?;
+            adata.set_varm(varm)?;
         }
-        */
         if uns.is_some() {
             adata.set_uns(uns)?;
         }
@@ -275,6 +272,33 @@ impl AnnData {
         self.0.inner().set_obsm(obsm)
     }
 
+    #[getter(obsp)]
+    pub fn get_obsp(&self) -> Option<PyAxisArrays> {
+        self.0.inner().get_obsp()
+    }
+    #[setter(obsp)]
+    pub fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        self.0.inner().set_obsp(obsp)
+    }
+
+    #[getter(varm)]
+    pub fn get_varm(&self) -> Option<PyAxisArrays> {
+        self.0.inner().get_varm()
+    }
+    #[setter(varm)]
+    pub fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        self.0.inner().set_varm(varm)
+    }
+
+    #[getter(varp)]
+    pub fn get_varp(&self) -> Option<PyAxisArrays> {
+        self.0.inner().get_varp()
+    }
+    #[setter(varp)]
+    pub fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        self.0.inner().set_varp(varp)
+    }
+
     /// Subsetting the AnnData object.
     ///
     /// Parameters
@@ -316,6 +340,11 @@ impl AnnData {
     #[getter]
     pub fn filename(&self) -> PathBuf {
         self.0.inner().filename()
+    }
+
+    #[getter]
+    pub fn backend(&self) -> String {
+        self.0.inner().backend().to_string()
     }
 
     /// Whether the AnnData object is backed. This is always true.
@@ -407,12 +436,18 @@ trait AnnDataTrait: Send + Downcast {
     fn get_var(&self) -> Option<PyDataFrameElem>;
     fn get_uns(&self) -> Option<PyElemCollection>;
     fn get_obsm(&self) -> Option<PyAxisArrays>;
+    fn get_obsp(&self) -> Option<PyAxisArrays>;
+    fn get_varm(&self) -> Option<PyAxisArrays>;
+    fn get_varp(&self) -> Option<PyAxisArrays>;
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()>;
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()>;
     fn set_var(&self, var: Option<PyDataFrame>) -> Result<()>;
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()>;
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+    fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+    fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+    fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
 
     fn subset(
         &self,
@@ -426,6 +461,7 @@ trait AnnDataTrait: Send + Downcast {
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
+    fn backend(&self) -> &str;
     fn show(&self) -> String;
 }
 impl_downcast!(AnnDataTrait);
@@ -495,6 +531,30 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
             Some(obsm.clone().into())
         }
     }
+    fn get_obsp(&self) -> Option<PyAxisArrays> {
+        let obsp = self.get_obsp();
+        if obsp.is_empty() {
+            None
+        } else {
+            Some(obsp.clone().into())
+        }
+    }
+    fn get_varm(&self) -> Option<PyAxisArrays> {
+        let varm = self.get_varm();
+        if varm.is_empty() {
+            None
+        } else {
+            Some(varm.clone().into())
+        }
+    }
+    fn get_varp(&self) -> Option<PyAxisArrays> {
+        let varp = self.get_varp();
+        if varp.is_empty() {
+            None
+        } else {
+            Some(varp.clone().into())
+        }
+    }
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
         if let Some(d) = data {
@@ -536,6 +596,30 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
         }
         Ok(())
     }
+    fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        if let Some(o) = obsp {
+            AnnDataOp::set_obsp(self, o.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            self.del_obsp()?;
+        }
+        Ok(())
+    }
+    fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        if let Some(v) = varm {
+            AnnDataOp::set_varm(self, v.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            self.del_varm()?;
+        }
+        Ok(())
+    }
+    fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        if let Some(v) = varp {
+            AnnDataOp::set_varp(self, v.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            self.del_varp()?;
+        }
+        Ok(())
+    }
 
     fn subset(
         &self,
@@ -558,8 +642,8 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
     }
 
     fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
-        match backend.unwrap_or("hdf5") {
-            "hdf5" => self.write::<H5, _>(filename),
+        match backend.unwrap_or(H5::NAME) {
+            H5::NAME => self.write::<H5, _>(filename),
             x => bail!("Unsupported backend: {}", x),
         }
     }
@@ -575,6 +659,10 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
 
     fn filename(&self) -> PathBuf {
         self.filename()
+    }
+
+    fn backend(&self) -> &str {
+        B::NAME
     }
 
     fn show(&self) -> String {
