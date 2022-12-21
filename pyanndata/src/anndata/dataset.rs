@@ -79,7 +79,7 @@ impl AnnDataSet {
         backend: Option<&str>,
     ) -> Result<Self> {
         let anndatas = adatas
-            .into_par_iter()
+            .into_iter()
             .map(|(key, data_file)| {
                 let adata = match data_file {
                     AnnDataFile::Data(data) => data,
@@ -279,16 +279,19 @@ impl AnnDataSet {
         &self,
         obs_indices: Option<&PyAny>,
         var_indices: Option<&PyAny>,
-        out: PathBuf,
+        out: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
+        if out.is_none() {
+            bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
+        }
         let i = obs_indices
             .map(|x| to_select_elem(x, self.n_obs()).unwrap())
             .unwrap_or(SelectInfoElem::full());
         let j = var_indices
             .map(|x| to_select_elem(x, self.n_vars()).unwrap())
             .unwrap_or(SelectInfoElem::full());
-        self.0.inner().subset([i, j].as_slice(), out, backend)
+        self.0.inner().subset([i, j].as_slice(), out.unwrap(), backend)
     }
 
     /// Whether the AnnDataSet object is backed. This is always true.

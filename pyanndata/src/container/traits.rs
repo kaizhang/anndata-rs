@@ -1,14 +1,22 @@
 use std::ops::Deref;
 
-use crate::data::{is_none_slice, to_select_info, PyArrayData, PyData, PySeries, IntoPython, PyDataFrame};
+use crate::data::{
+    is_none_slice, to_select_info, IntoPython, PyArrayData, PyData, PyDataFrame, PySeries,
+};
 
 use anndata::backend::DataType;
-use anndata::{ArrayData, ArrayElem, Backend, Data, DataFrameElem, Elem, AxisArrays, ElemCollection, StackedArrayElem, StackedDataFrame};
-use anyhow::{bail, Result, Context};
-use polars::prelude::DataFrame;
+use anndata::data::SelectInfoElem;
+use anndata::{
+    ArrayData, ArrayElem, AxisArrays, Backend, Data,
+    DataFrameElem, Elem, ElemCollection, StackedArrayElem, StackedDataFrame,
+};
+use anndata::container::{ChunkedArrayElem, StackedChunkedArrayElem};
+use anyhow::{bail, Context, Result};
 use pyo3::prelude::*;
+use rand::Rng;
+use rand::SeedableRng;
 
-use super::{PyArrayElem, PyElem};
+use super::{PyArrayElem, PyElem, PyChunkedArray};
 
 /// Trait for `Elem` to abtract over different backends.
 pub trait ElemTrait: Send {
@@ -51,62 +59,25 @@ impl<B: Backend> ElemTrait for Elem<B> {
 pub trait ArrayElemTrait: Send {
     fn enable_cache(&self);
     fn disable_cache(&self);
-    fn is_scalar(&self) -> bool;
     fn show(&self) -> String;
     fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData>;
-
-    /// Shape of array.
     fn shape(&self) -> Vec<usize>;
-
-    /// Return a chunk of the matrix with random indices.
-    ///
-    /// Parameters
-    /// ----------
-    /// size
-    ///     Number of rows of the returned random chunk.
-    /// replace
-    ///     True means random sampling of indices with replacement, False without replacement.
-    /// seed
-    ///     Random seed.
-    ///
-    /// Returns
-    /// -------
-    /// A matrix
-    fn chunk<'py>(
+    fn chunk(
         &self,
-        py: Python<'py>,
         size: usize,
         replace: bool,
         seed: u64,
-    ) -> PyResult<PyObject>;
-
-    /// Return an iterator over the rows of the matrix.
-    ///
-    /// Parameters
-    /// ----------
-    /// chunk_size
-    ///     Number of rows of a single chunk.
-    ///
-    /// Returns
-    /// -------
-    /// An iterator, of which the elements are matrices.
-    fn chunked(&self, chunk_size: usize) -> usize;
+    ) -> Result<ArrayData>;
+    fn chunked(&self, chunk_size: usize) -> PyChunkedArray;
 }
 
-impl<B: Backend> ArrayElemTrait for ArrayElem<B> {
+impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
     fn enable_cache(&self) {
         self.lock().as_mut().map(|x| x.enable_cache());
     }
 
     fn disable_cache(&self) {
         self.lock().as_mut().map(|x| x.disable_cache());
-    }
-
-    fn is_scalar(&self) -> bool {
-        match self.inner().dtype() {
-            DataType::Scalar(_) => true,
-            _ => false,
-        }
     }
 
     fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
@@ -124,35 +95,36 @@ impl<B: Backend> ArrayElemTrait for ArrayElem<B> {
         self.inner().shape().as_ref().to_vec()
     }
 
-    fn chunk<'py>(
+    fn chunk(
         &self,
-        py: Python<'py>,
         size: usize,
         replace: bool,
         seed: u64,
-    ) -> PyResult<PyObject> {
-        todo!()
+    ) -> Result<ArrayData> {
+        let length = self.shape()[0];
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let idx: Vec<usize> = if replace {
+            std::iter::repeat_with(|| rng.gen_range(0..length))
+                .take(size)
+                .collect()
+        } else {
+            rand::seq::index::sample(&mut rng, length, size).into_vec()
+        };
+        self.inner().select_axis::<ArrayData, _>(0, &SelectInfoElem::from(idx))
     }
 
-    fn chunked(&self, chunk_size: usize) -> usize {
-        todo!()
+    fn chunked(&self, chunk_size: usize) -> PyChunkedArray {
+        self.chunked::<ArrayData>(chunk_size).into()
     }
 }
 
-impl<B: Backend> ArrayElemTrait for StackedArrayElem<B> {
+impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
     fn enable_cache(&self) {
         self.deref().enable_cache();
     }
 
     fn disable_cache(&self) {
         self.deref().disable_cache();
-    }
-
-    fn is_scalar(&self) -> bool {
-        match self.dtype() {
-            DataType::Scalar(_) => true,
-            _ => false,
-        }
     }
 
     fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
@@ -169,21 +141,28 @@ impl<B: Backend> ArrayElemTrait for StackedArrayElem<B> {
         self.deref().shape().as_ref().to_vec()
     }
 
-    fn chunk<'py>(
+    fn chunk(
         &self,
-        py: Python<'py>,
         size: usize,
         replace: bool,
         seed: u64,
-    ) -> PyResult<PyObject> {
-        todo!()
+    ) -> Result<ArrayData> {
+        let length = self.shape()[0];
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let idx: Vec<usize> = if replace {
+            std::iter::repeat_with(|| rng.gen_range(0..length))
+                .take(size)
+                .collect()
+        } else {
+            rand::seq::index::sample(&mut rng, length, size).into_vec()
+        };
+        self.select_axis::<ArrayData, _>(0, &SelectInfoElem::from(idx))
     }
 
-    fn chunked(&self, chunk_size: usize) -> usize {
-        todo!()
+    fn chunked(&self, chunk_size: usize) -> PyChunkedArray {
+        self.chunked::<ArrayData>(chunk_size).into()
     }
 }
-
 
 pub trait DataFrameElemTrait: Send {
     fn get(&self, subscript: &PyAny) -> Result<PyObject>;
@@ -251,7 +230,6 @@ impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
     }
 }
 
-
 pub trait AxisArrayTrait: Send {
     fn keys(&self) -> Vec<String>;
     fn contains(&self, key: &str) -> bool;
@@ -271,11 +249,22 @@ impl<B: Backend + 'static> AxisArrayTrait for AxisArrays<B> {
     }
 
     fn get(&self, key: &str) -> Result<PyArrayData> {
-        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.inner().data::<ArrayData>()?.into())
+        Ok(self
+            .inner()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .inner()
+            .data::<ArrayData>()?
+            .into())
     }
 
     fn el(&self, key: &str) -> Result<PyArrayElem> {
-        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.clone().into())
+        Ok(self
+            .inner()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .clone()
+            .into())
     }
 
     fn set(&self, key: &str, data: PyArrayData) -> Result<()> {
@@ -306,11 +295,22 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
     }
 
     fn get(&self, key: &str) -> Result<PyData> {
-        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.inner().data::<Data>()?.into())
+        Ok(self
+            .inner()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .inner()
+            .data::<Data>()?
+            .into())
     }
 
     fn el(&self, key: &str) -> Result<PyElem> {
-        Ok(self.inner().get(key).context(format!("No such key: {}", key))?.clone().into())
+        Ok(self
+            .inner()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .clone()
+            .into())
     }
 
     fn set(&self, key: &str, data: PyData) -> Result<()> {
@@ -322,3 +322,7 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
     }
 }
 
+pub trait ChunkedArrayTrait: ExactSizeIterator<Item = (ArrayData, usize, usize)> + Send {}
+
+impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B, ArrayData> {}
+impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B, ArrayData> {}

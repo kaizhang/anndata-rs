@@ -22,7 +22,8 @@ jobs:
 
     - name: Build and test package
       run: |
-        cd ${GITHUB_WORKSPACE}/anndata-rs && cargo test --all --no-fail-fast --features static
+        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --all --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata && cargo test --all --no-fail-fast
         cd ${GITHUB_WORKSPACE}/python && \
           pip install --user .
         pytest ${GITHUB_WORKSPACE}/python/tests

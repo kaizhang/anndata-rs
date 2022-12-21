@@ -536,6 +536,19 @@ impl<B: Backend, T: ArrayOp + Clone> InnerArrayElem<B, T> {
             }
         }
     }
+
+    pub fn select_axis<D, S>(&mut self, axis: usize, selection: S) -> Result<D>
+    where
+        D: Into<T> + TryFrom<T> + ReadArrayData + Clone,
+        S: AsRef<SelectInfoElem>,
+        <D as TryFrom<T>>::Error: Into<anyhow::Error>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection
+            .as_ref()
+            .set_axis(axis, self.shape().ndim(), &full);
+        self.select(slice.as_slice())
+    }
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArrayElem<B, T> {
@@ -829,6 +842,19 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
     }
 
+    pub fn select_axis<D, S>(&self, axis: usize, selection: S) -> Result<D>
+    where
+        D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        S: AsRef<SelectInfoElem>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection
+            .as_ref()
+            .set_axis(axis, self.shape().ndim(), &full);
+        self.select(slice.as_slice())
+    }
+ 
     pub fn select<D, S>(&self, selection: &[S]) -> Result<D>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
@@ -936,6 +962,14 @@ impl<B: Backend> Deref for StackedArrayElem<B> {
 }
 
 impl<B: Backend> StackedArrayElem<B> {
+    pub fn empty() -> Self {
+        Self(Arc::new(InnerStackedArrayElem {
+            shape: (0, 0).into(),
+            elems: SmallVec::new(),
+            index: std::iter::empty().collect(),
+        }))
+    }
+
     pub(crate) fn new(elems: SmallVec<[ArrayElem<B>; 96]>) -> Result<Self> {
         ensure!(
             elems
@@ -1010,7 +1044,7 @@ where
             let i = self.current_position;
             let j = std::cmp::min(self.num_items, self.current_position + self.chunk_size);
             self.current_position = j;
-            let data = self.elem.inner().select(s![i..j].as_ref()).unwrap();
+            let data = self.elem.inner().select_axis(0, SelectInfoElem::from(i..j)).unwrap();
             Some((data, i, j))
         }
     }
@@ -1091,10 +1125,6 @@ where
 pub(crate) struct VecVecIndex(SmallVec<[usize; 96]>);
 
 impl VecVecIndex {
-    pub fn _new<T>(vec_of_vec: &[Vec<T>]) -> Self {
-        vec_of_vec.iter().map(|x| x.len()).collect()
-    }
-
     /// Find the outer and inner index for a given index corresponding to the
     /// flattened view.
     ///
@@ -1191,7 +1221,11 @@ impl VecVecIndex {
                     .into_iter()
                     .map(|(outer, x)| (outer, x.map(|(_, i)| i).collect()))
                     .collect();
-                (idx_groups, Some(mapping))
+                if is_sorted(index.as_slice()) {
+                    (idx_groups, None)
+                } else {
+                    (idx_groups, Some(mapping))
+                }
             }
         }
     }
@@ -1215,4 +1249,8 @@ impl FromIterator<usize> for VecVecIndex {
             .collect();
         VecVecIndex(index)
     }
+}
+
+fn is_sorted(data: &[usize]) -> bool {
+    data.windows(2).all(|w| w[0] < w[1])
 }

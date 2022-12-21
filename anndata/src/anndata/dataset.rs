@@ -209,7 +209,7 @@ impl<B: Backend> AnnDataSet<B> {
             .unwrap();
         let adata_files = adata_files_.unwrap_or(HashMap::new());
         let anndatas: Vec<(String, AnnData<B>)> = keys
-            .into_par_iter()
+            .into_iter()
             .zip(filenames)
             .map(|(k, v)| {
                 let path = Path::new(adata_files.get(k).map_or(v, |x| &*x));
@@ -649,23 +649,18 @@ impl<B: Backend> StackedAnnData<B> {
 
         let files: Result<_> = self
             .elems
-            .par_iter()
+            .iter()
             .enumerate()
-            .flat_map(|(i, (k, adata))| {
-                if let Some(s) = slices.get(&i) {
-                    let file = dir.as_ref().join(k.to_string() + suffix);
-                    let filename = (
-                        k.clone(),
-                        file.file_name().unwrap().to_str().unwrap().to_string(),
-                    );
-                    Some(
-                        adata
-                            .write_select::<O, _, _>([s.clone(), slice[1].clone()], file)
-                            .map(|_| filename),
-                    )
+            .map(|(i, (k, adata))| {
+                let name = k.to_owned() + suffix;
+                let file = dir.as_ref().join(&name);
+                let select = if let Some(s) = slices.get(&i) {
+                    [s.clone(), slice[1].clone()]
                 } else {
-                    None
-                }
+                    [Vec::new().into(), slice[1].clone()]
+                };
+                adata.write_select::<O, _, _>(select, file)?;
+                Ok((k.clone(), name))
             })
             .collect();
 
