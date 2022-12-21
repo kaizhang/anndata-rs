@@ -11,6 +11,7 @@ use crate::{
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
+use nalgebra_sparse::na::SimdRealField;
 use ndarray::{Ix1, Slice};
 use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
@@ -204,6 +205,43 @@ impl<B: Backend> InnerDataFrameElem<B> {
         };
         self.index.overwrite(df.write(location, name)?)?;
         Ok(())
+    }
+
+    pub fn export_select<O, G>(
+        &mut self,
+        selection: &[&SelectInfoElem],
+        location: &G,
+        name: &str,
+    ) -> Result<()>
+    where
+        O: Backend,
+        G: GroupOp<Backend = O>,
+    {
+        if selection.as_ref().into_iter().all(|x| x.is_full()) {
+            self.export::<O, _>(location, name)
+        } else {
+            self.index.select(&selection[0..1]).overwrite(
+                self.select(selection)?.write(location, name)?
+            )?;
+            Ok(())
+        }
+    }
+
+    pub fn export_axis<O, S, G>(
+        &mut self,
+        axis: usize,
+        selection: S,
+        location: &G,
+        name: &str,
+    ) -> Result<()>
+    where
+        O: Backend,
+        S: AsRef<SelectInfoElem>,
+        G: GroupOp<Backend = O>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection.as_ref().set_axis(axis, 2, &full);
+        self.export_select(slice.as_slice(), location, name)
     }
 
     pub fn select<S>(&mut self, selection: &[S]) -> Result<DataFrame>
@@ -517,6 +555,24 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArray
             self.select::<T, _>(selection)?.write(location, name)?;
             Ok(())
         }
+    }
+
+    pub fn export_axis<O, G>(
+        &mut self,
+        axis: usize,
+        selection: &SelectInfoElem,
+        location: &G,
+        name: &str,
+    ) -> Result<()>
+    where
+        O: Backend,
+        G: GroupOp<Backend = O>,
+    {
+        let full = SelectInfoElem::full();
+        let slice = selection
+            .as_ref()
+            .set_axis(axis, self.shape().ndim(), &full);
+        self.export_select::<O, _>(slice.as_slice(), location, name)
     }
 
     pub(crate) fn subset<S>(&mut self, selection: &[S]) -> Result<()>

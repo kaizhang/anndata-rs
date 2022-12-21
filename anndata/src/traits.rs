@@ -29,9 +29,9 @@ pub trait AnnDataOp {
     fn n_vars(&self) -> usize;
 
     /// Return the names of observations.
-    fn obs_names(&self) -> Vec<String>;
+    fn obs_names(&self) -> DataFrameIndex;
     /// Return the names of variables.
-    fn var_names(&self) -> Vec<String>;
+    fn var_names(&self) -> DataFrameIndex;
 
     /// Chagne the names of observations.
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()>;

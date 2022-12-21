@@ -6,6 +6,7 @@ use crate::AnnData;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use anndata_hdf5::H5;
+use downcast_rs::Downcast;
 use pyo3::prelude::*;
 use anndata;
 use anndata::{AnnDataOp, ArrayData, Backend, Data, StackedArrayElem};
@@ -50,6 +51,17 @@ impl<B: Backend + 'static> From<anndata::AnnDataSet<B>> for AnnDataSet {
     }
 }
 
+impl AnnDataSet {
+    pub fn get_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnDataSet<B>> {
+        self.0.extract().map(|adata| {
+            *adata
+                .into_any()
+                .downcast::<anndata::AnnDataSet<B>>()
+                .expect("downcast failed")
+        })
+    }
+}
+
 #[derive(FromPyObject)]
 pub enum AnnDataFile {
     Path(PathBuf),
@@ -79,7 +91,7 @@ impl AnnDataSet {
         match anndatas.get(0).map(|x| x.1.backend()).and(backend).unwrap_or(H5::NAME) {
             H5::NAME => {
                 let data = anndatas.into_iter().map(|(key, adata)| {
-                    let adata = adata.into_inner::<H5>().unwrap();
+                    let adata = adata.get_inner::<H5>().unwrap();
                     (key, adata)
                 });
                 Ok(anndata::AnnDataSet::new(data, filename, add_key)?.into())
@@ -125,7 +137,7 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names()
+        self.0.inner().obs_names().names
     }
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
@@ -139,7 +151,7 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names()
+        self.0.inner().var_names().names
     }
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
@@ -278,6 +290,55 @@ impl AnnDataSet {
             .unwrap_or(SelectInfoElem::full());
         self.0.inner().subset([i, j].as_slice(), out, backend)
     }
+
+    /// Whether the AnnDataSet object is backed. This is always true.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    #[getter]
+    pub fn isbacked(&self) -> bool {
+        true
+    }
+
+    /// Close the AnnDataSet object.
+    #[pyo3(text_signature = "($self)")]
+    pub fn close(&self) -> Result<()> {
+        match self.backend().as_str() {
+            H5::NAME => if let Some(adata) = self.get_inner::<H5>() {
+                adata.close()?;
+            },
+            x => bail!("Unsupported backend: {}", x),
+        }
+        Ok(())
+    }
+
+    /// If the AnnDataSet object has been closed.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    #[pyo3(text_signature = "($self)")]
+    pub fn is_closed(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[getter]
+    pub fn backend(&self) -> String {
+        self.0.inner().backend().to_string()
+    }
+
+    fn __repr__(&self) -> String {
+        if self.is_closed() {
+            "Closed AnnDataSet object".to_string()
+        } else {
+            self.0.inner().show()
+        }
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// Lazily concatenated AnnData objects.
@@ -287,11 +348,11 @@ impl AnnDataSet {
 pub struct StackedAnnData(pub Slot<anndata::StackedAnnData>);
 */
 
-trait AnnDataSetTrait: Send {
+trait AnnDataSetTrait: Send + Downcast {
     fn shape(&self) -> (usize, usize);
-    fn obs_names(&self) -> Vec<String>;
+    fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: &PyAny) -> Result<()>;
-    fn var_names(&self) -> Vec<String>;
+    fn var_names(&self) -> DataFrameIndex;
     fn set_var_names(&self, names: &PyAny) -> Result<()>;
 
     fn get_x(&self) -> Option<PyArrayElem>;
@@ -317,6 +378,9 @@ trait AnnDataSetTrait: Send {
         out: PathBuf,
         backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
+
+    fn backend(&self) -> &str;
+    fn show(&self) -> String;
 }
 
 impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
@@ -324,7 +388,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         (self.n_obs(), self.n_vars())
     }
 
-    fn obs_names(&self) -> Vec<String> {
+    fn obs_names(&self) -> DataFrameIndex {
         AnnDataOp::obs_names(self)
     }
 
@@ -334,7 +398,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         AnnDataOp::set_obs_names(self, obs_names?)
     }
 
-    fn var_names(&self) -> Vec<String> {
+    fn var_names(&self) -> DataFrameIndex {
         AnnDataOp::var_names(self)
     }
 
@@ -475,5 +539,13 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             }
             x => bail!("Unsupported backend: {}", x),
         }
+    }
+
+    fn backend(&self) -> &str {
+        B::NAME
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
     }
 }

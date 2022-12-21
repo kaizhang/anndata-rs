@@ -314,43 +314,41 @@ impl<B: Backend> AnnData<B> {
             .map(|x| x.export_select::<O, _>(slice.as_slice(), &file, "X"))
             .transpose()?;
 
-        /*
         self.get_obs()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file, "obs"))
+            .map(|x| x.export_axis(0, slice[0], &file, "obs"))
             .transpose()?;
         self.get_var()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O, _>(&file, "var"))
-            .transpose()?;
-        self.get_obsm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("obsm")?))
-            .transpose()?;
-        self.get_obsp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("obsp")?))
-            .transpose()?;
-        self.get_varm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("varm")?))
-            .transpose()?;
-        self.get_varp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file.create_group("varp")?))
+            .map(|x| x.export_axis(0, slice[1], &file, "var"))
             .transpose()?;
         self.get_uns()
             .lock()
             .as_mut()
-            .map(|x| x.export::<O>(&file.create_group("uns")?))
+            .map(|x| x.export(&file, "uns"))
             .transpose()?;
-        */
+        self.get_obsm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select(slice[0], &file, "obsm"))
+            .transpose()?;
+        self.get_obsp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select(slice[0], &file, "obsp"))
+            .transpose()?;
+        self.get_varm()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select(slice[1], &file, "varm"))
+            .transpose()?;
+        self.get_varp()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select(slice[1], &file, "varp"))
+            .transpose()?;
         file.close()?;
         Ok(())
     }
@@ -526,18 +524,18 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         *self.n_vars.lock()
     }
 
-    fn obs_names(&self) -> Vec<String> {
+    fn obs_names(&self) -> DataFrameIndex {
         self.obs
             .lock()
             .as_ref()
-            .map_or(Vec::new(), |obs| obs.index.names.clone())
+            .map_or(DataFrameIndex::new(), |obs| obs.index.clone())
     }
 
-    fn var_names(&self) -> Vec<String> {
+    fn var_names(&self) -> DataFrameIndex {
         self.var
             .lock()
             .as_ref()
-            .map_or(Vec::new(), |var| var.index.names.clone())
+            .map_or(DataFrameIndex::new(), |var| var.index.clone())
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {

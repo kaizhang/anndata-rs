@@ -42,9 +42,14 @@ impl WriteData for DataFrame {
     }
 
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
-        let index_name = container.read_str_attr("_index")?;
-        for obj in container.as_group()?.list()? {
-            if obj != index_name {
+        if let Ok(index_name) = container.read_str_attr("_index") {
+            for obj in container.as_group()?.list()? {
+                if obj != index_name {
+                    container.as_group()?.delete(&obj)?;
+                }
+            }
+        } else {
+            for obj in container.as_group()?.list()? {
                 container.as_group()?.delete(&obj)?;
             }
         }
@@ -307,6 +312,7 @@ impl ReadArrayData for Series {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct DataFrameIndex {
     pub index_name: String,
     pub names: Vec<String>,
@@ -314,6 +320,14 @@ pub struct DataFrameIndex {
 }
 
 impl DataFrameIndex {
+    pub fn new() -> Self {
+        Self {
+            index_name: "index".to_string(),
+            names: Vec::new(),
+            index_map: HashMap::new(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.names.len()
     }
@@ -324,6 +338,15 @@ impl DataFrameIndex {
 
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
+    }
+}
+
+impl IntoIterator for DataFrameIndex {
+    type Item = String;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.names.into_iter()
     }
 }
 

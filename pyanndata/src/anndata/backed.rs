@@ -12,6 +12,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /** An annotated data matrix.
 
@@ -62,7 +63,7 @@ use std::path::PathBuf;
 pub struct AnnData(Slot<Box<dyn AnnDataTrait>>);
 
 impl AnnData {
-    pub fn into_inner<B: Backend + 'static>(self) -> Option<anndata::AnnData<B>> {
+    pub fn get_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnData<B>> {
         self.0.extract().map(|adata| {
             *adata
                 .into_any()
@@ -82,6 +83,42 @@ impl AnnData {
                 anndata::AnnData::<H5>::open(file).map(|adata| adata.into())
             }
             x => bail!("Unknown backend: {}", x),
+        }
+    }
+
+    fn obs_ix(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+        let from_iter = ix.iter().and_then(|iter| 
+            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
+        ).and_then(|names| {
+            let index = self.0.inner().obs_names();
+            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
+            })).collect::<PyResult<Vec<_>>>()
+        });
+
+        if let Ok(indices) = from_iter {
+            Ok(indices.into())
+        } else {
+            let n = self.n_obs();
+            to_select_elem(ix, n)
+        }
+    }
+
+    fn var_ix(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+        let from_iter = ix.iter().and_then(|iter| 
+            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
+        ).and_then(|names| {
+            let index = self.0.inner().var_names();
+            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
+            })).collect::<PyResult<Vec<_>>>()
+        });
+
+        if let Ok(indices) = from_iter {
+            Ok(indices.into())
+        } else {
+            let n = self.n_vars();
+            to_select_elem(ix, n)
         }
     }
 }
@@ -186,7 +223,7 @@ impl AnnData {
     /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names()
+        self.0.inner().obs_names().names
     }
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
@@ -200,7 +237,7 @@ impl AnnData {
     /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names()
+        self.0.inner().var_names().names
     }
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
@@ -324,10 +361,10 @@ impl AnnData {
         backend: Option<&str>,
     ) -> Result<Option<AnnData>> {
         let i = obs_indices
-            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
+            .map(|x| self.obs_ix(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         let j = var_indices
-            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
+            .map(|x| self.var_ix(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         self.0.inner().subset([i, j].as_slice(), out, backend)
     }
@@ -369,8 +406,14 @@ impl AnnData {
 
     /// Close the AnnData object.
     #[pyo3(text_signature = "($self)")]
-    pub fn close(&self) {
-        self.0.drop();
+    pub fn close(&self) -> Result<()> {
+        match self.backend().as_str() {
+            H5::NAME => if let Some(adata) = self.get_inner::<H5>() {
+                adata.close()?;
+            },
+            x => bail!("Unsupported backend: {}", x),
+        }
+        Ok(())
     }
 
     /// Write .h5ad-formatted hdf5 file.
@@ -426,9 +469,9 @@ impl AnnData {
 
 trait AnnDataTrait: Send + Downcast {
     fn shape(&self) -> (usize, usize);
-    fn obs_names(&self) -> Vec<String>;
+    fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: &PyAny) -> Result<()>;
-    fn var_names(&self) -> Vec<String>;
+    fn var_names(&self) -> DataFrameIndex;
     fn set_var_names(&self, names: &PyAny) -> Result<()>;
 
     fn get_x(&self) -> Option<PyArrayElem>;
@@ -471,7 +514,7 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
         (self.n_obs(), self.n_vars())
     }
 
-    fn obs_names(&self) -> Vec<String> {
+    fn obs_names(&self) -> DataFrameIndex {
         AnnDataOp::obs_names(self)
     }
 
@@ -481,7 +524,7 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
         AnnDataOp::set_obs_names(self, obs_names?)
     }
 
-    fn var_names(&self) -> Vec<String> {
+    fn var_names(&self) -> DataFrameIndex {
         AnnDataOp::var_names(self)
     }
 

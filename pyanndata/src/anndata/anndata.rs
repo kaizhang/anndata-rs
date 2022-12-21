@@ -302,16 +302,6 @@ impl AnnDataSet {
         self.0.inner().0.is_none()
     }
 
-    /// Whether the AnnDataSet object is backed. This is always true.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    #[getter]
-    pub fn isbacked(&self) -> bool {
-        true
-    }
-
     /// Convert the AnnDataSet object to an AnnData object.
     ///
     /// Parameters

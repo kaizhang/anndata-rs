@@ -154,7 +154,7 @@ impl<B: Backend> AnnDataSet<B> {
         }
         {
             // Set OBS.
-            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names()).collect();
+            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names().names).collect();
             if obs_names.is_empty() {
                 annotation
                     .set_obs_names((0..n_obs).into_iter().map(|x| x.to_string()).collect())?;
@@ -379,10 +379,10 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
         self.annotation.var_ix(names)
     }
-    fn obs_names(&self) -> Vec<String> {
+    fn obs_names(&self) -> DataFrameIndex {
         self.annotation.obs_names()
     }
-    fn var_names(&self) -> Vec<String> {
+    fn var_names(&self) -> DataFrameIndex {
         self.annotation.var_names()
     }
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {

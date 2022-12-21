@@ -203,11 +203,11 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         self.0.getattr("n_vars").unwrap().extract().unwrap()
     }
 
-    fn obs_names(&self) -> Vec<String> {
-        self.0.getattr("obs_names").unwrap().extract().unwrap()
+    fn obs_names(&self) -> DataFrameIndex {
+        self.0.getattr("obs_names").unwrap().extract::<Vec<String>>().unwrap().into()
     }
-    fn var_names(&self) -> Vec<String> {
-        self.0.getattr("var_names").unwrap().extract().unwrap()
+    fn var_names(&self) -> DataFrameIndex {
+        self.0.getattr("var_names").unwrap().extract::<Vec<String>>().unwrap().into()
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {

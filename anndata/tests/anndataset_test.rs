@@ -131,8 +131,8 @@ fn test_write<B: Backend>() -> Result<()> {
         d3.set_x(&arr)?;
 
         let dataset = AnnDataSet::new([("1", d1), ("2", d2), ("3", d3)], dir.join("dataset.h5ads"), "key")?;
-        let csr = rand_csr(90, 10, 500);
-        dataset.add_obsm("test", &csr)?;
+        let csr = rand_csr(90, 90, 5000);
+        dataset.add_obsp("test", &csr)?;
 
         dataset.write_select::<B, _, _>(s![..50, ..], dir.join("subset"))?;
         let sub: AnnDataSet<B> = AnnDataSet::open(B::open(dir.join("subset/_dataset.h5ads"))?, None)?;
@@ -152,18 +152,21 @@ fn test_write<B: Backend>() -> Result<()> {
             (
                 merged.select(ndarray::Axis(0), indices1_.as_slice())
                     .select(ndarray::Axis(1), indices2.as_slice()),
-                csr_select(&csr, indices1_.into_iter(), indices2.into_iter()),
+                csr_select(&csr, indices1_.clone().into_iter(), indices1_.into_iter()),
             )
         } else {
             (
                 merged.select(ndarray::Axis(0), indices1.as_slice())
                     .select(ndarray::Axis(1), indices2.as_slice()),
-                csr_select(&csr, indices1.into_iter(), indices2.into_iter())
+                csr_select(&csr, indices1.clone().into_iter(), indices1.into_iter())
             )
         };
         let sub2: AnnDataSet<B> = AnnDataSet::open(B::open(dir.join("subset/_dataset.h5ads"))?, None)?;
+        let csr_2: CsrMatrix<i64> = sub2.fetch_obsp("test")?.unwrap();
         assert_eq!(e_arr, sub2.read_x::<Array<i32, _>>()?.unwrap());
-        assert_eq!(e_csr, sub2.fetch_obsm("test")?.unwrap());
+        assert_eq!(e_csr.nrows(), csr_2.nrows());
+        assert_eq!(e_csr.ncols(), csr_2.ncols());
+        assert_eq!(e_csr, csr_2);
 
         Ok(())
     })
