@@ -1,6 +1,6 @@
 use anndata::*;
 use anndata::backend::Backend;
-use anndata::traits::AnnDataIterator;
+use anndata::AnnDataIterator;
 use anndata_hdf5::H5;
 use anndata_n5::N5;
 

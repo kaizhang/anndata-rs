@@ -2,17 +2,18 @@ mod ndarray;
 pub mod slice;
 pub mod dataframe;
 mod sparse;
-pub(crate) mod utils;
+mod utils;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
-use polars::prelude::DataFrame;
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
 pub use dataframe::DataFrameIndex;
+pub use utils::concat_array_data;
 
 use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
 
+use polars::prelude::DataFrame;
 use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;

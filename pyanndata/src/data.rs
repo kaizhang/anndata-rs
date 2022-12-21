@@ -8,7 +8,7 @@ pub(crate) use instance::*;
 pub(crate) use slice::{to_select_info, to_select_elem};
 
 use polars::prelude::DataFrame;
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Deref};
 use pyo3::{prelude::*, types::PyDict};
 use anndata::data::{Data, ArrayData, DynArray, DynCsrMatrix, DynScalar, Mapping};
 
@@ -21,6 +21,14 @@ pub(crate) trait IntoPython {
 }
 
 pub struct PyArrayData(ArrayData);
+
+impl Deref for PyArrayData {
+    type Target = ArrayData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl From<ArrayData> for PyArrayData {
     fn from(value: ArrayData) -> Self {

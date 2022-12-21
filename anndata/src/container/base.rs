@@ -1,6 +1,6 @@
 use crate::{
     backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
-    data::array::utils::concat_array_data,
+    data::array::concat_array_data,
     data::{
         array::slice::{unique_indices_sorted, BoundedSlice},
         *,
@@ -11,7 +11,6 @@ use crate::{
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use nalgebra_sparse::na::SimdRealField;
 use ndarray::{Ix1, Slice};
 use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
@@ -24,7 +23,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use smallvec::SmallVec;
 use std::{
     collections::HashMap,
-    fmt::Display,
     ops::{Deref, DerefMut},
     sync::Arc,
 };

@@ -1,12 +1,12 @@
 #![feature(iterator_try_reduce)]
 
 mod anndata;
-pub mod traits;
+mod traits;
 pub mod backend;
 pub mod data;
 pub mod container;
 
-pub use traits::AnnDataOp;
+pub use traits::{AnnDataOp, AnnDataIterator};
 pub use crate::anndata::{AnnData, AnnDataSet, StackedAnnData};
 pub use backend::Backend;
 pub use data::{HasShape, Data, ReadData, WriteData, ArrayData, WriteArrayData, ReadArrayData, ArrayOp};

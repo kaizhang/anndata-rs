@@ -111,7 +111,8 @@ macro_rules! impl_vstack_array {
     }};
 }
 
-pub(crate) fn concat_array_data<I>(arrays: I) -> Result<ArrayData>
+/// Vertically concatenate an iterator of arrays into a single array.
+pub fn concat_array_data<I>(arrays: I) -> Result<ArrayData>
 where
     I: IntoIterator<Item = ArrayData>,
 {

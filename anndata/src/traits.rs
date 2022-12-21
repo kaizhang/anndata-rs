@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::data::*;
 
 use anyhow::Result;
@@ -147,7 +145,10 @@ pub trait AnnDataIterator: AnnDataOp {
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()>;
+    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: WriteArrayData + Into<ArrayData>;
 
     fn fetch_obsm_iter<'a, T>(
         &'a self,
@@ -161,5 +162,5 @@ pub trait AnnDataIterator: AnnDataOp {
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: WriteArrayData;
+        D: WriteArrayData + Into<ArrayData>;
 }

@@ -1,13 +1,14 @@
 use crate::data::{isinstance_of_pyanndata, isinstance_of_polars, PyArrayData, PyData, PyDataFrame};
 
 use std::ops::Deref;
+use std::fmt::Debug;
 use polars::prelude::DataFrame;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
-use anndata;
-use anndata::{AnnDataOp, ArrayData, Data, ReadArrayData, WriteData, ReadData, Backend, WriteArrayData, HasShape};
-use anndata::data::{DataFrameIndex, SelectInfoElem};
+use anndata::{self, ArrayOp};
+use anndata::{AnnDataIterator, AnnDataOp, ArrayData, Data, ReadArrayData, WriteData, ReadData, Backend, WriteArrayData, HasShape};
+use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data};
 use anyhow::{Result, bail};
 
 pub struct PyAnnData<'py>(&'py PyAny);
@@ -442,5 +443,119 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn del_varp(&self) -> Result<()> {
         self.0.setattr("varp", None::<PyObject>)?;
         Ok(())
+    }
+}
+
+impl<'py> AnnDataIterator for PyAnnData<'py> {
+    type ArrayIter<'a, T> = PyArrayIterator<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+        Self: 'a;
+
+    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        PyArrayIterator::new(
+            self.getattr("X").unwrap().extract().unwrap(),
+            chunk_size
+        ).unwrap()
+    }
+
+    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: Into<ArrayData>,
+    {
+        let array = concat_array_data(iter.map(|x| x.into()))?;
+        let shape = array.shape();
+        self.set_n_obs(shape[0])?;
+        self.set_n_vars(shape[1])?;
+        self.setattr("X", PyArrayData::from(array).into_py(self.py()))?;
+        Ok(())
+    }
+
+    fn fetch_obsm_iter<'a, T>(
+        &'a self,
+        key: &str,
+        chunk_size: usize,
+    ) -> Result<Self::ArrayIter<'a, T>>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        let array = self.getattr("obsm")?
+            .call_method1("__getitem__", (key,))?.extract::<PyArrayData>()?;
+        Ok(PyArrayIterator::new(array, chunk_size)?)
+    }
+
+    fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: Into<ArrayData>,
+    { 
+        let array = concat_array_data(data.map(|x| x.into()))?;
+        let shape = array.shape();
+        self.set_n_obs(shape[0])?;
+        self.getattr("obsm")?
+            .call_method1("__setitem__", (key, PyArrayData::from(array).into_py(self.py())))?;
+        Ok(())
+    }
+}
+
+pub struct PyArrayIterator<T> {
+    array: PyArrayData,
+    chunk_size: usize,
+    total_rows: usize,
+    current_row: usize,
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> PyArrayIterator<T> {
+    pub(crate) fn new(array: PyArrayData, chunk_size: usize) -> PyResult<Self> {
+        let total_rows = array.shape()[0];
+        Ok(Self {
+            array,
+            chunk_size,
+            total_rows,
+            current_row: 0,
+            phantom: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<T> Iterator for PyArrayIterator<T>
+where
+    T: TryFrom<ArrayData>,
+{
+    type Item = (T, usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_row >= self.total_rows {
+            None
+        } else {
+            let i = self.current_row;
+            let j = std::cmp::min(self.total_rows, self.current_row + self.chunk_size);
+            self.current_row = j;
+            let slice = SelectInfoElem::from(i..j);
+            let data = self.array.select_axis(0, slice);
+            Some((T::try_from(data).ok().unwrap(), i, j))
+        }
+    }
+}
+
+impl<T> ExactSizeIterator for PyArrayIterator<T>
+where
+    T: TryFrom<ArrayData>,
+{
+    fn len(&self) -> usize {
+        let n = self.total_rows / self.chunk_size;
+        if self.total_rows % self.chunk_size == 0 {
+            n
+        } else {
+            n + 1
+        }
     }
 }
