@@ -80,14 +80,6 @@ pub fn is_list_of_strings<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<boo
     }
 }
 
-pub fn is_iterator<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    let abc = PyModule::import(py, "collections.abc")?;
-    let iterator = abc.getattr("Iterator")?;
-    py.eval("isinstance", None, None)?
-        .call((obj, iterator), None)?
-        .extract()
-}
-
 pub fn is_none_slice<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     Ok(is_ellipsis(py, obj)?
         || (is_slice(obj)? && obj.eq(py.eval("slice(None, None, None)", None, None)?)?))

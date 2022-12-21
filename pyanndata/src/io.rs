@@ -86,36 +86,3 @@ pub fn read_csv(
     anndata.import_csv(csv_file, has_header, index_column, delimiter)?;
     Ok(AnnData::wrap(anndata))
 }
-
-/// Read AnnDataSet object.
-///
-/// Read AnnDataSet from .h5ads file. If the file paths stored in AnnDataSet
-/// object are relative paths, it will look for component .h5ad files in .h5ads file's parent directory.
-///
-/// Parameters
-/// ----------
-/// filename: Path
-///     File name.
-/// update_data_locations: Mapping[str, str]
-///     If provided, locations of component anndata files will be updated.
-/// mode: str
-///     "r": Read-only mode; "r+": can modify annotation file but not component anndata files.
-///
-/// Returns
-/// -------
-/// AnnDataSet
-#[pyfunction(update_data_locations = "None", mode = "\"r+\"")]
-#[pyo3(text_signature = "(filename, update_data_locations, mode, /)")]
-pub fn read_dataset(
-    filename: PathBuf,
-    update_data_locations: Option<HashMap<String, String>>,
-    mode: &str,
-) -> Result<AnnDataSet> {
-    let file = match mode {
-        "r" => hdf5::File::open(filename)?,
-        "r+" => hdf5::File::open_rw(filename)?,
-        _ => panic!("Unkown mode"),
-    };
-    let data = anndata::AnnDataSet::read(file, update_data_locations)?;
-    Ok(AnnDataSet::wrap(data))
-}

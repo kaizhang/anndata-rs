@@ -6,7 +6,7 @@ mod data;
 //pub mod utils;
 pub mod container;
 
-pub use crate::anndata::{AnnData, AnnDataSet, PyAnnData, read};
+pub use crate::anndata::{AnnData, AnnDataSet, PyAnnData, read, read_dataset};
 
 /*
 pub use crate::anndata::{AnnData, AnnDataSet, PyAnnData, StackedAnnData};

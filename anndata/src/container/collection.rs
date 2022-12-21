@@ -223,9 +223,8 @@ impl<B: Backend> InnerAxisArrays<B> {
             let group = location.create_group(name)?;
             match self.axis {
                 Axis::Row => {
-                    let s = vec![selection];
                     self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select::<O, _>(s.as_ref(), &group, k))
+                        .try_for_each(|(k, x)| x.inner().export_axis::<O, _>(0, selection, &group, k))
                 }
                 Axis::RowColumn => {
                     let s = vec![selection, selection];

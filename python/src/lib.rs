@@ -11,6 +11,7 @@ fn _anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AnnDataSet>().unwrap();
 
     m.add_function(wrap_pyfunction!(read, m)?)?;
+    m.add_function(wrap_pyfunction!(read_dataset, m)?)?;
     /*
     m.add_class::<StackedAnnData>().unwrap();
     m.add_class::<element::PyElemCollection>().unwrap();
@@ -24,7 +25,6 @@ fn _anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_mtx, m)?)?;
     m.add_function(wrap_pyfunction!(read_csv, m)?)?;
-    m.add_function(wrap_pyfunction!(read_dataset, m)?)?;
     */
     Ok(())
 }
