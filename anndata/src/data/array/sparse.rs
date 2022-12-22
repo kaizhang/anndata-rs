@@ -1,5 +1,3 @@
-use std::fmt::write;
-
 use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_minor_index, cs_major_index, cs_major_slice, ExtendableDataset},

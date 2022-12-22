@@ -2,10 +2,9 @@ use crate::{
     backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
     data::array::concat_array_data,
     data::{
-        array::slice::{unique_indices_sorted, BoundedSlice},
+        array::slice::BoundedSlice,
         *,
     },
-    s,
 };
 
 use anyhow::{bail, ensure, Result};
@@ -1205,19 +1204,24 @@ impl VecVecIndex {
         res
     }
 
-    fn split_indices(&self, index: &[usize]) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
-        let (indices, mapping) = unique_indices_sorted(index, self.len());
-        let idx_groups: HashMap<usize, SelectInfoElem> = indices
+    fn split_indices(&self, indices: &[usize]) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
+        let (new_indices, orders): (HashMap<usize, SelectInfoElem>, Vec<_>) = indices
             .into_iter()
-            .map(|x| self.ix(&x))
-            .group_by(|(o, _)| *o)
+            .map(|x| self.ix(x))
+            .enumerate()
+            .sorted_by_key(|(_, (x, _))| *x)
             .into_iter()
-            .map(|(outer, x)| (outer, x.map(|(_, i)| i).collect()))
-            .collect();
-        if is_sorted(index) {
-            (idx_groups, None)
+            .group_by(|(_, (x, _))| *x)
+            .into_iter()
+            .map(|(outer, inner)| {
+                let (new_indices, order): (Vec<_>, Vec<_>) = inner.map(|(i, (_, x))| (x, i)).unzip();
+                ((outer, new_indices.into()), order)
+            }).unzip();
+        let order: Vec<_> = orders.into_iter().flatten().collect();
+        if order.as_slice().windows(2).all(|w| w[1] - w[0] == 1) {
+            (new_indices, None)
         } else {
-            (idx_groups, Some(mapping))
+            (new_indices, Some(order))
         }
     }
 
@@ -1251,8 +1255,4 @@ impl FromIterator<usize> for VecVecIndex {
             .collect();
         VecVecIndex(index)
     }
-}
-
-fn is_sorted(data: &[usize]) -> bool {
-    data.windows(2).all(|w| w[0] < w[1])
 }

@@ -921,7 +921,7 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        todo!()
+        Ok(self.get_obsm().inner().get(key).unwrap().chunked(chunk_size))
     }
 
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
@@ -929,6 +929,6 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
         I: Iterator<Item = D>,
         D: WriteArrayData,
     {
-        todo!()
+        self.get_obsm().inner().add_data_from_iter(key, data)
     }
 }

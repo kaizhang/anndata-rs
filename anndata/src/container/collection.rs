@@ -204,6 +204,19 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
+    pub fn add_data_from_iter<I, D>(&mut self, key: &str, data: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: WriteArrayData,
+    {
+        if let Some(elem) = self.get(key) {
+            elem.clear()?;
+        }
+        let elem = ArrayElem::try_from(WriteArrayData::write_from_iter(data, &self.container, key)?)?;
+        self.insert(key.to_string(), elem);
+        Ok(())
+    }
+
     pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
         let group = location.create_group(name)?;
         for (key, val) in self.iter() {

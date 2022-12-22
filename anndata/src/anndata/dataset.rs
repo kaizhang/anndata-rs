@@ -12,9 +12,7 @@ use indexmap::map::IndexMap;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use polars::prelude::{DataFrame, NamedFrom, Series};
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 pub struct AnnDataSet<B: Backend> {
@@ -663,18 +661,6 @@ impl<B: Backend> StackedAnnData<B> {
                 Ok((k.clone(), name))
             })
             .collect();
-
-        let order = mapping.map(|x| {
-            let n = self.n_obs;
-            let len = slices.values().map(|x| BoundedSelectInfoElem::new(x, n).len()).sum();
-            reverse_mapping(x.as_slice(), len)
-        });
-        Ok((files?, order))
+        Ok((files?, mapping))
     }
-}
-
-fn reverse_mapping(mapping: &[usize], n: usize) -> Vec<usize> {
-    let mut res = vec![0; n];
-    mapping.iter().enumerate().for_each(|(i, &x)| res[x] = i);
-    res
 }

@@ -145,12 +145,12 @@ where
 fn test_iterator<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
-        let (csr, chunks) = rand_chunks(1997, 100, 241);
+        let (csr, chunks) = rand_chunks(997, 20, 41);
 
         adata.set_x_from_iter(chunks)?;
 
-        assert_eq!(adata.n_obs(), 1997);
-        assert_eq!(adata.n_vars(), 100);
+        assert_eq!(adata.n_obs(), 997);
+        assert_eq!(adata.n_vars(), 20);
         assert_eq!(adata.read_x::<CsrMatrix<i64>>()?.unwrap(), csr);
 
         adata.add_obsm_from_iter::<_, CsrMatrix<i64>>("key", adata.read_x_iter(111).map(|x| x.0))?;
