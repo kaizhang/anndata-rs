@@ -8,7 +8,7 @@ use anndata::backend::DataType;
 use anndata::data::SelectInfoElem;
 use anndata::{
     ArrayData, ArrayElem, AxisArrays, Backend, Data,
-    DataFrameElem, Elem, ElemCollection, StackedArrayElem, StackedDataFrame,
+    DataFrameElem, Elem, ElemCollection, StackedArrayElem, StackedDataFrame, StackedAxisArrays,
 };
 use anndata::container::{ChunkedArrayElem, StackedChunkedArrayElem};
 use anyhow::{bail, Context, Result};
@@ -60,7 +60,7 @@ pub trait ArrayElemTrait: Send {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn show(&self) -> String;
-    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData>;
+    fn get(&self, subscript: &PyAny) -> Result<PyArrayData>;
     fn shape(&self) -> Vec<usize>;
     fn chunk(
         &self,
@@ -80,7 +80,7 @@ impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
         self.lock().as_mut().map(|x| x.disable_cache());
     }
 
-    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
+    fn get(&self, subscript: &PyAny) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.inner().shape())?;
         self.inner()
             .select::<ArrayData, _>(slice.as_ref())
@@ -127,7 +127,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
         self.deref().disable_cache();
     }
 
-    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
+    fn get(&self, subscript: &PyAny) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.deref().shape())?;
         self.select::<ArrayData, _>(slice.as_ref())
             .map(|x| x.into())
@@ -275,6 +275,44 @@ impl<B: Backend + 'static> AxisArrayTrait for AxisArrays<B> {
         format!("{}", self)
     }
 }
+
+impl<B: Backend + 'static> AxisArrayTrait for StackedAxisArrays<B> {
+    fn keys(&self) -> Vec<String> {
+        self.deref().keys().map(|x| x.to_string()).collect()
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.deref().contains_key(key)
+    }
+
+    fn get(&self, key: &str) -> Result<PyArrayData> {
+        Ok(self
+            .deref()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .data::<ArrayData>()?
+            .into())
+    }
+
+    fn el(&self, key: &str) -> Result<PyArrayElem> {
+        Ok(self
+            .deref()
+            .get(key)
+            .context(format!("No such key: {}", key))?
+            .clone()
+            .into())
+    }
+
+    fn set(&self, _: &str, _: PyArrayData) -> Result<()> {
+        bail!("mutations are not allowed on stacked axis arrays")
+    }
+
+    fn show(&self) -> String {
+        format!("{}", self)
+    }
+}
+
+
 
 pub trait ElemCollectionTrait: Send {
     fn keys(&self) -> Vec<String>;

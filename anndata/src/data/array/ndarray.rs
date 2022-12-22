@@ -89,6 +89,24 @@ impl_dyn_array_convert!(bool, Bool);
 impl_dyn_array_convert!(String, String);
 
 impl WriteData for DynArray {
+    fn data_type(&self) -> DataType {
+        match self {
+            Self::I8(arr) => arr.data_type(),
+            Self::I16(arr) => arr.data_type(),
+            Self::I32(arr) => arr.data_type(),
+            Self::I64(arr) => arr.data_type(),
+            Self::U8(arr) => arr.data_type(),
+            Self::U16(arr) => arr.data_type(),
+            Self::U32(arr) => arr.data_type(),
+            Self::U64(arr) => arr.data_type(),
+            Self::Usize(arr) => arr.data_type(),
+            Self::F32(arr) => arr.data_type(),
+            Self::F64(arr) => arr.data_type(),
+            Self::Bool(arr) => arr.data_type(),
+            Self::String(arr) => arr.data_type(),
+            Self::Categorical(arr) => arr.data_type(),
+        }
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -244,6 +262,9 @@ impl ReadArrayData for DynArray {
 }
 
 impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
+    fn data_type(&self) -> DataType {
+        DataType::Array(T::DTYPE)
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -263,16 +284,9 @@ impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
 }
 
 impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        self.view().write(location, name)
+    fn data_type(&self) -> DataType {
+        DataType::Array(T::DTYPE)
     }
-}
-
-impl<T: BackendData, D: Dimension> WriteData for &Array<T, D> {
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -291,12 +305,6 @@ impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
 impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
-    }
-}
-
-impl<T: BackendData, D: Dimension> HasShape for &Array<T, D> {
-    fn shape(&self) -> Shape {
-        (*self).shape().to_vec().into()
     }
 }
 
@@ -393,6 +401,9 @@ impl<'a> FromIterator<&'a str> for CategoricalArray {
 }
 
 impl WriteData for CategoricalArray {
+    fn data_type(&self) -> DataType {
+        DataType::Categorical
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,

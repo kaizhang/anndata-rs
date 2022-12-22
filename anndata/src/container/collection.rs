@@ -18,6 +18,12 @@ pub struct InnerElemCollection<B: Backend> {
     data: HashMap<String, Elem<B>>,
 }
 
+impl<B: Backend> std::fmt::Debug for InnerElemCollection<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
 impl<B: Backend> Deref for InnerElemCollection<B> {
     type Target = HashMap<String, Elem<B>>;
 
@@ -64,6 +70,7 @@ impl<B: Backend> InnerElemCollection<B> {
     }
 }
 
+#[derive(Debug)]
 pub struct ElemCollection<B: Backend>(Slot<InnerElemCollection<B>>);
 
 impl<B: Backend> Clone for ElemCollection<B> {
@@ -118,7 +125,7 @@ impl<B: Backend> ElemCollection<B> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Axis {
     Row,
     RowColumn,
@@ -129,6 +136,12 @@ pub struct InnerAxisArrays<B: Backend> {
     pub(crate) container: B::Group,
     pub(crate) size: Arc<Mutex<usize>>, // shared global reference
     data: HashMap<String, ArrayElem<B>>,
+}
+
+impl<B: Backend> std::fmt::Debug for InnerAxisArrays<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
 }
 
 impl<B: Backend> Deref for InnerAxisArrays<B> {
@@ -207,12 +220,12 @@ impl<B: Backend> InnerAxisArrays<B> {
     pub fn add_data_from_iter<I, D>(&mut self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: WriteArrayData,
+        D: ArrayIterator,
     {
         if let Some(elem) = self.get(key) {
             elem.clear()?;
         }
-        let elem = ArrayElem::try_from(WriteArrayData::write_from_iter(data, &self.container, key)?)?;
+        let elem = ArrayElem::try_from(ArrayIterator::write_array_iter(data, &self.container, key)?)?;
         self.insert(key.to_string(), elem);
         Ok(())
     }
@@ -267,6 +280,7 @@ impl<B: Backend> InnerAxisArrays<B> {
     }
 }
 
+#[derive(Debug)]
 pub struct AxisArrays<B: Backend>(Slot<InnerAxisArrays<B>>);
 
 impl<B: Backend> std::fmt::Display for AxisArrays<B> {

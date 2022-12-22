@@ -1,4 +1,4 @@
-use crate::backend::{Backend, GroupOp, DataContainer, iter_containers};
+use crate::backend::{Backend, GroupOp, DataContainer, iter_containers, DataType};
 use crate::data::{Data, ReadData, WriteData};
 
 use std::collections::HashMap;
@@ -29,6 +29,9 @@ impl Deref for Mapping {
 }
 
 impl WriteData for Mapping {
+    fn data_type(&self) -> DataType {
+        DataType::Mapping
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         let group = location.create_group(name)?;
         self.0

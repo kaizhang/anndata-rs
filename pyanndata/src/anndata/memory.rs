@@ -1,7 +1,6 @@
 use crate::data::{isinstance_of_pyanndata, isinstance_of_polars, PyArrayData, PyData, PyDataFrame};
 
 use std::ops::Deref;
-use std::fmt::Debug;
 use polars::prelude::DataFrame;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;

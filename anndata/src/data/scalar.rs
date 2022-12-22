@@ -22,13 +22,14 @@ pub enum DynScalar {
 
 /// macro to implement `From` trait for `DynScalar`
 macro_rules! impl_from_dynscalar {
-    ($($from:ty, $to:ident),*) => {
+    ($($from:ident, $to:ident),*) => {
         $(
             impl From<$from> for DynScalar {
                 fn from(val: $from) -> Self {
                     DynScalar::$to(val)
                 }
             }
+
             impl ReadData for $from {
                 fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
                     let dataset = container.as_dataset()?;
@@ -36,6 +37,24 @@ macro_rules! impl_from_dynscalar {
                         ScalarType::$to => Ok(dataset.read_scalar()?),
                         _ => bail!("Cannot read $from"),
                     }
+                }
+            }
+
+            impl WriteData for $from {
+                fn data_type(&self) -> DataType {
+                    DataType::Scalar(ScalarType::$to)
+                }
+                fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+                    let dataset = location.create_scalar_data(name, self)?;
+                    let container = DataContainer::Dataset(dataset);
+                    let encoding_type = if $from::DTYPE == ScalarType::String {
+                        "string"
+                    } else {
+                        "numeric-scalar"
+                    };
+                    container.write_str_attr("encoding-type", encoding_type)?;
+                    container.write_str_attr("encoding-version", "0.2.0")?;
+                    Ok(container)
                 }
             }
         )*
@@ -58,22 +77,25 @@ impl_from_dynscalar!(
     String, String
 );
 
-impl<T: BackendData> WriteData for T {
-    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-        let dataset = location.create_scalar_data(name, self)?;
-        let container = DataContainer::Dataset(dataset);
-        let encoding_type = if T::DTYPE == ScalarType::String {
-            "string"
-        } else {
-            "numeric-scalar"
-        };
-        container.write_str_attr("encoding-type", encoding_type)?;
-        container.write_str_attr("encoding-version", "0.2.0")?;
-        Ok(container)
-    }
-}
-
 impl WriteData for DynScalar {
+    fn data_type(&self) -> DataType {
+        match self {
+            DynScalar::I8(_) => DataType::Scalar(ScalarType::I8),
+            DynScalar::I16(_) => DataType::Scalar(ScalarType::I16),
+            DynScalar::I32(_) => DataType::Scalar(ScalarType::I32),
+            DynScalar::I64(_) => DataType::Scalar(ScalarType::I64),
+            DynScalar::U8(_) => DataType::Scalar(ScalarType::U8),
+            DynScalar::U16(_) => DataType::Scalar(ScalarType::U16),
+            DynScalar::U32(_) => DataType::Scalar(ScalarType::U32),
+            DynScalar::U64(_) => DataType::Scalar(ScalarType::U64),
+            DynScalar::Usize(_) => DataType::Scalar(ScalarType::Usize),
+            DynScalar::F32(_) => DataType::Scalar(ScalarType::F32),
+            DynScalar::F64(_) => DataType::Scalar(ScalarType::F64),
+            DynScalar::Bool(_) => DataType::Scalar(ScalarType::Bool),
+            DynScalar::String(_) => DataType::Scalar(ScalarType::String),
+        }
+    }
+
     fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             DynScalar::I8(data) => data.write(location, name),

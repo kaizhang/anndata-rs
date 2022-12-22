@@ -1,4 +1,4 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection};
+use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection, PyChunkedArray};
 use crate::data::{to_select_elem, to_select_info, PyArrayData, PyData, PyDataFrame};
 use crate::anndata::PyAnnData;
 
@@ -369,6 +369,23 @@ impl AnnData {
         self.0.inner().subset([i, j].as_slice(), out, backend)
     }
 
+    /// Return an iterator over the rows of the data matrix X.
+    ///
+    /// Parameters
+    /// ----------
+    /// chunk_size : int
+    ///     Row size of a single chunk. Default: 500.
+    ///
+    /// Returns
+    /// -------
+    /// PyChunkedMatrix
+    #[args(chunk_size = "500")]
+    #[pyo3(text_signature = "($self, chunk_size, /)")]
+    #[pyo3(name = "chunked_X")]
+    pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
+        self.0.inner().chunked_x(chunk_size)
+    }
+
     /// Filename of the backing .h5ad file.
     ///
     /// Returns
@@ -498,6 +515,8 @@ trait AnnDataTrait: Send + Downcast {
         out: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<Option<AnnData>>;
+
+    fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
     fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()>;
     fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData>;
@@ -682,6 +701,10 @@ impl<B: Backend + 'static> AnnDataTrait for anndata::AnnData<B> {
             self.subset(slice)?;
             Ok(None)
         }
+    }
+
+    fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
+        self.get_x().chunked(chunk_size).into()
     }
 
     fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {

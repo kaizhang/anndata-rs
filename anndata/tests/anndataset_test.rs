@@ -1,3 +1,6 @@
+mod common;
+use common::*;
+
 use anndata::*;
 use anndata_hdf5::H5;
 
@@ -13,42 +16,6 @@ use ndarray_rand::rand_distr::Uniform;
 use std::fmt::Debug;
 use tempfile::tempdir;
 use std::path::PathBuf;
-
-pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
-    let dir = tempdir().unwrap();
-    let path = dir.path().to_path_buf();
-    func(path)
-}
-
-fn with_tmp_path<T, F: Fn(PathBuf) -> T>(func: F) -> T {
-    with_tmp_dir(|dir| func(dir.join("temp.h5")))
-}
-
-fn rand_csr(nrow: usize, ncol: usize, nnz: usize) -> CsrMatrix<i64> {
-    let mut rng = rand::thread_rng();
-    let values: Vec<i64> = Array::random((nnz,), Uniform::new(0, 100)).to_vec();
-
-    let (row_indices, col_indices) = (0..nnz)
-        .map(|_| (rng.gen_range(0..nrow), rng.gen_range(0..ncol)))
-        .unzip();
-    (&CooMatrix::try_from_triplets(nrow, ncol, row_indices, col_indices, values).unwrap()).into()
-}
-
-fn csr_select<I1, I2>(
-    csr: &CsrMatrix<i64>,
-    row_indices: I1,
-    col_indices: I2,
-) -> CsrMatrix<i64>
-where
-    I1: Iterator<Item = usize>,
-    I2: Iterator<Item = usize>,
-{
-    let i = row_indices.collect::<Vec<_>>();
-    let j = col_indices.collect::<Vec<_>>();
-    let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
-    csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-    CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
-}
 
 fn uns_io<T>(input: T)
 where

@@ -1,4 +1,4 @@
-use crate::backend::{Backend, DataContainer, GroupOp, LocationOp};
+use crate::backend::{Backend, DataContainer, GroupOp, LocationOp, DataType};
 use crate::data::{
     array::slice::{SelectInfoElem, Shape},
     scalar::DynScalar,
@@ -15,6 +15,7 @@ pub trait ReadData {
 
 /// Write data to a backend
 pub trait WriteData {
+    fn data_type(&self) -> DataType;
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -30,9 +31,34 @@ pub trait WriteData {
     }
 }
 
+impl<T> WriteData for &T
+where
+    T: WriteData,
+{
+    fn data_type(&self) -> DataType {
+        (*self).data_type()
+    }
+    fn write<B: Backend, G: GroupOp<Backend = B>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<DataContainer<B>> {
+            (*self).write(location, name)
+    }
+}
+
 /// Anything that has a shape.
 pub trait HasShape {
     fn shape(&self) -> Shape;
+}
+
+impl<T> HasShape for &T
+where
+    T: HasShape,
+{
+    fn shape(&self) -> Shape {
+        (*self).shape()
+    }
 }
 
 pub trait ArrayOp: HasShape {
@@ -75,13 +101,4 @@ pub trait ReadArrayData: ReadData {
     }
 }
 
-pub trait WriteArrayData: WriteData {
-    fn write_from_iter<B, G, I>(iter: I, group: &G, name: &str) -> Result<DataContainer<B>>
-    where
-        B: Backend,
-        G: GroupOp<Backend = B>,
-        I: Iterator<Item = Self>,
-    {
-        todo!()
-    }
-}
+pub trait WriteArrayData: WriteData {}

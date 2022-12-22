@@ -1,4 +1,4 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection};
+use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection, PyChunkedArray};
 use crate::data::{to_select_elem, to_select_info, PyArrayData, PyData, PyDataFrame};
 use crate::anndata::PyAnnData;
 use crate::AnnData;
@@ -294,6 +294,17 @@ impl AnnDataSet {
         self.0.inner().subset([i, j].as_slice(), out.unwrap(), backend)
     }
 
+    /// Parameters
+    /// ----------
+    /// chunk_size : int
+    ///     Row size of a single chunk. Default: 500.
+    #[args(chunk_size = "500")]
+    #[pyo3(text_signature = "($self, chunk_size, /)")]
+    #[pyo3(name = "chunked_X")]
+    pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
+        self.0.inner().chunked_x(chunk_size)
+    }
+
     /// Whether the AnnDataSet object is backed. This is always true.
     ///
     /// Returns
@@ -381,6 +392,18 @@ trait AnnDataSetTrait: Send + Downcast {
         out: PathBuf,
         backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
+
+    /*
+    fn to_adata(
+        &self,
+        copy_x: bool,
+        file: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<PyObject>;
+    */
+
+    fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
+ 
 
     fn backend(&self) -> &str;
     fn show(&self) -> String;
@@ -542,6 +565,10 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             }
             x => bail!("Unsupported backend: {}", x),
         }
+    }
+
+    fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
+        self.get_x().chunked(chunk_size).into()
     }
 
     fn backend(&self) -> &str {

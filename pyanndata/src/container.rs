@@ -1,10 +1,8 @@
 mod traits;
 
-use crate::data::{PyData, PyArrayData, PyDataFrame};
+use crate::data::{PyData, PyArrayData};
 
-use polars::prelude::DataFrame;
 use pyo3::prelude::*;
-use anndata::{Elem, Backend, ArrayData};
 use traits::{ElemTrait, ArrayElemTrait, DataFrameElemTrait, AxisArrayTrait};
 use anyhow::Result;
 
@@ -82,8 +80,8 @@ impl PyArrayElem {
         self.0.shape()
     }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyArrayData> {
-        self.0.get(py, subscript)
+    fn __getitem__(&self, subscript: &PyAny) -> Result<PyArrayData> {
+        self.0.get(subscript)
     }
 
     /// Return a chunk of the matrix with random indices.

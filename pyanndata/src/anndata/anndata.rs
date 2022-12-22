@@ -61,36 +61,6 @@ impl AnnData {
     }
 }
 
-#[pymethods]
-impl AnnData {
-    /// Return an iterator over the rows of the data matrix X.
-    ///
-    /// Parameters
-    /// ----------
-    /// chunk_size : int
-    ///     Row size of a single chunk. Default: 500.
-    ///
-    /// Returns
-    /// -------
-    /// PyChunkedMatrix
-    #[args(chunk_size = "500")]
-    #[pyo3(text_signature = "($self, chunk_size, /)")]
-    #[pyo3(name = "chunked_X")]
-    pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedMatrix {
-        self.get_x().chunked(chunk_size)
-    }
-
-
-
-def_df_accessor!(AnnData, { obs, var });
-
-def_arr_accessor!(
-    AnnData,
-    PyAxisArrays,
-    Option<HashMap<String, &'py PyAny>>,
-    { obsm, obsp, varm, varp }
-);
-
 /// Lazily concatenated AnnData objects.
 #[pyclass]
 #[repr(transparent)]
@@ -179,80 +149,9 @@ impl AnnDataSet {
         self.0.inner().var_ix(&names).unwrap()
     }
 
-    /// Names of observations.
-    ///
-    /// Returns
-    /// -------
-    /// list[str]
-    #[getter]
-    pub fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names()
-    }
-
-    #[setter(obs_names)]
-    pub fn set_obs_names(&self, names: &PyAny) -> PyResult<()> {
-        let obs_names: PyResult<DataFrameIndex> = names
-            .iter()?
-            .map(|x| x.unwrap().extract::<String>())
-            .collect();
-        self.0.inner().set_obs_names(obs_names?).unwrap();
-        Ok(())
-    }
-
     #[pyo3(text_signature = "($self, names)")]
     pub fn obs_ix(&self, names: Vec<String>) -> Vec<usize> {
         self.0.inner().obs_ix(&names).unwrap()
-    }
-
-    /// Vertically concatenated data matrices of shape `n_obs` x `n_vars`.
-    ///
-    /// Returns
-    /// -------
-    /// PyStackedMatrixElem
-    #[getter(X)]
-    pub fn get_x(&self) -> Option<PyStackedMatrixElem> {
-        self.0
-            .inner()
-            .get_inner_adatas()
-            .lock()
-            .as_ref()
-            .map(|x| PyStackedMatrixElem(x.get_x().clone()))
-    }
-
-    /// Unstructured annotation (ordered dictionary).
-    ///
-    /// Returns
-    /// -------
-    /// PyElemCollection
-    #[getter(uns)]
-    pub fn get_uns(&self) -> PyElemCollection {
-        PyElemCollection(self.0.inner().get_uns().clone())
-    }
-
-    #[setter(uns)]
-    pub fn set_uns<'py>(
-        &self,
-        py: Python<'py>,
-        uns: Option<HashMap<String, &'py PyAny>>,
-    ) -> PyResult<()> {
-        let data: PyResult<_> = uns
-            .map(|mut x| x.drain().map(|(k, v)| Ok((k, v.into_rust(py)?))).collect())
-            .transpose();
-        self.0.inner().set_uns(data?).unwrap();
-        Ok(())
-    }
-
-    /// Return an iterator over the rows of the data matrix X.
-    ///
-    /// Parameters
-    /// ----------
-    /// chunk_size : int
-    ///     Row size of a single chunk. Default: 500.
-    #[args(chunk_size = "500")]
-    #[pyo3(text_signature = "($self, chunk_size, /)")]
-    #[pyo3(name = "chunked_X")]
-    pub fn chunked_x(&self, chunk_size: usize) -> PyStackedChunkedMatrix {
-        self.get_x().expect("X is empty").chunked(chunk_size)
     }
 
     /// View into the component AnnData objects.

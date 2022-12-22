@@ -40,6 +40,12 @@ pub struct AnnData<B: Backend> {
     uns: ElemCollection<B>,
 }
 
+impl<B: Backend> std::fmt::Debug for AnnData<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
 impl<B: Backend> std::fmt::Display for AnnData<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -460,7 +466,7 @@ impl Lock<'_> {
             if self.is_empty {
                 *self.guard = n;
             } else {
-                bail!("cannot change n_obs or n_vars");
+                bail!("cannot change size from {} to {}", self.guard, n);
             }
         }
         Ok(())
@@ -889,11 +895,11 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: WriteArrayData>(&self, iter: I) -> Result<()> {
+    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayIterator>(&self, iter: I) -> Result<()> {
         let mut lock = self.lock();
         self.del_x()?;
         let new_elem =
-            ArrayElem::try_from(WriteArrayData::write_from_iter(iter, &self.file, "X")?)?;
+            ArrayElem::try_from(ArrayIterator::write_array_iter(iter, &self.file, "X")?)?;
         let shape = new_elem.inner().shape().clone();
 
         match lock
@@ -927,7 +933,7 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: WriteArrayData,
+        D: ArrayIterator,
     {
         self.get_obsm().inner().add_data_from_iter(key, data)
     }

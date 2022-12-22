@@ -14,6 +14,9 @@ use std::collections::HashMap;
 use super::{BoundedSelectInfo, BoundedSelectInfoElem};
 
 impl WriteData for DataFrame {
+    fn data_type(&self) -> crate::backend::DataType {
+        crate::backend::DataType::DataFrame
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -144,6 +147,9 @@ impl ReadArrayData for DataFrame {
 impl WriteArrayData for DataFrame {}
 
 impl WriteData for Series {
+    fn data_type(&self) -> crate::backend::DataType {
+        crate::backend::DataType::DataFrame
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -348,6 +354,9 @@ impl IntoIterator for DataFrameIndex {
 }
 
 impl WriteData for DataFrameIndex {
+    fn data_type(&self) -> crate::backend::DataType {
+        crate::backend::DataType::DataFrame
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,

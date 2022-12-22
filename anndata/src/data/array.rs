@@ -3,12 +3,14 @@ pub mod slice;
 pub mod dataframe;
 mod sparse;
 mod utils;
+mod iterators;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
 pub use dataframe::DataFrameIndex;
 pub use utils::concat_array_data;
+pub use iterators::ArrayIterator;
 
 use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
@@ -100,6 +102,13 @@ macro_rules! impl_into_array_data {
 impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, usize, f32, f64, bool, String);
 
 impl WriteData for ArrayData {
+    fn data_type(&self) -> DataType {
+        match self {
+            ArrayData::Array(data) => data.data_type(),
+            ArrayData::CsrMatrix(data) => data.data_type(),
+            ArrayData::DataFrame(data) => data.data_type(),
+        }
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
@@ -185,3 +194,4 @@ impl ReadArrayData for ArrayData {
     }
 }
 impl WriteArrayData for ArrayData {}
+impl WriteArrayData for &ArrayData {}

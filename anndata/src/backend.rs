@@ -1,7 +1,7 @@
 use crate::data::{DynArray, DynScalar, SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
-use core::fmt::{Display, Formatter};
+use core::fmt::{Display, Formatter, Debug};
 use ndarray::{Array, ArrayD, ArrayView, Dimension};
 use std::path::{Path, PathBuf};
 
@@ -256,6 +256,15 @@ impl Display for ScalarType {
 pub enum DataContainer<B: Backend> {
     Group(B::Group),
     Dataset(B::Dataset),
+}
+
+impl<B: Backend> Debug for DataContainer<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            DataContainer::Group(g) => write!(f, "Group({:?})", g.path()),
+            DataContainer::Dataset(d) => write!(f, "Dataset({:?})", d.path()),
+        }
+    }
 }
 
 impl<B: Backend> LocationOp for DataContainer<B> {

@@ -28,6 +28,7 @@ use std::{
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
 /// Encapsulating an object inside a slot allows us to drop the object from all references.
+#[derive(Debug)]
 pub struct Slot<T>(pub(crate) Arc<Mutex<Option<T>>>);
 
 impl<T> Clone for Slot<T> {
@@ -116,6 +117,7 @@ impl<T> DerefMut for Inner<'_, T> {
     }
 }
 
+#[derive(Debug)]
 pub struct InnerDataFrameElem<B: Backend> {
     element: Option<DataFrame>,
     container: DataContainer<B>,
@@ -330,6 +332,7 @@ impl<B: Backend> DataFrameElem<B> {
 }
 
 /// Container holding general data types.
+#[derive(Debug)]
 pub struct InnerElem<B: Backend, T> {
     dtype: DataType,
     cache_enabled: bool,
@@ -367,6 +370,7 @@ impl<B: Backend, T> InnerElem<B, T> {
 
     pub(crate) fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        self.dtype = data.data_type();
         if self.element.is_some() {
             self.element = Some(data.into());
         }
@@ -434,6 +438,7 @@ impl<B: Backend> Elem<B> {
     }
 }
 
+#[derive(Debug)]
 pub struct InnerArrayElem<B: Backend, T> {
     dtype: DataType,
     shape: Shape,
@@ -476,6 +481,7 @@ impl<B: Backend, T> InnerArrayElem<B, T> {
 
     pub(crate) fn save<D: HasShape + WriteArrayData + Into<T>>(&mut self, data: D) -> Result<()> {
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        self.dtype = data.data_type();
         self.shape = data.shape();
         if self.element.is_some() {
             self.element = Some(data.into());

@@ -136,6 +136,13 @@ impl TryFrom<Data> for Mapping {
 }
 
 impl WriteData for Data {
+    fn data_type(&self) -> DataType {
+        match self {
+            Data::ArrayData(data) => data.data_type(),
+            Data::Scalar(data) => data.data_type(),
+            Data::Mapping(data) => data.data_type(),
+        }
+    }
     fn write<B: Backend, G: GroupOp<Backend = B>>(
         &self,
         location: &G,
