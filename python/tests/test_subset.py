@@ -135,7 +135,6 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     s = set(shuffled_indices)
     shuffled_boolean_mask = list(i in s for i in range(dataset.n_obs))
 
-    # Non-inplace operations
     ## fancy indexing
     dataset_subset, _ = dataset.subset(indices, out = h5ad(tmp_path))
     np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
@@ -150,41 +149,18 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
 
     # Index shuffling
     dataset_subset, reorder = dataset.subset(shuffled_indices, out = h5ad(tmp_path))
-    reordered_indices = shuffled_indices[reorder]
+    if reorder is not None:
+        reordered_indices = shuffled_indices[reorder]
+    else:
+        reordered_indices = shuffled_indices
     np.testing.assert_array_equal(merged[reordered_indices, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs_names[reordered_indices].tolist(), dataset_subset.obs_names)
 
     dataset_subset, reorder = dataset.subset(shuffled_boolean_mask, out = h5ad(tmp_path))
     assert reorder is None
-    mat = merged[[], :] if dataset_subset.X is None else dataset_subset.X[:]
-    np.testing.assert_array_equal(merged[shuffled_boolean_mask, :], mat)
+    np.testing.assert_array_equal(merged[shuffled_boolean_mask, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs_names[shuffled_boolean_mask].tolist(), dataset_subset.obs_names)
 
     # Check if open is OK
     os.chdir(tmp_path)
     dataset_subset.subset([], out = "a_copy")
-
-    '''
-    # Inplace operations
-    # fancy indexing
-    dataset_subset = dataset.copy(h5ad(tmp_path))
-    dataset_subset.subset(indices)
-    np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
-    np.testing.assert_array_equal(obs_names[indices].tolist(), dataset_subset.obs_names)
-
-    # Index shuffling
-    dataset_subset = dataset.copy(h5ad(tmp_path))
-    dataset_subset.subset(shuffled_indices)
-    mat = merged[[], :] if dataset_subset.X is None else dataset_subset.X[:]
-    np.testing.assert_array_equal(merged[indices, :], mat)
-    np.testing.assert_array_equal(obs_names[indices].tolist(), dataset_subset.obs_names)
-    '''
-
-
-    '''
-    dataset_subset, index = dataset.subset(shuffled_indices, out = h5ad(tmp_path))
-    mat = merged[[], :] if dataset_subset.X is None else dataset_subset.X[:]
-    np.testing.assert_array_equal(merged[indices, :], mat)
-    np.testing.assert_array_equal(obs[indices], dataset_subset.obs['batch'])
-    np.testing.assert_array_equal(obs[[shuffled_indices[i] for i in index]], dataset_subset.obs['batch'])
-    '''

@@ -177,7 +177,7 @@ impl<B: Backend> AnnData<B> {
         // Read var
         let var = if file.exists("var")? {
             let var = DataFrameElem::try_from(DataContainer::open(&file, "var")?)?;
-            let n_records = obs.inner().height();
+            let n_records = var.inner().height();
             let n = *n_vars.lock();
             if n == 0 {
                 *n_vars.lock() = n_records;

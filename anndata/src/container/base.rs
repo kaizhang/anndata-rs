@@ -1156,75 +1156,79 @@ impl VecVecIndex {
         }
     }
 
-    /// Get the slice for each individual component.
+    fn split_slice(&self, slice: &Slice) -> HashMap<usize, SelectInfoElem> {
+        let bounded = BoundedSlice::new(slice, self.len());
+        let (outer_start, inner_start) = self.ix(&bounded.start);
+        let (outer_end, inner_end) = self.ix(&bounded.end);
+        let mut res = HashMap::new();
+        if outer_start == outer_end {
+            res.insert(
+                outer_start,
+                Slice {
+                    start: inner_start as isize,
+                    end: Some(inner_end as isize),
+                    step: slice.step,
+                }
+                .into(),
+            );
+        } else {
+            res.insert(
+                outer_start,
+                Slice {
+                    start: inner_start as isize,
+                    end: None,
+                    step: slice.step,
+                }
+                .into(),
+            );
+            res.insert(
+                outer_end,
+                Slice {
+                    start: 0,
+                    end: Some(inner_end as isize),
+                    step: slice.step,
+                }
+                .into(),
+            );
+            for i in outer_start + 1..outer_end {
+                res.insert(
+                    i,
+                    Slice {
+                        start: 0,
+                        end: None,
+                        step: slice.step,
+                    }
+                    .into(),
+                );
+            }
+        };
+        res
+    }
+
+    fn split_indices(&self, index: &[usize]) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
+        let (indices, mapping) = unique_indices_sorted(index, self.len());
+        let idx_groups: HashMap<usize, SelectInfoElem> = indices
+            .into_iter()
+            .map(|x| self.ix(&x))
+            .group_by(|(o, _)| *o)
+            .into_iter()
+            .map(|(outer, x)| (outer, x.map(|(_, i)| i).collect()))
+            .collect();
+        if is_sorted(index) {
+            (idx_groups, None)
+        } else {
+            (idx_groups, Some(mapping))
+        }
+    }
+
+    /// Sort and split the indices.
     pub fn split_select(
         &self,
         select: &SelectInfoElem,
     ) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
         match select {
-            SelectInfoElem::Slice(slice) => {
-                let bounded = BoundedSlice::new(slice, self.len());
-                let (outer_start, inner_start) = self.ix(&bounded.start);
-                let (outer_end, inner_end) = self.ix(&bounded.end);
-                let mut res = HashMap::new();
-                if outer_start == outer_end {
-                    res.insert(
-                        outer_start,
-                        Slice {
-                            start: inner_start as isize,
-                            end: Some(inner_end as isize),
-                            step: slice.step,
-                        }
-                        .into(),
-                    );
-                } else {
-                    res.insert(
-                        outer_start,
-                        Slice {
-                            start: inner_start as isize,
-                            end: None,
-                            step: slice.step,
-                        }
-                        .into(),
-                    );
-                    res.insert(
-                        outer_end,
-                        Slice {
-                            start: 0,
-                            end: Some(inner_end as isize),
-                            step: slice.step,
-                        }
-                        .into(),
-                    );
-                    for i in outer_start + 1..outer_end {
-                        res.insert(
-                            i,
-                            Slice {
-                                start: 0,
-                                end: None,
-                                step: slice.step,
-                            }
-                            .into(),
-                        );
-                    }
-                };
-                (res, None)
-            }
-            SelectInfoElem::Index(index) => {
-                let (indices, mapping) = unique_indices_sorted(index.as_slice(), self.len());
-                let idx_groups: HashMap<usize, SelectInfoElem> = indices
-                    .into_iter()
-                    .map(|x| self.ix(&x))
-                    .group_by(|(o, _)| *o)
-                    .into_iter()
-                    .map(|(outer, x)| (outer, x.map(|(_, i)| i).collect()))
-                    .collect();
-                if is_sorted(index.as_slice()) {
-                    (idx_groups, None)
-                } else {
-                    (idx_groups, Some(mapping))
-                }
-            }
+            SelectInfoElem::Slice(slice) => (self.split_slice(slice), None),
+            SelectInfoElem::Index(index) => self.split_indices(index.as_slice()),
         }
     }
 

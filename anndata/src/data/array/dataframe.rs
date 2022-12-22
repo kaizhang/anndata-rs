@@ -74,11 +74,8 @@ impl ReadData for DataFrame {
             .into_iter()
             .map(|x| {
                 let name = x.as_str();
-                let mut series = container
-                    .as_group()?
-                    .open_dataset(name)
-                    .map(DataContainer::Dataset)
-                    .and_then(|x| Series::read::<B>(&x))?;
+                let series_container = DataContainer::<B>::open(container.as_group()?, name)?;
+                let mut series = Series::read::<B>(&series_container)?;
                 series.rename(name);
                 Ok(series)
             })
@@ -405,10 +402,11 @@ impl ArrayOp for DataFrameIndex {
     where
         S: AsRef<SelectInfoElem>,
     {
-        let mut index: DataFrameIndex = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
-            .iter()
-            .map(|x| self.names[x].clone())
-            .collect();
+        let mut index: DataFrameIndex =
+            BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
+                .iter()
+                .map(|x| self.names[x].clone())
+                .collect();
         index.index_name = self.index_name.clone();
         index
     }
