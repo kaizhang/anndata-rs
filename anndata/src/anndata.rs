@@ -895,11 +895,11 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayIterator>(&self, iter: I) -> Result<()> {
+    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
         let mut lock = self.lock();
         self.del_x()?;
         let new_elem =
-            ArrayElem::try_from(ArrayIterator::write_array_iter(iter, &self.file, "X")?)?;
+            ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
         let shape = new_elem.inner().shape().clone();
 
         match lock
@@ -933,7 +933,7 @@ impl<B: Backend> AnnDataIterator for AnnData<B> {
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayIterator,
+        D: ArrayChunk,
     {
         self.get_obsm().inner().add_data_from_iter(key, data)
     }

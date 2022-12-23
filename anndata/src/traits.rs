@@ -148,7 +148,7 @@ pub trait AnnDataIterator: AnnDataOp {
     fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayIterator + Into<ArrayData>;
+        D: ArrayChunk + Into<ArrayData>;
 
     fn fetch_obsm_iter<'a, T>(
         &'a self,
@@ -162,5 +162,5 @@ pub trait AnnDataIterator: AnnDataOp {
     fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayIterator + Into<ArrayData>;
+        D: ArrayChunk + Into<ArrayData>;
 }

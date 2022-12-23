@@ -164,20 +164,20 @@ fn test_io<B: Backend>() -> Result<()> {
     with_tmp_path(|file| -> Result<()> {
         let adata: AnnData<B> = AnnData::new(file, 0, 0)?;
 
-        let mut arr_x = Array::random((0, 0), Uniform::new(-100, 100));
+        let mut arr_x: Array2<usize> = Array::random((0, 0), Uniform::new(0, 100));
         let mut csr_x = rand_csr(0, 0, 0);
         adata.set_x(&csr_x)?;
         assert_eq!(csr_x, adata.read_x::<CsrMatrix<i64>>()?.unwrap());
         adata.set_x(&arr_x)?;
-        assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
+        assert_eq!(arr_x, adata.read_x::<Array2<usize>>()?.unwrap());
         adata.del_x()?;
 
-        arr_x = Array::random((2, 3), Uniform::new(-100, 100));
+        arr_x = Array::random((2, 3), Uniform::new(0, 100));
         csr_x = rand_csr(2, 3, 2);
         adata.set_x(&csr_x)?;
         assert_eq!(csr_x, adata.read_x::<CsrMatrix<i64>>()?.unwrap());
         adata.set_x(&arr_x)?;
-        assert_eq!(arr_x, adata.read_x::<Array2<i32>>()?.unwrap());
+        assert_eq!(arr_x, adata.read_x::<Array2<usize>>()?.unwrap());
 
         obs_io(&adata, df!(
             "Fruit" => &["Apple", "Pear"],

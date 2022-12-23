@@ -1,6 +1,6 @@
 use crate::backend::*;
 use crate::data::{
-    array::utils::{cs_major_minor_index, cs_major_index, cs_major_slice, ExtendableDataset},
+    array::utils::{cs_major_minor_index, cs_major_index, cs_major_slice},
     data_traits::*,
     scalar::DynScalar,
     slice::{SelectInfoElem, Shape},
@@ -10,7 +10,7 @@ use crate::data::{
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
-use ndarray::{ArrayView1, Ix1};
+use ndarray::Ix1;
 
 use super::slice::BoundedSlice;
 
@@ -231,13 +231,13 @@ impl<T> HasShape for CsrMatrix<T> {
     }
 }
 
-impl<T: Clone> ArrayOp for CsrMatrix<T> {
+impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
+        if index.len() != 2 {
+            panic!("index must have length 2");
+        }
         todo!()
-        /*
-        ensure!(index.len() == 2, "index must have length 2");
-        self.get_entry(index[0], index[1]).map(|x| DynScalar::from(x.into_value()))
-        */
+        //self.get_entry(index[0], index[1]).map(|x| DynScalar::from(x.into_value()))
     }
 
     fn select<S>(&self, info: &[S]) -> Self

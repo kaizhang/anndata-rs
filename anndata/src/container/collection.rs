@@ -1,16 +1,17 @@
 use crate::{
-    backend::{iter_containers, GroupOp, LocationOp, Backend},
-    data::*,
+    backend::{iter_containers, Backend, GroupOp, LocationOp},
     container::base::*,
+    data::*,
 };
 
 use anyhow::{ensure, Result};
 use parking_lot::Mutex;
-use smallvec::{SmallVec, smallvec};
+use smallvec::{smallvec, SmallVec};
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     ops::{Deref, DerefMut},
-    sync::Arc, fmt::Display,
+    sync::Arc,
 };
 
 pub struct InnerElemCollection<B: Backend> {
@@ -61,7 +62,11 @@ impl<B: Backend> InnerElemCollection<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<()> {
         let group = location.create_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
@@ -116,10 +121,14 @@ impl<B: Backend> ElemCollection<B> {
     }
 
     pub fn clear(&self) -> Result<()> {
-        self.0.lock().as_ref().map(|x| {
-            let g = &x.container;
-            g.file()?.delete(&g.path().to_string_lossy())
-        }).transpose()?;
+        self.0
+            .lock()
+            .as_ref()
+            .map(|x| {
+                let g = &x.container;
+                g.file()?.delete(&g.path().to_string_lossy())
+            })
+            .transpose()?;
         self.0.drop();
         Ok(())
     }
@@ -220,17 +229,21 @@ impl<B: Backend> InnerAxisArrays<B> {
     pub fn add_data_from_iter<I, D>(&mut self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayIterator,
+        D: ArrayChunk,
     {
         if let Some(elem) = self.get(key) {
             elem.clear()?;
         }
-        let elem = ArrayElem::try_from(ArrayIterator::write_array_iter(data, &self.container, key)?)?;
+        let elem = ArrayElem::try_from(ArrayChunk::write_by_chunk(data, &self.container, key)?)?;
         self.insert(key.to_string(), elem);
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(&self, location: &G, name: &str) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+        &self,
+        location: &G,
+        name: &str,
+    ) -> Result<()> {
         let group = location.create_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
@@ -238,7 +251,12 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
-    pub fn export_select<O, G>(&self, selection: &SelectInfoElem, location: &G, name: &str) -> Result<()>
+    pub fn export_select<O, G>(
+        &self,
+        selection: &SelectInfoElem,
+        location: &G,
+        name: &str,
+    ) -> Result<()>
     where
         O: Backend,
         G: GroupOp<Backend = O>,
@@ -248,14 +266,14 @@ impl<B: Backend> InnerAxisArrays<B> {
         } else {
             let group = location.create_group(name)?;
             match self.axis {
-                Axis::Row => {
-                    self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_axis::<O, _>(0, selection, &group, k))
-                }
+                Axis::Row => self
+                    .iter()
+                    .try_for_each(|(k, x)| x.inner().export_axis::<O, _>(0, selection, &group, k)),
                 Axis::RowColumn => {
                     let s = vec![selection, selection];
-                    self.iter()
-                        .try_for_each(|(k, x)| x.inner().export_select::<O, _>(s.as_ref(), &group, k))
+                    self.iter().try_for_each(|(k, x)| {
+                        x.inner().export_select::<O, _>(s.as_ref(), &group, k)
+                    })
                 }
             }
         }
@@ -264,7 +282,8 @@ impl<B: Backend> InnerAxisArrays<B> {
     pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
         match self.axis {
             Axis::Row => {
-                self.values().try_for_each(|x| x.inner().subset_axis(0, &selection))?;
+                self.values()
+                    .try_for_each(|x| x.inner().subset_axis(0, &selection))?;
             }
             Axis::RowColumn => {
                 self.values().try_for_each(|x| {
@@ -353,10 +372,14 @@ impl<B: Backend> AxisArrays<B> {
     }
 
     pub fn clear(&self) -> Result<()> {
-        self.0.lock().as_ref().map(|x| {
-            let g = &x.container;
-            g.file()?.delete(&g.path().to_string_lossy())
-        }).transpose()?;
+        self.0
+            .lock()
+            .as_ref()
+            .map(|x| {
+                let g = &x.container;
+                g.file()?.delete(&g.path().to_string_lossy())
+            })
+            .transpose()?;
         self.0.drop();
         Ok(())
     }

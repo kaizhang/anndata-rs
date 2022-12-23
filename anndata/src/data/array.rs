@@ -3,14 +3,14 @@ pub mod slice;
 pub mod dataframe;
 mod sparse;
 mod utils;
-mod iterators;
+mod chunks;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
 pub use dataframe::DataFrameIndex;
 pub use utils::concat_array_data;
-pub use iterators::ArrayIterator;
+pub use chunks::ArrayChunk;
 
 use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
