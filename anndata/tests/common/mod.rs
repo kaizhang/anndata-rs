@@ -53,17 +53,15 @@ pub fn array_data_strat() -> impl Strategy<Value = ArrayData> {
     ]
 }
 
+// exclude usize 
 fn array_strat() -> impl Strategy<Value = ArrayData> {
     let range: std::ops::Range<usize> = 0..20;
     proptest::collection::vec(range, 2..4).prop_flat_map(|shape| {
         prop_oneof![
-            Just(rand_array::<usize>(shape.clone())),
-            /*
             Just(rand_array::<u8>(shape.clone())),
             Just(rand_array::<u16>(shape.clone())),
             Just(rand_array::<u32>(shape.clone())),
             Just(rand_array::<u64>(shape.clone())),
-            //Just(rand_array::<usize>(shape.clone())),
             Just(rand_array::<i8>(shape.clone())),
             Just(rand_array::<i16>(shape.clone())),
             Just(rand_array::<i32>(shape.clone())),
@@ -72,7 +70,6 @@ fn array_strat() -> impl Strategy<Value = ArrayData> {
             Just(rand_array::<f64>(shape.clone())),
             Just(rand_array::<bool>(shape.clone())),
             Just(rand_array::<String>(shape.clone())),
-            */
         ]
     })
 }

@@ -1,18 +1,17 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection, PyChunkedArray};
+use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollection, PyChunkedArray};
 use crate::data::{to_select_elem, to_select_info, PyArrayData, PyData, PyDataFrame};
 use crate::anndata::PyAnnData;
 
 use anndata;
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem};
-use anndata::{AnnDataOp, ArrayData, Backend, Data};
+use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 /** An annotated data matrix.
 
@@ -63,7 +62,7 @@ use std::sync::Arc;
 pub struct AnnData(Slot<Box<dyn AnnDataTrait>>);
 
 impl AnnData {
-    pub fn get_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnData<B>> {
+    pub fn take_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnData<B>> {
         self.0.extract().map(|adata| {
             *adata
                 .into_any()
@@ -71,6 +70,10 @@ impl AnnData {
                 .expect("downcast failed")
         })
     }
+
+//    pub fn inner_ref<B: Backend + 'static>(&self) -> Option<anndata::AnnData<B>> {
+//        self.0.inner()
+//    }
 
     pub fn open(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
         match backend.unwrap_or(H5::NAME) {
@@ -425,7 +428,7 @@ impl AnnData {
     #[pyo3(text_signature = "($self)")]
     pub fn close(&self) -> Result<()> {
         match self.backend().as_str() {
-            H5::NAME => if let Some(adata) = self.get_inner::<H5>() {
+            H5::NAME => if let Some(adata) = self.take_inner::<H5>() {
                 adata.close()?;
             },
             x => bail!("Unsupported backend: {}", x),

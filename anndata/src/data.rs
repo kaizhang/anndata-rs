@@ -2,6 +2,7 @@ pub mod array;
 pub mod data_traits;
 pub mod mapping;
 pub mod scalar;
+pub mod index;
 
 pub use array::*;
 pub use data_traits::*;

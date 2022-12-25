@@ -91,7 +91,7 @@ impl AnnDataSet {
         match anndatas.get(0).map(|x| x.1.backend()).and(backend).unwrap_or(H5::NAME) {
             H5::NAME => {
                 let data = anndatas.into_iter().map(|(key, adata)| {
-                    let adata = adata.get_inner::<H5>().unwrap();
+                    let adata = adata.take_inner::<H5>().unwrap();
                     (key, adata)
                 });
                 Ok(anndata::AnnDataSet::new(data, filename, add_key)?.into())
