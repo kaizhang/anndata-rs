@@ -16,7 +16,7 @@ use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
     prelude::{concat, IntoLazy},
-    series::Series,
+    series::{Series, IntoSeries},
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use smallvec::SmallVec;
@@ -168,6 +168,14 @@ impl<B: Backend> InnerDataFrameElem<B> {
 
     pub fn get_column_names(&self) -> &IndexSet<String> {
         &self.column_names
+    }
+
+    /// Set a column with a Series.
+    //TODO: this is not efficient. We should be able to replace a column without reading the whole dataframe.
+    pub fn set_column<S: IntoSeries>(&mut self, name: &str, new_col: S) -> Result<()> {
+        let mut df = self.data()?.clone();
+        df.replace_or_add(name, new_col)?;
+        self.save(df)
     }
 
     pub fn set_index(&mut self, index: DataFrameIndex) -> Result<()> {

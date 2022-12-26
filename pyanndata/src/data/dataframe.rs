@@ -57,7 +57,8 @@ impl From<PySeries> for Series {
 
 impl<'py> FromPyObject<'py> for PySeries {
     fn extract(ob: &'py PyAny) -> PyResult<Self> {
-        to_rust_series(ob).map(Into::into)
+        let s = ob.py().import("polars")?.call_method1("Series", (ob, ))?;
+        to_rust_series(s).map(Into::into)
     }
 }
 

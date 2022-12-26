@@ -201,7 +201,7 @@ impl<B: Backend> AnnData<B> {
 
         let obsm = match file.open_group("obsm").or(file.create_group("obsm")) {
             Ok(group) => {
-                let arrays = AxisArrays::new(group, Axis::Row, 0)?;
+                let arrays = AxisArrays::new(group, Axis::Row, n_obs.unwrap_or(0))?;
                 let n_records = arrays.inner().size;
                 if let Some(n) = n_obs {
                     ensure!(
@@ -220,7 +220,7 @@ impl<B: Backend> AnnData<B> {
 
         let obsp = match file.open_group("obsp").or(file.create_group("obsp")) {
             Ok(group) => {
-                let arrays = AxisArrays::new(group, Axis::RowColumn, 0)?;
+                let arrays = AxisArrays::new(group, Axis::RowColumn, n_obs.unwrap_or(0))?;
                 let n_records = arrays.inner().size;
                 if let Some(n) = n_obs {
                     ensure!(
@@ -239,7 +239,7 @@ impl<B: Backend> AnnData<B> {
 
         let varm = match file.open_group("varm").or(file.create_group("varm")) {
             Ok(group) => {
-                let arrays = AxisArrays::new(group, Axis::Row, 0)?;
+                let arrays = AxisArrays::new(group, Axis::Row, n_vars.unwrap_or(0))?;
                 let n_records = arrays.inner().size;
                 if let Some(n) = n_vars {
                     ensure!(
@@ -258,7 +258,7 @@ impl<B: Backend> AnnData<B> {
 
         let varp = match file.open_group("varp").or(file.create_group("varp")) {
             Ok(group) => {
-                let arrays = AxisArrays::new(group, Axis::RowColumn, 0)?;
+                let arrays = AxisArrays::new(group, Axis::RowColumn, n_vars.unwrap_or(0))?;
                 let n_records = arrays.inner().size;
                 if let Some(n) = n_vars {
                     ensure!(

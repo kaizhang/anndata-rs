@@ -411,7 +411,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
         let shape = self.shape();
 
         group.write_str_attr("encoding-type", "csr_matrix")?;
-        group.write_str_attr("encoding-version", "0.2.0")?;
+        group.write_str_attr("encoding-version", "0.1.0")?;
         group.write_arr_attr("shape", shape.as_ref())?;
 
         group.create_array_data("data", &self.values(), Default::default())?;

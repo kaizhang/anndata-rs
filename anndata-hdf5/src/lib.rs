@@ -372,12 +372,12 @@ impl DatasetOp for H5Dataset {
             selection: &[S],
         ) -> Result<()>
         where
-            T: H5Type,
+            T: H5Type + Clone,
             D: Dimension,
             S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
-            container.deref().write_slice(arr, select)?;
+            container.deref().write_slice(&arr.as_standard_layout(), select)?;
             Ok(())
         }
 

@@ -12,6 +12,7 @@ use anndata::{
 };
 use anndata::container::{ChunkedArrayElem, StackedChunkedArrayElem};
 use anyhow::{bail, Context, Result};
+use polars::series::Series;
 use pyo3::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
@@ -166,7 +167,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
 
 pub trait DataFrameElemTrait: Send {
     fn get(&self, subscript: &PyAny) -> Result<PyObject>;
-    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()>;
+    fn set(&self, key: &str, data: Series) -> Result<()>;
     fn contains(&self, key: &str) -> bool;
     fn show(&self) -> String;
 }
@@ -186,8 +187,9 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
         }
     }
 
-    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()> {
-        todo!()
+    fn set(&self, key: &str, mut data: Series) -> Result<()> {
+        data.rename(key);
+        self.inner().set_column(key, data)
     }
 
     fn contains(&self, key: &str) -> bool {
@@ -217,8 +219,8 @@ impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
         }
     }
 
-    fn set<'py>(&self, py: Python<'py>, key: &str, data: PySeries) -> Result<()> {
-        todo!()
+    fn set(&self, _: &str, _: Series) -> Result<()> {
+        bail!("Cannot set column in stacked dataframe")
     }
 
     fn contains(&self, key: &str) -> bool {

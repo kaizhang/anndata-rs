@@ -70,6 +70,18 @@ fn array_strat() -> impl Strategy<Value = ArrayData> {
             Just(rand_array::<f64>(shape.clone())),
             Just(rand_array::<bool>(shape.clone())),
             Just(rand_array::<String>(shape.clone())),
+            Just(rand_array_f::<u8>(shape.clone())),
+            Just(rand_array_f::<u16>(shape.clone())),
+            Just(rand_array_f::<u32>(shape.clone())),
+            Just(rand_array_f::<u64>(shape.clone())),
+            Just(rand_array_f::<i8>(shape.clone())),
+            Just(rand_array_f::<i16>(shape.clone())),
+            Just(rand_array_f::<i32>(shape.clone())),
+            Just(rand_array_f::<i64>(shape.clone())),
+            Just(rand_array_f::<f32>(shape.clone())),
+            Just(rand_array_f::<f64>(shape.clone())),
+            Just(rand_array_f::<bool>(shape.clone())),
+            Just(rand_array_f::<String>(shape.clone())),
         ]
     })
 }
@@ -81,6 +93,25 @@ fn csr_strat() -> impl Strategy<Value = ArrayData> {
         let nnz = (max / 10).max(1).min(max);
         rand_csr(x, y, nnz).into()
     })
+}
+
+fn rand_array_f<B: BackendData>(shape: Vec<usize>) -> ArrayData {
+    let s: Vec<_> = shape.into_iter().rev().collect();
+    match B::DTYPE {
+        ScalarType::U8 => Array::random(s, Uniform::new(0u8, 255u8)).reversed_axes().into(),
+        ScalarType::U16 => Array::random(s, Uniform::new(0u16, 255u16)).reversed_axes().into(),
+        ScalarType::U32 => Array::random(s, Uniform::new(0u32, 255u32)).reversed_axes().into(),
+        ScalarType::U64 => Array::random(s, Uniform::new(0u64, 255u64)).reversed_axes().into(),
+        ScalarType::Usize => Array::random(s, Uniform::new(0usize, 255usize)).reversed_axes().into(),
+        ScalarType::I8 => Array::random(s, Uniform::new(-128i8, 127i8)).reversed_axes().into(),
+        ScalarType::I16 => Array::random(s, Uniform::new(-128i16, 127i16)).reversed_axes().into(),
+        ScalarType::I32 => Array::random(s, Uniform::new(-128i32, 127i32)).reversed_axes().into(),
+        ScalarType::I64 => Array::random(s, Uniform::new(-128i64, 127i64)).reversed_axes().into(),
+        ScalarType::F32 => Array::random(s, Uniform::new(-128f32, 127f32)).reversed_axes().into(),
+        ScalarType::F64 => Array::random(s, Uniform::new(-128f64, 127f64)).reversed_axes().into(),
+        ScalarType::Bool => Array::random(s, Uniform::new(0u8, 1u8)).mapv(|x| x == 1).reversed_axes().into(),
+        ScalarType::String => Array::random(s, Uniform::new(-1000f32, 1000f32)).mapv(|x| x.to_string()).reversed_axes().into(),
+    }
 }
 
 fn rand_array<B: BackendData>(shape: Vec<usize>) -> ArrayData {

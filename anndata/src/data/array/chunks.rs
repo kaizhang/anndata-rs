@@ -43,7 +43,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
     {
         let group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csr_matrix")?;
-        group.write_str_attr("encoding-version", "0.2.0")?;
+        group.write_str_attr("encoding-version", "0.1.0")?;
         group.write_str_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(

@@ -1,6 +1,6 @@
 mod traits;
 
-use crate::data::{PyData, PyArrayData};
+use crate::data::{PyData, PyArrayData, PySeries};
 
 use pyo3::prelude::*;
 use traits::{ElemTrait, ArrayElemTrait, DataFrameElemTrait, AxisArrayTrait};
@@ -150,9 +150,8 @@ impl PyDataFrameElem {
         self.0.get(subscript)
     }
 
-    //TODO: pandas dataframe should set index as well.
-    fn __setitem__<'py>(&self, py: Python<'py>, key: &'py PyAny, data: &'py PyAny) -> Result<()> {
-        todo!()
+    fn __setitem__(&self, key: &str, data: PySeries) -> Result<()> {
+        self.0.set(key, data.into())
     }
 
     fn __contains__(&self, key: &str) -> bool {
