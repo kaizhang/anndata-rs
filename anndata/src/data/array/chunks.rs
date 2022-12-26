@@ -5,7 +5,7 @@ use crate::data::{
 };
 
 use anyhow::{bail, Result};
-use ndarray::{Array, ArrayView1, ArrayD, Dimension};
+use ndarray::{Array, ArrayView1};
 use nalgebra_sparse::CsrMatrix;
 
 pub trait ArrayChunk {

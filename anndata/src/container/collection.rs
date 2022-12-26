@@ -4,8 +4,8 @@ use crate::{
     data::*,
 };
 
-use anyhow::{ensure, Result};
-use parking_lot::Mutex;
+use anyhow::{bail, ensure, Result};
+use itertools::Itertools;
 use smallvec::{smallvec, SmallVec};
 use std::{
     collections::{HashMap, HashSet},
@@ -143,7 +143,7 @@ pub enum Axis {
 pub struct InnerAxisArrays<B: Backend> {
     pub axis: Axis,
     pub(crate) container: B::Group,
-    pub(crate) size: Arc<Mutex<usize>>, // shared global reference
+    pub(crate) size: usize,
     data: HashMap<String, ArrayElem<B>>,
 }
 
@@ -184,7 +184,7 @@ impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
 
 impl<B: Backend> InnerAxisArrays<B> {
     pub fn size(&self) -> usize {
-        *self.size.lock()
+        self.size
     }
 
     pub fn add_data<D: WriteArrayData + HasShape + Into<ArrayData>>(
@@ -192,29 +192,17 @@ impl<B: Backend> InnerAxisArrays<B> {
         key: &str,
         data: D,
     ) -> Result<()> {
-        {
-            // Check if the data is compatible with the current size
-            let shape = data.shape();
-            let mut size = self.size.lock();
+        // Check if the data is compatible with the current size
+        let shape = data.shape();
 
-            match self.axis {
-                Axis::Row => {
-                    ensure!(
-                        *size == 0 || *size == shape[0],
-                        "Row arrays must have same length"
-                    );
-                    *size = shape[0];
-                }
-                Axis::RowColumn => {
-                    ensure!(shape[0] == shape[1], "Square arrays must be square");
-                    ensure!(
-                        *size == 0 || *size == shape[0],
-                        "Square arrays must have same length"
-                    );
-                    *size = shape[0];
-                }
+        match self.axis {
+            Axis::Row => { ensure!(self.size == shape[0], "Row arrays must have same length"); },
+            Axis::RowColumn => {
+                ensure!(shape[0] == shape[1], "Square arrays must be square");
+                ensure!(self.size == shape[0], "Square arrays must have same length");
             }
         }
+
         match self.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
@@ -235,7 +223,28 @@ impl<B: Backend> InnerAxisArrays<B> {
             elem.clear()?;
         }
         let elem = ArrayElem::try_from(ArrayChunk::write_by_chunk(data, &self.container, key)?)?;
+
+        let shape = { elem.inner().shape().clone() };
+        if self.is_empty() {
+            self.size = shape[0];
+        }
+        match self.axis {
+            Axis::Row => if self.size != shape[0] {
+                elem.clear()?;
+                bail!("Row arrays must have same length");
+            },
+            Axis::RowColumn => if shape[0] != shape[1] || self.size != shape[0] {
+                elem.clear()?;
+                bail!("Square arrays must have same length");
+            }
+        }
+
         self.insert(key.to_string(), elem);
+        Ok(())
+    }
+
+    pub fn remove_data(&mut self, key: &str) -> Result<()> {
+        self.remove(key).map(|x| x.clear()).transpose()?;
         Ok(())
     }
 
@@ -279,7 +288,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         }
     }
 
-    pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&self, selection: S) -> Result<()> {
+    pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&mut self, selection: S) -> Result<()> {
         match self.axis {
             Axis::Row => {
                 self.values()
@@ -295,6 +304,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                 })?;
             }
         }
+        self.size = BoundedSelectInfoElem::new(selection.as_ref(), self.size).len();
         Ok(())
     }
 }
@@ -333,42 +343,32 @@ impl<B: Backend> AxisArrays<B> {
         Self(Slot::empty())
     }
 
-    pub fn new(group: B::Group, axis: Axis, size_: Arc<Mutex<usize>>) -> Result<Self> {
+    pub fn new(group: B::Group, axis: Axis, default_size: usize) -> Result<Self> {
         let data: HashMap<_, _> = iter_containers::<B>(&group)
             .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
-        {
-            // Check if the data is compatible with the current size
-            let mut size = size_.lock();
-            for (_, v) in data.iter() {
-                let v_lock = v.inner();
-                let shape = v_lock.shape();
-                match &axis {
-                    Axis::Row => {
-                        ensure!(
-                            *size == 0 || *size == shape[0],
-                            "Row arrays must have same length"
-                        );
-                        *size = shape[0];
-                    }
-                    Axis::RowColumn => {
-                        ensure!(shape[0] == shape[1], "Square arrays must be square");
-                        ensure!(
-                            *size == 0 || *size == shape[0],
-                            "Square arrays must have same length"
-                        );
-                        *size = shape[0];
-                    }
-                }
+        let sizes = data.iter().map(|(_, v)| {
+            let v_lock = v.inner();
+            let shape = v_lock.shape();
+            match &axis {
+                Axis::Row => Ok(shape[0]),
+                Axis::RowColumn => {
+                    ensure!(shape[0] == shape[1], "Square arrays must be square");
+                    Ok(shape[0])
+                },
             }
+        }).collect::<Result<Vec<_>>>()?;
+        if sizes.iter().all_equal() {
+            let arrays = InnerAxisArrays {
+                container: group,
+                size: sizes.get(0).copied().unwrap_or(default_size),
+                axis,
+                data,
+            };
+            Ok(Self(Slot::new(arrays)))
+        } else {
+            bail!("Arrays must be the same size")
         }
-        let arrays = InnerAxisArrays {
-            container: group,
-            size: size_,
-            axis,
-            data,
-        };
-        Ok(Self(Slot::new(arrays)))
     }
 
     pub fn clear(&self) -> Result<()> {

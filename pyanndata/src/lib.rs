@@ -1,5 +1,5 @@
 mod anndata;
-mod data;
+pub mod data;
 pub mod container;
 
 pub use crate::anndata::{AnnData, AnnDataSet, PyAnnData, read, read_dataset};

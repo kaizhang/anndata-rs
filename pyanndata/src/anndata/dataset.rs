@@ -63,9 +63,9 @@ impl AnnDataSet {
 }
 
 #[derive(FromPyObject)]
-pub enum AnnDataFile {
+pub enum AnnDataFile<'py> {
     Path(PathBuf),
-    Data(AnnData),
+    Data(&'py PyCell<AnnData>),
 }
 
 #[pymethods]
@@ -78,24 +78,18 @@ impl AnnDataSet {
         add_key: &str,
         backend: Option<&str>,
     ) -> Result<Self> {
-        let anndatas = adatas
-            .into_iter()
-            .map(|(key, data_file)| {
-                let adata = match data_file {
-                    AnnDataFile::Data(data) => data,
-                    AnnDataFile::Path(path) => AnnData::open(path, "r", backend)?,
-                };
-                Ok((key, adata))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        match anndatas.get(0).map(|x| x.1.backend()).and(backend).unwrap_or(H5::NAME) {
+        match backend.unwrap_or(H5::NAME) {
             H5::NAME => {
-                let data = anndatas.into_iter().map(|(key, adata)| {
-                    let adata = adata.take_inner::<H5>().unwrap();
-                    (key, adata)
-                });
-                Ok(anndata::AnnDataSet::new(data, filename, add_key)?.into())
-            },
+                let anndatas = adatas.into_iter()
+                    .map(|(key, data_file)| {
+                        let adata = match data_file {
+                            AnnDataFile::Data(data) => data.borrow().take_inner::<H5>().unwrap(),
+                            AnnDataFile::Path(path) => anndata::AnnData::open(H5::open(path).unwrap()).unwrap(),
+                        };
+                        (key, adata)
+                    });
+                Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
+            }
             _ => todo!(),
         }
     }
