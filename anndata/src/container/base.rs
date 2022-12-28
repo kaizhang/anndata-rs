@@ -888,11 +888,8 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             .collect::<Result<Vec<_>>>()
             .and_then(concat_array_data)?;
         if let Some(m) = mapping {
-            let select: SmallVec<[SelectInfoElem; 3]> = std::iter::once(m.into())
-                .chain(std::iter::repeat((..).into()).take(selection.as_ref().len() - 1))
-                .collect();
             array
-                .select(select.as_slice())
+                .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
                 .try_into()
                 .map_err(Into::into)
         } else {
@@ -922,9 +919,8 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             .collect::<Result<Vec<_>>>()
             .and_then(concat_array_data)?;
         if let Some(m) = mapping {
-            let select: [SelectInfoElem; 1] = [m.into()];
             array
-                .select(select.as_slice())
+                .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
                 .try_into()
                 .map_err(Into::into)
         } else {
@@ -1269,4 +1265,12 @@ impl FromIterator<usize> for VecVecIndex {
             .collect();
         VecVecIndex(index)
     }
+}
+
+fn reverse_mapping(mapping: Vec<usize>) -> Vec<usize> {
+    let mut res = vec![0; mapping.len()];
+    for (i, x) in mapping.into_iter().enumerate() {
+        res[x] = i;
+    }
+    res
 }

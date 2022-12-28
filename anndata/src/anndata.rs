@@ -713,84 +713,101 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         Ok(())
     }
 
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
-        let n_obs = self.lock_obs();
+    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        let mut n_obs = self.lock_obs();
         self.del_obsm()?;
-        let obsm = AxisArrays::new(
-            self.file.create_group("obsm")?,
-            Axis::Row,
-            *n_obs,
-        )?;
-        match data.try_for_each(|(k, v)| obsm.inner().add_data(&k, v)) {
-            Ok(_) => {
-                self.get_obsm().swap(&obsm);
-                Ok(())
-            }
-            Err(e) => {
-                self.file.delete("obsm")?;
-                Err(e)
+        let mut iter = data.peekable();
+        if let Some((_, d)) = iter.peek() {
+            let n = d.shape()[0];
+            n_obs.try_set(n)?;
+            let obsm = AxisArrays::new(
+                self.file.create_group("obsm")?,
+                Axis::Row,
+                *n_obs,
+            )?;
+            match iter.try_for_each(|(k, v)| obsm.inner().add_data(&k, v)) {
+                Ok(_) => {
+                    self.get_obsm().swap(&obsm);
+                }
+                Err(e) => {
+                    self.file.delete("obsm")?;
+                    bail!(e);
+                }
             }
         }
+        Ok(())
     }
-
-    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
-        let n_obs = self.lock_obs();
+    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        let mut n_obs = self.lock_obs();
         self.del_obsp()?;
-        let obsp = AxisArrays::new(
-            self.file.create_group("obsp")?,
-            Axis::RowColumn,
-            *n_obs,
-        )?;
-        match data.try_for_each(|(k, v)| obsp.inner().add_data(&k, v)) {
-            Ok(_) => {
-                self.get_obsp().swap(&obsp);
-                Ok(())
-            }
-            Err(e) => {
-                self.file.delete("obsp")?;
-                Err(e)
+        let mut iter = data.peekable();
+        if let Some((_, d)) = iter.peek() {
+            let n = d.shape()[0];
+            n_obs.try_set(n)?;
+            let obsp = AxisArrays::new(
+                self.file.create_group("obsp")?,
+                Axis::RowColumn,
+                *n_obs,
+            )?;
+            match iter.try_for_each(|(k, v)| obsp.inner().add_data(&k, v)) {
+                Ok(_) => {
+                    self.get_obsp().swap(&obsp);
+                }
+                Err(e) => {
+                    self.file.delete("obsp")?;
+                    bail!(e);
+                }
             }
         }
+        Ok(())
     }
-
-    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
-        let n_vars = self.lock_vars();
+    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        let mut n_vars = self.lock_vars();
         self.del_varm()?;
-        let varm = AxisArrays::new(
-            self.file.create_group("varm")?,
-            Axis::Row,
-            *n_vars,
-        )?;
-        match data.try_for_each(|(k, v)| varm.inner().add_data(&k, v)) {
-            Ok(_) => {
-                self.get_varm().swap(&varm);
-                Ok(())
-            }
-            Err(e) => {
-                self.file.delete("varm")?;
-                Err(e)
+        let mut iter = data.peekable();
+        if let Some((_, d)) = iter.peek() {
+            let n = d.shape()[0];
+            n_vars.try_set(n)?;
+            let varm = AxisArrays::new(
+                self.file.create_group("varm")?,
+                Axis::Row,
+                *n_vars,
+            )?;
+            match iter.try_for_each(|(k, v)| varm.inner().add_data(&k, v)) {
+                Ok(_) => {
+                    self.get_varm().swap(&varm);
+                }
+                Err(e) => {
+                    self.file.delete("varm")?;
+                    bail!(e);
+                }
             }
         }
+        Ok(())
     }
-
-    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
-        let n_vars = self.lock_vars();
+    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+        let mut n_vars = self.lock_vars();
         self.del_varp()?;
-        let varp = AxisArrays::new(
-            self.file.create_group("varp")?,
-            Axis::RowColumn,
-            *n_vars,
-        )?;
-        match data.try_for_each(|(k, v)| varp.inner().add_data(&k, v)) {
-            Ok(_) => {
-                self.get_varp().swap(&varp);
-                Ok(())
-            }
-            Err(e) => {
-                self.file.delete("varp")?;
-                Err(e)
+        let mut iter = data.peekable();
+        if let Some((_, d)) = iter.peek() {
+            let n = d.shape()[0];
+            n_vars.try_set(n)?;
+            let varp = AxisArrays::new(
+                self.file.create_group("varp")?,
+                Axis::RowColumn,
+                *n_vars,
+            )?;
+            match iter.try_for_each(|(k, v)| varp.inner().add_data(&k, v)) {
+                Ok(_) => {
+                    self.get_varp().swap(&varp);
+                }
+                Err(e) => {
+                    self.file.delete("varp")?;
+                    bail!(e);
+                }
             }
         }
+        Ok(())
     }
 
     fn uns_keys(&self) -> Vec<String> {
