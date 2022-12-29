@@ -4,6 +4,9 @@ use anyhow::Result;
 use polars::prelude::DataFrame;
 
 pub trait AnnDataOp {
+    type AxisArraysRef<'a>: AxisArraysOp where Self: 'a;
+    type ElemCollectionRef<'a>: ElemCollectionOp where Self: 'a;
+
     /// Reading/writing the 'X' element.
     fn read_x<D>(&self) -> Result<Option<D>>
     where
@@ -54,75 +57,37 @@ pub trait AnnDataOp {
     /// Delete the variable annotations.
     fn del_var(&self) -> Result<()>;
 
+    fn uns(&self) -> Self::ElemCollectionRef<'_>;
+    fn obsm(&self) -> Self::AxisArraysRef<'_>;
+    fn obsp(&self) -> Self::AxisArraysRef<'_>;
+    fn varm(&self) -> Self::AxisArraysRef<'_>;
+    fn varp(&self) -> Self::AxisArraysRef<'_>;
+
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
         self.del_uns()?;
-        data.try_for_each(|(k, v)| self.add_uns(&k, v))
+        let uns = self.uns();
+        data.try_for_each(|(k, v)| uns.add(&k, v))
     }
     fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
         self.del_obsm()?;
-        data.try_for_each(|(k, v)| self.add_obsm(&k, v))
+        let obsm = self.obsm();
+        data.try_for_each(|(k, v)| obsm.add(&k, v))
     }
     fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
         self.del_obsp()?;
-        data.try_for_each(|(k, v)| self.add_obsp(&k, v))
+        let obsp = self.obsp();
+        data.try_for_each(|(k, v)| obsp.add(&k, v))
     }
     fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
         self.del_varm()?;
-        data.try_for_each(|(k, v)| self.add_varm(&k, v))
+        let varm = self.varm();
+        data.try_for_each(|(k, v)| varm.add(&k, v))
     }
     fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
         self.del_varp()?;
-        data.try_for_each(|(k, v)| self.add_varp(&k, v))
+        let varp = self.varp();
+        data.try_for_each(|(k, v)| varp.add(&k, v))
     }
-
-    fn uns_keys(&self) -> Vec<String>;
-    fn obsm_keys(&self) -> Vec<String>;
-    fn obsp_keys(&self) -> Vec<String>;
-    fn varm_keys(&self) -> Vec<String>;
-    fn varp_keys(&self) -> Vec<String>;
-
-    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
-        <D as TryFrom<Data>>::Error: Into<anyhow::Error>;
-    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;  
-
-    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()>;
-    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>;
-    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>;
-    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>;
-    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>;
 
     fn del_uns(&self) -> Result<()>;
     fn del_obsm(&self) -> Result<()>;
@@ -149,8 +114,44 @@ pub trait AnnDataIterator: AnnDataOp {
     where
         I: Iterator<Item = D>,
         D: ArrayChunk + Into<ArrayData>;
+}
 
-    fn fetch_obsm_iter<'a, T>(
+pub trait ElemCollectionOp {
+    fn keys(&self) -> Vec<String>;
+
+    fn get<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>;
+
+    fn add<D: WriteData + Into<Data>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()>;
+}
+
+pub trait AxisArraysOp {
+    type ArrayIter<'a, T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+        Self: 'a;
+
+    fn keys(&self) -> Vec<String>;
+
+    fn get<D>(&self, key: &str) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
+    where
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        S: AsRef<[SelectInfoElem]>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn get_iter<'a, T>(
         &'a self,
         key: &str,
         chunk_size: usize,
@@ -158,9 +159,15 @@ pub trait AnnDataIterator: AnnDataOp {
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+ 
+    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
+        &self,
+        key: &str,
+        data: D,
+    ) -> Result<()>;
 
-    fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayChunk + Into<ArrayData>;
+        D: ArrayChunk;
 }

@@ -456,7 +456,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_obsm(&self) -> Option<PyAxisArrays> {
-        let obsm = self.get_anno().get_obsm();
+        let obsm = self.get_anno().obsm();
         if obsm.is_empty() {
             None
         } else {

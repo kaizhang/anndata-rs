@@ -6,6 +6,7 @@ use crate::{
 
 use anyhow::{bail, ensure, Result};
 use itertools::Itertools;
+use parking_lot::{MutexGuard, Mutex};
 use smallvec::{smallvec, SmallVec};
 use std::{
     collections::{HashMap, HashSet},
@@ -140,10 +141,78 @@ pub enum Axis {
     RowColumn,
 }
 
+/// Nullable dimension. None means that the dimension is not set.
+/// Dimension can be set only once.
+#[derive(Debug, Clone)]
+pub struct Dim(Arc<Mutex<Option<usize>>>);
+
+impl Dim {
+    pub fn empty() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    pub fn new(n: usize) -> Self {
+        Self(Arc::new(Mutex::new(Some(n))))
+    }
+
+    pub fn lock(&self) -> DimLock<'_> {
+        DimLock(self.0.lock())
+    }
+
+    pub fn try_lock(&self) -> Option<DimLock<'_>> {
+        self.0.try_lock().map(DimLock)
+    }
+
+    pub fn get(&self) -> usize {
+        self.lock().get()
+    }
+
+    pub fn try_set(&self, n: usize) -> Result<()> {
+        self.lock().try_set(n)
+    }
+}
+
+impl Display for Dim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lock = self.lock().0;
+        if lock.is_none() {
+            write!(f, "None")?;
+        } else {
+            write!(f, "{}", lock.unwrap())?;
+        }
+        Ok(())
+    }
+}
+
+pub struct DimLock<'a>(MutexGuard<'a, Option<usize>>);
+
+impl DimLock<'_> {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    pub fn get(&self) -> usize {
+        self.0.unwrap_or(0)
+    }
+
+    pub fn try_set(&mut self, n: usize) -> Result<()> {
+        if self.0.is_some() && self.0.unwrap() != n {
+            bail!("dimension cannot be changed from {} to {}", self.0.unwrap(), n);
+        } else {
+            *self.0 = Some(n);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set(&mut self, n: usize) {
+        *self.0 = Some(n);
+    }
+}
+
 pub struct InnerAxisArrays<B: Backend> {
     pub axis: Axis,
     pub(crate) container: B::Group,
-    pub(crate) size: usize,
+    pub(crate) size: Dim,
     data: HashMap<String, ArrayElem<B>>,
 }
 
@@ -184,7 +253,7 @@ impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
 
 impl<B: Backend> InnerAxisArrays<B> {
     pub fn size(&self) -> usize {
-        self.size
+        self.size.get()
     }
 
     pub fn add_data<D: WriteArrayData + HasShape + Into<ArrayData>>(
@@ -194,14 +263,10 @@ impl<B: Backend> InnerAxisArrays<B> {
     ) -> Result<()> {
         // Check if the data is compatible with the current size
         let shape = data.shape();
-
-        match self.axis {
-            Axis::Row => { ensure!(self.size == shape[0], "Row arrays must have same length"); },
-            Axis::RowColumn => {
-                ensure!(shape[0] == shape[1], "Square arrays must be square");
-                ensure!(self.size == shape[0], "Square arrays must have same length");
-            }
+        if let Axis::RowColumn = self.axis {
+            ensure!(shape[0] == shape[1], "expecting a square array, but receive a {:?} array", shape);
         }
+        self.size.try_set(shape[0])?;
 
         match self.get_mut(key) {
             None => {
@@ -225,22 +290,16 @@ impl<B: Backend> InnerAxisArrays<B> {
         let elem = ArrayElem::try_from(ArrayChunk::write_by_chunk(data, &self.container, key)?)?;
 
         let shape = { elem.inner().shape().clone() };
-        if self.is_empty() {
-            self.size = shape[0];
+        if self.axis == Axis::RowColumn && shape[0] != shape[1] {
+            elem.clear()?;
+            bail!("expecting a square array, but receive a {:?} array", shape)
+        } else if let Err(e) = self.size.try_set(shape[0]) {
+            elem.clear()?;
+            bail!(e)
+        } else {
+            self.insert(key.to_string(), elem);
+            Ok(())
         }
-        match self.axis {
-            Axis::Row => if self.size != shape[0] {
-                elem.clear()?;
-                bail!("Row arrays must have same length");
-            },
-            Axis::RowColumn => if shape[0] != shape[1] || self.size != shape[0] {
-                elem.clear()?;
-                bail!("Square arrays must have same length");
-            }
-        }
-
-        self.insert(key.to_string(), elem);
-        Ok(())
     }
 
     pub fn remove_data(&mut self, key: &str) -> Result<()> {
@@ -304,7 +363,10 @@ impl<B: Backend> InnerAxisArrays<B> {
                 })?;
             }
         }
-        self.size = BoundedSelectInfoElem::new(selection.as_ref(), self.size).len();
+
+        if let Some(mut lock) = self.size.try_lock() {
+            lock.set(BoundedSelectInfoElem::new(selection.as_ref(), lock.get()).len());
+        }
         Ok(())
     }
 }
@@ -343,7 +405,7 @@ impl<B: Backend> AxisArrays<B> {
         Self(Slot::empty())
     }
 
-    pub fn new(group: B::Group, axis: Axis, default_size: usize) -> Result<Self> {
+    pub fn new(group: B::Group, axis: Axis, size: &Dim) -> Result<Self> {
         let data: HashMap<_, _> = iter_containers::<B>(&group)
             .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
@@ -359,9 +421,12 @@ impl<B: Backend> AxisArrays<B> {
             }
         }).collect::<Result<Vec<_>>>()?;
         if sizes.iter().all_equal() {
+            if let Some(n) = sizes.get(0) {
+                size.try_set(*n)?;
+            }
             let arrays = InnerAxisArrays {
                 container: group,
-                size: sizes.get(0).copied().unwrap_or(default_size),
+                size: size.clone(),
                 axis,
                 data,
             };

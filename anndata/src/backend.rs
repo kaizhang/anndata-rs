@@ -20,7 +20,7 @@ impl Default for WriteConfig {
     }
 }
 
-pub trait Backend {
+pub trait Backend: 'static {
     const NAME: &'static str;
 
     /// File represents the root of the hierarchy.

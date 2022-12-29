@@ -1,9 +1,10 @@
+use crate::container::Dim;
 use crate::container::base::VecVecIndex;
-use crate::traits::{AnnDataIterator, AnnDataOp};
+use crate::traits::{AnnDataIterator, AnnDataOp, ElemCollectionOp, AxisArraysOp};
 use crate::{
     anndata::AnnData,
     backend::Backend,
-    container::{Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame},
+    container::{Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
     data::*,
 };
 
@@ -137,7 +138,9 @@ impl<B: Backend> AnnDataSet<B> {
         let n_obs = anndatas.n_obs;
         let n_vars = anndatas.n_vars;
 
-        let annotation = AnnData::new(filename, n_obs, n_vars)?;
+        let mut annotation = AnnData::new(filename)?;
+        annotation.n_obs = Dim::new(n_obs);
+        annotation.n_vars = Dim::new(n_vars);
         {
             // Set UNS. UNS includes children anndata locations.
             let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
@@ -148,7 +151,7 @@ impl<B: Backend> AnnDataSet<B> {
                 Series::new("keys", keys),
                 Series::new("file_path", filenames),
             ])?;
-            annotation.add_uns("AnnDataSet", data)?;
+            annotation.uns().add("AnnDataSet", data)?;
         }
         {
             // Set OBS.
@@ -191,7 +194,7 @@ impl<B: Backend> AnnDataSet<B> {
             .to_path_buf();
 
         let df: DataFrame = annotation
-            .fetch_uns("AnnDataSet")?
+            .uns().get("AnnDataSet")?
             .context("key 'AnnDataSet' is not present")?;
         let keys = df
             .column("keys")?
@@ -272,7 +275,7 @@ impl<B: Backend> AnnDataSet<B> {
             Series::new("keys", keys),
             Series::new("file_path", filenames),
         ])?;
-        adata.add_uns("AnnDataSet", file_loc)?;
+        adata.uns().add("AnnDataSet", file_loc)?;
         adata.close()?;
         Ok(obs_idx_order)
     }
@@ -314,7 +317,7 @@ fn update_anndata_locations<B: Backend>(
     new_locations: HashMap<String, String>,
 ) -> Result<()> {
     let df: DataFrame = ann
-        .fetch_uns("AnnDataSet")?
+        .uns().get("AnnDataSet")?
         .context("key 'AnnDataSet' is not present")?;
     let keys = df.column("keys").unwrap();
     let filenames = df
@@ -334,11 +337,14 @@ fn update_anndata_locations<B: Backend>(
         })
         .collect();
     let data = DataFrame::new(vec![keys.clone(), Series::new("file_path", new_files)]).unwrap();
-    ann.add_uns("AnnDataSet", data)?;
+    ann.uns().add("AnnDataSet", data)?;
     Ok(())
 }
 
 impl<B: Backend> AnnDataOp for AnnDataSet<B> {
+    type AxisArraysRef<'a> = &'a AxisArrays<B>;
+    type ElemCollectionRef<'a> = &'a ElemCollection<B>;
+
     fn read_x<D>(&self) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
@@ -409,6 +415,22 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         self.annotation.del_var()
     }
 
+    fn uns(&self) -> Self::ElemCollectionRef<'_> {
+        self.annotation.uns()
+    }
+    fn obsm(&self) -> Self::AxisArraysRef<'_> {
+        self.annotation.obsm()
+    }
+    fn obsp(&self) -> Self::AxisArraysRef<'_> {
+        self.annotation.obsp()
+    }
+    fn varm(&self) -> Self::AxisArraysRef<'_> {
+        self.annotation.varm()
+    }
+    fn varp(&self) -> Self::AxisArraysRef<'_> {
+        self.annotation.varp()
+    }
+
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
         self.annotation.set_uns(data)
     }
@@ -423,98 +445,6 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     }
     fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
         self.annotation.set_varp(data)
-    }
-
-    fn uns_keys(&self) -> Vec<String> {
-        self.annotation.uns_keys()
-    }
-    fn obsm_keys(&self) -> Vec<String> {
-        self.annotation.obsm_keys()
-    }
-    fn obsp_keys(&self) -> Vec<String> {
-        self.annotation.obsp_keys()
-    }
-    fn varm_keys(&self) -> Vec<String> {
-        self.annotation.varm_keys()
-    }
-    fn varp_keys(&self) -> Vec<String> {
-        self.annotation.varp_keys()
-    }
-
-    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
-        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
-    {
-        self.annotation.fetch_uns(key)
-    }
-
-    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.annotation.fetch_obsm(key)
-    }
-
-    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.annotation.fetch_obsp(key)
-    }
-
-    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.annotation.fetch_varm(key)
-    }
-
-    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.annotation.fetch_varp(key)
-    }
-
-    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
-        self.annotation.add_uns(key, data)
-    }
-
-    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
-        self.annotation.add_obsm(key, data)
-    }
-
-    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
-        self.annotation.add_obsp(key, data)
-    }
-
-    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
-        self.annotation.add_varm(key, data)
-    }
-
-    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
-        self.annotation.add_varp(key, data)
     }
 
     fn del_uns(&self) -> Result<()> {

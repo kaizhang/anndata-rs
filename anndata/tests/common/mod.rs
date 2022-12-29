@@ -31,26 +31,14 @@ pub fn with_tmp_path<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     with_tmp_dir(|dir| func(dir.join("temp.h5")))
 }
 
-pub fn with_empty_adata<B, F, T>(mut func: F) -> T
+pub fn empty_adata<B>() -> AnnData<B>
 where
     B: Backend,
-    F: FnMut(AnnData<B>) -> T,
 {
-    with_tmp_path(|file| {
-        let adata: AnnData<B> = AnnData::new(file, 0, 0).unwrap();
-        func(adata)
-    })
+    let file = tempfile::NamedTempFile::new().unwrap();
+    AnnData::new(file.path()).unwrap()
 }
 
-pub fn empty_adata<B: Backend>(file: PathBuf) -> impl Strategy<Value = AnnData<B>> {
-    let n_obs = any::<u16>().prop_filter("reason for filtering", |x| x < &1000u16);
-    let n_vars = any::<u16>().prop_filter("reason for filtering", |x| x < &1000u16);
-
-    (n_obs, n_vars).prop_map(move |(n_obs, n_vars)| {
-        let adata: AnnData<B> = AnnData::new(file.clone(), n_obs as usize, n_vars as usize).unwrap();
-        adata
-    })
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Strategies
@@ -72,19 +60,19 @@ pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, 
         std::iter::repeat_with(|| array_strat(&vec![n_vars, n_vars])).take(d).collect::<Vec<_>>()
     );
     (x, obsm, obsp, varm, varp).prop_map(move |(x, obsm, obsp, varm, varp)| {
-        let adata: AnnData<B> = AnnData::new(file.clone(), n_obs, n_vars).unwrap();
+        let adata: AnnData<B> = AnnData::new(file.clone()).unwrap();
         adata.set_x(x).unwrap();
         obsm.into_iter().enumerate().for_each(|(i, arr)| {
-            adata.add_obsm(&format!("varm_{}", i), arr).unwrap();
+            adata.obsm().add(&format!("varm_{}", i), arr).unwrap();
         });
         obsp.into_iter().enumerate().for_each(|(i, arr)| {
-            adata.add_obsp(&format!("obsp_{}", i), arr).unwrap();
+            adata.obsp().add(&format!("obsp_{}", i), arr).unwrap();
         });
         varm.into_iter().enumerate().for_each(|(i, arr)| {
-            adata.add_varm(&format!("varm_{}", i), arr).unwrap();
+            adata.varm().add(&format!("varm_{}", i), arr).unwrap();
         });
         varp.into_iter().enumerate().for_each(|(i, arr)| {
-            adata.add_varp(&format!("varp_{}", i), arr).unwrap();
+            adata.varp().add(&format!("varp_{}", i), arr).unwrap();
         });
         adata
     })
@@ -187,20 +175,20 @@ pub fn anndata_eq<B1: Backend, B2: Backend>(adata1: &AnnData<B1>, adata2: &AnnDa
         adata1.read_obs()? == adata2.read_obs()? &&
         adata1.read_var()? == adata2.read_var()? &&
         adata1.read_x::<ArrayData>()? == adata2.read_x()? &&
-        adata1.obsm_keys().iter().all(|k| {
-            adata1.fetch_obsm::<ArrayData>(k).unwrap() == adata2.fetch_obsm(k).unwrap()
+        adata1.obsm().keys().iter().all(|k| {
+            adata1.obsm().get::<ArrayData>(k).unwrap() == adata2.obsm().get(k).unwrap()
         }) &&
-        adata1.obsp_keys().iter().all(|k| {
-            adata1.fetch_obsp::<ArrayData>(k).unwrap() == adata2.fetch_obsp(k).unwrap()
+        adata1.obsp().keys().iter().all(|k| {
+            adata1.obsp().get::<ArrayData>(k).unwrap() == adata2.obsp().get(k).unwrap()
         }) &&
-        adata1.varm_keys().iter().all(|k| {
-            adata1.fetch_varm::<ArrayData>(k).unwrap() == adata2.fetch_varm(k).unwrap()
+        adata1.varm().keys().iter().all(|k| {
+            adata1.varm().get::<ArrayData>(k).unwrap() == adata2.varm().get(k).unwrap()
         }) &&
-        adata1.varp_keys().iter().all(|k| {
-            adata1.fetch_varp::<ArrayData>(k).unwrap() == adata2.fetch_varp(k).unwrap()
+        adata1.varp().keys().iter().all(|k| {
+            adata1.varp().get::<ArrayData>(k).unwrap() == adata2.varp().get(k).unwrap()
         }) &&
-        adata1.uns_keys().iter().all(|k| {
-            adata1.fetch_uns::<Data>(k).unwrap() == adata2.fetch_uns(k).unwrap()
+        adata1.uns().keys().iter().all(|k| {
+            adata1.uns().get::<Data>(k).unwrap() == adata2.uns().get(k).unwrap()
         });
     Ok(is_equal)
 }

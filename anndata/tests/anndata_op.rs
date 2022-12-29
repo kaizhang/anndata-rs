@@ -6,15 +6,16 @@ use proptest::prelude::*;
 use anndata::*;
 use anndata_hdf5::H5;
 
-fn test_speacial_cases<T: AnnDataOp>(adata: T) {
+fn test_speacial_cases<F, T>(adata_gen: F)
+where
+    F: Fn() -> T,
+    T: AnnDataOp,
+{
+    let mut adata = adata_gen();
     let arr = Array2::<i32>::zeros((0, 0));
     let arr2 = Array2::<i32>::zeros((10, 20));
     adata.set_x(&arr).unwrap();
-    assert!(adata.add_obsm("test", &arr2).is_err());
-    adata.del_x().unwrap();
-
-    adata.set_x(&arr2).unwrap();
-    adata.add_obsm("test", &arr2).unwrap();
+    assert!(adata.obsm().add("test", &arr2).is_err());
 }
 
 /*
@@ -32,23 +33,37 @@ fn test_iterator<T: AnnDataOp>(adata: T) {
 }
 */
 
-fn test_io<T: AnnDataOp>(adata: T) {
+fn test_io<F, T>(adata_gen: F)
+where
+    F: Fn() -> T,
+    T: AnnDataOp,
+{
     let arrays = proptest::collection::vec(0 as usize ..50, 2..4).prop_flat_map(|shape| array_strat(&shape));
     proptest!(ProptestConfig::with_cases(999), |(x in arrays)| {
-        adata.del_x().unwrap();
+        let adata = adata_gen();
         adata.set_x(&x).unwrap();
         prop_assert_eq!(adata.read_x::<ArrayData>().unwrap().unwrap(), x);
     });
 }
 
-fn test_index<T: AnnDataOp>(adata: T) {
+fn test_index<F, T>(adata_gen: F)
+where
+    F: Fn() -> T,
+    T: AnnDataOp,
+{
     let arrays = proptest::collection::vec(0 as usize ..50, 2..4)
         .prop_flat_map(|shape| array_slice_strat(&shape));
     proptest!(ProptestConfig::with_cases(999), |((x, select) in arrays)| {
-        adata.del_x().unwrap();
+        let adata = adata_gen();
         adata.set_x(&x).unwrap();
         prop_assert_eq!(
             adata.read_x_slice::<ArrayData, _>(&select).unwrap().unwrap(),
+            array_select(&x, select.as_slice())
+        );
+
+        adata.obsm().add("test", &x).unwrap();
+        prop_assert_eq!(
+            adata.obsm().get_slice::<ArrayData, _>("test", &select).unwrap().unwrap(),
             array_select(&x, select.as_slice())
         );
     });
@@ -56,15 +71,27 @@ fn test_index<T: AnnDataOp>(adata: T) {
 
 #[test]
 fn test_speacial_cases_h5() {
-    with_empty_adata::<H5, _, _>(|adata| test_speacial_cases(adata));
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata_gen = || AnnData::<H5>::new(&file).unwrap();
+        test_speacial_cases(|| adata_gen());
+    })
 }
 
 #[test]
 fn test_io_h5() {
-    with_empty_adata::<H5, _, _>(|adata| test_io(adata));
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata_gen = || AnnData::<H5>::new(&file).unwrap();
+        test_io(|| adata_gen());
+    })
 }
 
 #[test]
 fn test_index_h5() {
-    with_empty_adata::<H5, _, _>(|adata| test_index(adata));
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata_gen = || AnnData::<H5>::new(&file).unwrap();
+        test_index(|| adata_gen());
+    })
 }

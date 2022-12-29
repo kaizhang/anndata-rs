@@ -141,8 +141,6 @@ impl AnnData {
         "*",
         filename,
         X = "None",
-        n_obs = "None",
-        n_vars = "None",
         obs = "None",
         var = "None",
         obsm = "None",
@@ -153,8 +151,6 @@ impl AnnData {
     pub fn new(
         filename: PathBuf,
         X: Option<PyArrayData>,
-        n_obs: Option<usize>,
-        n_vars: Option<usize>,
         obs: Option<PyDataFrame>,
         var: Option<PyDataFrame>,
         obsm: Option<HashMap<String, PyArrayData>>,
@@ -164,7 +160,7 @@ impl AnnData {
     ) -> Result<Self> {
         let adata: AnnData = match backend.unwrap_or(H5::NAME) {
             H5::NAME => {
-                anndata::AnnData::<H5>::new(filename, n_obs.unwrap_or(0), n_vars.unwrap_or(0))?
+                anndata::AnnData::<H5>::new(filename, None, None)?
                     .into()
             }
             backend => bail!("Unknown backend: {}", backend),
@@ -591,7 +587,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
     fn get_obsm(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
-        let obsm = inner.get_obsm();
+        let obsm = inner.obsm();
         if obsm.is_empty() {
             None
         } else {

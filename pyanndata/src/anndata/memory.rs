@@ -5,8 +5,8 @@ use polars::prelude::DataFrame;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
-use anndata::{self, ArrayOp};
-use anndata::{AnnDataIterator, AnnDataOp, ArrayData, Data, ReadArrayData, WriteData, ReadData, Backend, WriteArrayData, HasShape};
+use anndata::{self, ArrayOp, ElemCollectionOp};
+use anndata::{AnnDataIterator, AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
 use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data};
 use anyhow::{Result, bail};
 
@@ -72,64 +72,39 @@ impl<'py> PyAnnData<'py> {
         {
             // Set uns
             inner
-                .uns_keys()
+                .uns().keys()
                 .into_iter()
-                .try_for_each(|k| adata.add_uns(&k, inner.fetch_uns::<Data>(&k)?.unwrap()))?;
+                .try_for_each(|k| adata.uns().add(&k, inner.uns().get::<Data>(&k)?.unwrap()))?;
         }
         {
             // Set obsm
             inner
-                .obsm_keys()
+                .obsm().keys()
                 .into_iter()
-                .try_for_each(|k| adata.add_obsm(&k, inner.fetch_obsm::<ArrayData>(&k)?.unwrap()))?;
+                .try_for_each(|k| adata.obsm().add(&k, inner.obsm().get::<ArrayData>(&k)?.unwrap()))?;
         }
         {
             // Set obsp
             inner
-                .obsp_keys()
+                .obsp().keys()
                 .into_iter()
-                .try_for_each(|k| adata.add_obsp(&k, inner.fetch_obsp::<ArrayData>(&k)?.unwrap()))?;
+                .try_for_each(|k| adata.obsp().add(&k, inner.obsp().get::<ArrayData>(&k)?.unwrap()))?;
         }
         {
             // Set varm
             inner
-                .varm_keys()
+                .varm().keys()
                 .into_iter()
-                .try_for_each(|k| adata.add_varm(&k, inner.fetch_varm::<ArrayData>(&k)?.unwrap()))?;
+                .try_for_each(|k| adata.varm().add(&k, inner.varm().get::<ArrayData>(&k)?.unwrap()))?;
         }
         {
             // Set varp
             inner
-                .varp_keys()
+                .varp().keys()
                 .into_iter()
-                .try_for_each(|k| adata.add_varp(&k, inner.fetch_varp::<ArrayData>(&k)?.unwrap()))?;
+                .try_for_each(|k| adata.varp().add(&k, inner.varp().get::<ArrayData>(&k)?.unwrap()))?;
         }
         Ok(adata)
-    }
-
-    fn get_item(&'py self, slot: &str, key: &str) -> Result<Option<&'py PyAny>>
-    {
-        Ok(self
-            .getattr(slot)?
-            .call_method1("__getitem__", (key,))
-            .ok())
-    }
-
-    fn set_item<T: IntoPy<PyObject>>(&'py self, slot: &str, key: &str, data: T) -> Result<()> {
-        let py = self.py();
-        let d = data.into_py(py);
-        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
-            d.call_method0(py, "to_pandas")?
-        } else {
-            d
-        };
-        self.getattr(slot)?
-            .call_method1("__setitem__", (key, new_d))?;
-        Ok(())
-    }
-
-    fn get_keys(&self, slot: &str) -> Result<Vec<String>> {
-        Ok(self.getattr(slot)?.call_method0("keys")?.extract()?)
     }
 
     pub(crate) fn set_n_obs(&self, n_obs: usize) -> Result<()> {
@@ -158,6 +133,9 @@ impl<'py> PyAnnData<'py> {
 }
 
 impl<'py> AnnDataOp for PyAnnData<'py> {
+    type ElemCollectionRef<'a> = ElemCollection<'a> where Self: 'a;
+    type AxisArraysRef<'a> = AxisArrays<'a> where Self: 'a;
+
     fn read_x<D>(&self) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
@@ -305,118 +283,32 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn uns_keys(&self) -> Vec<String> {
-        self.get_keys("uns").unwrap()
+    fn uns(&self) -> Self::ElemCollectionRef<'_> {
+        ElemCollection(self.getattr("uns").unwrap())
     }
-    fn obsm_keys(&self) -> Vec<String> {
-        self.get_keys("obsm").unwrap()
+    fn obsm(&self) -> Self::AxisArraysRef<'_> {
+        AxisArrays {
+            arrays: self.getattr("obsm").unwrap(),
+            adata: self,
+        }
     }
-    fn obsp_keys(&self) -> Vec<String> {
-        self.get_keys("obsp").unwrap()
+    fn obsp(&self) -> Self::AxisArraysRef<'_> {
+        AxisArrays {
+            arrays: self.getattr("obsp").unwrap(),
+            adata: self,
+        }
     }
-    fn varm_keys(&self) -> Vec<String> {
-        self.get_keys("varm").unwrap()
+    fn varm(&self) -> Self::AxisArraysRef<'_> {
+        AxisArrays {
+            arrays: self.getattr("varm").unwrap(),
+            adata: self,
+        }
     }
-    fn varp_keys(&self) -> Vec<String> {
-        self.get_keys("varp").unwrap()
-    }
-
-    fn fetch_uns<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
-        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
-    {
-        self.get_item("uns", key)?.map(|x| {
-            let data: Data = x.extract::<PyData>()?.into();
-            data.try_into().map_err(Into::into)
-        }).transpose()
-    }
-
-    fn fetch_obsm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_item("obsm", key)?.map(|x| {
-            let data: ArrayData = x.extract::<PyArrayData>()?.into();
-            data.try_into().map_err(Into::into)
-        }).transpose()
-    }
-
-    fn fetch_obsp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_item("obsp", key)?.map(|x| {
-            let data: ArrayData = x.extract::<PyArrayData>()?.into();
-            data.try_into().map_err(Into::into)
-        }).transpose()
-    }
-
-    fn fetch_varm<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_item("varm", key)?.map(|x| {
-            let data: ArrayData = x.extract::<PyArrayData>()?.into();
-            data.try_into().map_err(Into::into)
-        }).transpose()
-    }
-
-    fn fetch_varp<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_item("varp", key)?.map(|x| {
-            let data: ArrayData = x.extract::<PyArrayData>()?.into();
-            data.try_into().map_err(Into::into)
-        }).transpose()
-    }
-
-    fn add_uns<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
-        self.set_item("uns", key, PyData::from(data.into()))
-    }
-    fn add_obsm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>
-    {
-        self.set_n_obs(data.shape()[0])?;
-        self.set_item("obsm", key, PyArrayData::from(data.into()))
-    }
-
-    fn add_obsp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>
-    {
-        self.set_n_obs(data.shape()[0])?;
-        self.set_item("obsp", key, PyArrayData::from(data.into()))
-    }
-
-    fn add_varm<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>
-    {
-        self.set_n_vars(data.shape()[0])?;
-        self.set_item("varm", key, PyArrayData::from(data.into()))
-    }
-
-    fn add_varp<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>
-    {
-        self.set_n_vars(data.shape()[0])?;
-        self.set_item("varp", key, PyArrayData::from(data.into()))
+    fn varp(&self) -> Self::AxisArraysRef<'_> {
+        AxisArrays {
+            arrays: self.getattr("varp").unwrap(),
+            adata: self,
+        }
     }
 
     fn del_uns(&self) -> Result<()> {
@@ -557,4 +449,87 @@ where
             n + 1
         }
     }
+}
+
+pub struct ElemCollection<'a>(&'a PyAny);
+
+impl ElemCollectionOp for ElemCollection<'_> {
+    fn keys(&self) -> Vec<String> {
+        self.0.call_method0("keys").unwrap().extract().unwrap()
+    }
+
+    fn get<D>(&self, key: &str) -> Result<Option<D>>
+        where
+            D: Into<Data> + TryFrom<Data> + Clone,
+            <D as TryFrom<Data>>::Error: Into<anyhow::Error>
+    {
+        self.0.call_method1("__getitem__", (key,)).ok().map(|x| {
+            let data: Data = x.extract::<PyData>()?.into();
+            data.try_into().map_err(Into::into)
+        }).transpose()
+    }
+
+    fn add<D: Into<Data>>(
+            &self,
+            key: &str,
+            data: D,
+        ) -> Result<()>
+    {
+        let py = self.0.py();
+        let d = PyData::from(data.into()).into_py(py);
+        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
+            d.call_method0(py, "to_pandas")?
+        } else {
+            d
+        };
+        self.0.call_method1("__setitem__", (key, new_d))?;
+        Ok(())
+    }
+
+}
+
+pub struct AxisArrays<'a> {
+    arrays: &'a PyAny,
+    adata: &'a PyAny,
+}
+
+impl AxisArraysOp for AxisArrays<'_> {
+    fn keys(&self) -> Vec<String> {
+        self.arrays.call_method0("keys").unwrap().extract().unwrap()
+    }
+
+    fn get<D>(&self, key: &str) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.arrays.call_method1("__getitem__", (key,)).ok().map(|x| {
+            let data: ArrayData = x.extract::<PyArrayData>()?.into();
+            data.try_into().map_err(Into::into)
+        }).transpose()
+    }
+
+    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
+            &self,
+            key: &str,
+            data: D,
+        ) -> Result<()>
+    {
+        todo!()
+        /*
+        let py = self.py();
+        let d = data.into_py(py);
+        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
+            d.call_method0(py, "to_pandas")?
+        } else {
+            d
+        };
+        self.getattr(slot)?
+            .call_method1("__setitem__", (key, new_d))?;
+        Ok(())
+ 
+        self.set_item("obsm", key, PyArrayData::from(data.into()))
+        */
+    }
+
 }
