@@ -7,7 +7,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
 use anndata::{self, ArrayOp, ElemCollectionOp};
 use anndata::{AnnDataIterator, AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
-use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data};
+use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data, ArrayChunk};
 use anyhow::{Result, bail};
 
 pub struct PyAnnData<'py>(&'py PyAny);
@@ -152,11 +152,11 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
 
     fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
     where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
     {
-        todo!()
+        self.read_x::<D>().map(|x| x.map(|x| x.select(select.as_ref())))
     }
 
     fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
@@ -367,34 +367,6 @@ impl<'py> AnnDataIterator for PyAnnData<'py> {
         self.setattr("X", PyArrayData::from(array).into_py(self.py()))?;
         Ok(())
     }
-
-    /*
-        &'a self,
-        key: &str,
-        chunk_size: usize,
-    ) -> Result<Self::ArrayIter<'a, T>>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        let array = self.getattr("obsm")?
-            .call_method1("__getitem__", (key,))?.extract::<PyArrayData>()?;
-        Ok(PyArrayIterator::new(array, chunk_size)?)
-    }
-
-    fn add_obsm_from_iter<I, D>(&self, key: &str, data: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: Into<ArrayData>,
-    { 
-        let array = concat_array_data(data.map(|x| x.into()))?;
-        let shape = array.shape();
-        self.set_n_obs(shape[0])?;
-        self.getattr("obsm")?
-            .call_method1("__setitem__", (key, PyArrayData::from(array).into_py(self.py())))?;
-        Ok(())
-    }
-    */
 }
 
 pub struct PyArrayIterator<T> {
@@ -487,11 +459,15 @@ impl ElemCollectionOp for ElemCollection<'_> {
         Ok(())
     }
 
+    fn remove(&self, key: &str) -> Result<()> {
+        self.0.call_method1("__delitem__", (key,))?;
+        Ok(())
+    }
 }
 
 pub struct AxisArrays<'a> {
     arrays: &'a PyAny,
-    adata: &'a PyAny,
+    adata: &'a PyAnnData<'a>,
 }
 
 impl AxisArraysOp for AxisArrays<'_> {
@@ -507,8 +483,8 @@ impl AxisArraysOp for AxisArrays<'_> {
 
     fn get<D>(&self, key: &str) -> Result<Option<D>>
         where
-            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+            D: TryFrom<ArrayData>,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         self.arrays.call_method1("__getitem__", (key,)).ok().map(|x| {
             let data: ArrayData = x.extract::<PyArrayData>()?.into();
@@ -516,27 +492,63 @@ impl AxisArraysOp for AxisArrays<'_> {
         }).transpose()
     }
 
-    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
+    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
+        where
+            D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+            S: AsRef<[SelectInfoElem]>,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.get::<D>(key).map(|mat| mat.map(|x| x.select(slice.as_ref())))
+    }
+
+    fn get_iter<'a, T>(
+            &'a self,
+            key: &str,
+            chunk_size: usize,
+        ) -> Result<Self::ArrayIter<'a, T>>
+        where
+            T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+            <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        let array = self.arrays
+            .call_method1("__getitem__", (key,))?.extract::<PyArrayData>()?;
+        Ok(PyArrayIterator::new(array, chunk_size)?)
+    }
+
+    fn add<D: HasShape + Into<ArrayData>>(
             &self,
             key: &str,
             data: D,
         ) -> Result<()>
     {
-        todo!()
-        /*
-        let py = self.py();
-        let d = data.into_py(py);
+        let py = self.arrays.py();
+        let d = PyArrayData::from(data.into()).into_py(py);
         let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
             d.call_method0(py, "to_pandas")?
         } else {
             d
         };
-        self.getattr(slot)?
-            .call_method1("__setitem__", (key, new_d))?;
+        self.arrays.call_method1("__setitem__", (key, new_d))?;
         Ok(())
- 
-        self.set_item("obsm", key, PyArrayData::from(data.into()))
-        */
+    }
+
+    fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+        where
+            I: Iterator<Item = D>,
+            D: ArrayChunk + Into<ArrayData>,
+    {
+        let py = self.arrays.py();
+        let array = ArrayChunk::concat(data)?;
+        let shape = array.shape();
+        self.adata.set_n_obs(shape[0])?;
+        self.arrays
+            .call_method1("__setitem__", (key, PyArrayData::from(array.into()).into_py(py)))?;
+        Ok(())
+    }
+
+    fn remove(&self, key: &str) -> Result<()> {
+        self.arrays.call_method1("__delitem__", (key,))?;
+        Ok(())
     }
 
 }

@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::data::{
-    is_none_slice, to_select_info, IntoPython, PyArrayData, PyData, PyDataFrame, PySeries,
+    is_none_slice, to_select_info, IntoPython, PyArrayData, PyData, PyDataFrame,
 };
 
 use anndata::backend::DataType;

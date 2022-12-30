@@ -1,6 +1,5 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElem, PyElemCollection, PyChunkedArray};
-use crate::data::{to_select_elem, to_select_info, PyArrayData, PyData, PyDataFrame};
-use crate::anndata::PyAnnData;
+use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollection, PyChunkedArray};
+use crate::data::{to_select_elem, PyArrayData, PyData, PyDataFrame};
 use crate::AnnData;
 
 use std::collections::HashMap;
@@ -9,11 +8,10 @@ use anndata_hdf5::H5;
 use downcast_rs::Downcast;
 use pyo3::prelude::*;
 use anndata;
-use anndata::{AnnDataOp, ArrayData, Backend, Data, StackedArrayElem};
+use anndata::{AnnDataOp, Backend};
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem};
 use anyhow::{Result, bail};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
@@ -448,7 +446,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_uns(&self) -> Option<PyElemCollection> {
-        let uns = self.get_anno().get_uns();
+        let uns = self.get_anno().uns();
         if uns.is_empty() {
             None
         } else {
@@ -464,7 +462,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_obsp(&self) -> Option<PyAxisArrays> {
-        let obsp = self.get_anno().get_obsp();
+        let obsp = self.get_anno().obsp();
         if obsp.is_empty() {
             None
         } else {
@@ -472,7 +470,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_varm(&self) -> Option<PyAxisArrays> {
-        let varm = self.get_anno().get_varm();
+        let varm = self.get_anno().varm();
         if varm.is_empty() {
             None
         } else {
@@ -480,7 +478,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_varp(&self) -> Option<PyAxisArrays> {
-        let varp = self.get_anno().get_varp();
+        let varp = self.get_anno().varp();
         if varp.is_empty() {
             None
         } else {

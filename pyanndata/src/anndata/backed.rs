@@ -575,7 +575,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
     fn get_uns(&self) -> Option<PyElemCollection> {
         let inner = self.inner();
-        let uns = inner.get_uns();
+        let uns = inner.uns();
         if uns.is_empty() {
             None
         } else {
@@ -593,7 +593,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
     fn get_obsp(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
-        let obsp = inner.get_obsp();
+        let obsp = inner.obsp();
         if obsp.is_empty() {
             None
         } else {
@@ -602,7 +602,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
     fn get_varm(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
-        let varm = inner.get_varm();
+        let varm = inner.varm();
         if varm.is_empty() {
             None
         } else {
@@ -611,7 +611,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
     fn get_varp(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
-        let varp = inner.get_varp();
+        let varp = inner.varp();
         if varp.is_empty() {
             None
         } else {

@@ -15,7 +15,7 @@ pub trait AnnDataOp {
 
     fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
     where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
@@ -149,7 +149,7 @@ pub trait AxisArraysOp {
 
     fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
     where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
@@ -171,7 +171,7 @@ pub trait AxisArraysOp {
     fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
-        D: ArrayChunk;
+        D: ArrayChunk + Into<ArrayData>;
 
     fn remove(&self, key: &str) -> Result<()>;
 }

@@ -6,7 +6,7 @@ use anyhow::{bail, Result};
 use itertools::Itertools;
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
-use ndarray::{Array, Axis, IxDyn};
+use ndarray::{Array, Axis, RemoveAxis};
 use ndarray::{ArrayView, Dimension};
 use smallvec::SmallVec;
 
@@ -138,13 +138,13 @@ fn vstack_array_data(this: ArrayData, other: ArrayData) -> Result<ArrayData> {
     Ok(array)
 }
 
-fn vstack_arr<T: Clone>(mut this: Array<T, IxDyn>, other: Array<T, IxDyn>) -> Array<T, IxDyn> {
+pub fn vstack_arr<T: Clone, D: RemoveAxis>(mut this: Array<T, D>, other: Array<T, D>) -> Array<T, D> {
     this.append(Axis(0), other.view()).unwrap();
     this
 }
 
 /// Row concatenation of sparse row matrices.
-fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
+pub fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
     let num_cols = this.ncols();
     let num_rows = this.nrows() + other.nrows();
     let nnz = this.nnz();

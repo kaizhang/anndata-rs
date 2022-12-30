@@ -27,6 +27,8 @@ permutation = "0.4"
 [dev-dependencies]
 anndata-n5 = { path = '../anndata-n5' }
 anndata-hdf5 = { path = '../anndata-hdf5' }
+pyanndata = { path = '../pyanndata', default-features = false }
+pyo3 = "0.17.3"
 tempfile = "3.2"
 criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_support", "html_reports"] }
 proptest = "1"
