@@ -1,6 +1,6 @@
 use crate::container::Dim;
 use crate::container::base::VecVecIndex;
-use crate::traits::{AnnDataIterator, AnnDataOp, ElemCollectionOp, AxisArraysOp};
+use crate::traits::{AnnDataIterator, AnnDataOp, ElemCollectionOp};
 use crate::{
     anndata::AnnData,
     backend::Backend,

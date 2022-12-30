@@ -225,6 +225,34 @@ pub fn array_select(arr: &ArrayData, select: &[SelectInfoElem]) -> ArrayData {
     }
 }
 
+pub fn array_chunks(arr: &ArrayData, chunk_size: usize) -> Box<dyn Iterator<Item = ArrayData> + '_> {
+    match arr {
+        ArrayData::Array(data::DynArray::Bool(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::U8(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::U16(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::U32(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::U64(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::I8(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::I16(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::I32(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::I64(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::F32(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::F64(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::Array(data::DynArray::String(arr)) => Box::new(dense_array_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::U8(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::U16(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::U32(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::U64(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::I8(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::I16(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::I32(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::I64(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::F32(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        ArrayData::CsrMatrix(data::DynCsrMatrix::F64(arr)) => Box::new(csr_chunks(arr, chunk_size).map(|x| x.into())),
+        _ => todo!()
+    }
+}
+
 fn csr_select<T: Scalar + Zero + Copy>(
     csr: &CsrMatrix<T>,
     select: &[SelectInfoElem],
@@ -235,6 +263,20 @@ fn csr_select<T: Scalar + Zero + Copy>(
     let mut dm = DMatrix::<T>::zeros(csr.nrows(), csr.ncols());
     csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
     CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
+}
+
+fn csr_chunks<T>(csr: &CsrMatrix<T>, chunk_size: usize) -> impl Iterator<Item = CsrMatrix<T>> + '_
+where
+    T: Zero + Clone + Scalar + ClosedAdd,
+{
+    let nrow = csr.nrows();
+    let mat: DMatrix<T> = DMatrix::from(csr);
+    (0..nrow).into_iter().step_by(chunk_size)
+        .map(move |i| {
+            let j = (i + chunk_size).min(nrow);
+            let m = mat.index((i..j, ..));
+            CsrMatrix::from(&m)
+        })
 }
 
 fn dense_array_select<T: Clone, D: Dimension + RemoveAxis>(
@@ -248,4 +290,17 @@ fn dense_array_select<T: Clone, D: Dimension + RemoveAxis>(
         result = result.select(Axis(i), idx.as_slice());
     });
     result
+}
+
+fn dense_array_chunks<T, D>(array: &Array<T, D>, chunk_size: usize) -> impl Iterator<Item = Array<T, D>> + '_
+where
+    T: Clone,
+    D: Dimension + RemoveAxis,
+{
+    let nrow = array.shape()[0];
+    (0..nrow).into_iter().step_by(chunk_size)
+        .map(move |i| {
+            let j = (i + chunk_size).min(nrow);
+            array.select(Axis(0), (i..j).collect::<Vec<_>>().as_slice())
+        })
 }

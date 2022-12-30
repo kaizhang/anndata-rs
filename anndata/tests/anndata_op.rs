@@ -18,28 +18,13 @@ where
     assert!(adata.obsm().add("test", &arr2).is_err());
 }
 
-/*
-fn test_iterator<T: AnnDataOp>(adata: T) {
-    let (csr, chunks) = rand_chunks(997, 20, 41);
-
-    adata.set_x_from_iter(chunks)?;
-
-    assert_eq!(adata.n_obs(), 997);
-    assert_eq!(adata.n_vars(), 20);
-    assert_eq!(adata.read_x::<CsrMatrix<i64>>()?.unwrap(), csr);
-
-    adata.add_obsm_from_iter::<_, CsrMatrix<i64>>("key", adata.read_x_iter(111).map(|x| x.0))?;
-    assert_eq!(adata.fetch_obsm::<CsrMatrix<i64>>("key")?.unwrap(), csr);
-}
-*/
-
 fn test_io<F, T>(adata_gen: F)
 where
     F: Fn() -> T,
     T: AnnDataOp,
 {
     let arrays = proptest::collection::vec(0 as usize ..50, 2..4).prop_flat_map(|shape| array_strat(&shape));
-    proptest!(ProptestConfig::with_cases(999), |(x in arrays)| {
+    proptest!(ProptestConfig::with_cases(256), |(x in arrays)| {
         let adata = adata_gen();
         adata.set_x(&x).unwrap();
         prop_assert_eq!(adata.read_x::<ArrayData>().unwrap().unwrap(), x);
@@ -53,7 +38,7 @@ where
 {
     let arrays = proptest::collection::vec(0 as usize ..50, 2..4)
         .prop_flat_map(|shape| array_slice_strat(&shape));
-    proptest!(ProptestConfig::with_cases(999), |((x, select) in arrays)| {
+    proptest!(ProptestConfig::with_cases(256), |((x, select) in arrays)| {
         let adata = adata_gen();
         adata.set_x(&x).unwrap();
         prop_assert_eq!(
@@ -68,6 +53,26 @@ where
         );
     });
 }
+
+fn test_iterator<F, T>(adata_gen: F)
+where
+    F: Fn() -> T,
+    T: AnnDataOp,
+{
+    let arrays = proptest::collection::vec(20 as usize ..50, 2..3)
+        .prop_flat_map(|shape| array_strat(&shape));
+    proptest!(ProptestConfig::with_cases(10), |(x in arrays)| {
+        let adata = adata_gen();
+        adata.obsm().add_iter("test", array_chunks(&x, 7)).unwrap();
+        prop_assert_eq!(adata.obsm().get::<ArrayData>("test").unwrap().unwrap(), x.clone());
+
+        adata.obsm().add_iter("test2", adata.obsm().get_iter::<ArrayData>("test", 7).unwrap().map(|x| x.0)).unwrap();
+        prop_assert_eq!(adata.obsm().get::<ArrayData>("test2").unwrap().unwrap(), x);
+    });
+}
+
+
+/// Tests
 
 #[test]
 fn test_speacial_cases_h5() {
@@ -93,5 +98,14 @@ fn test_index_h5() {
         let file = dir.join("test.h5");
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
         test_index(|| adata_gen());
+    })
+}
+
+#[test]
+fn test_iterator_h5() {
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata_gen = || AnnData::<H5>::new(&file).unwrap();
+        test_iterator(|| adata_gen());
     })
 }

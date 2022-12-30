@@ -129,6 +129,8 @@ pub trait ElemCollectionOp {
         key: &str,
         data: D,
     ) -> Result<()>;
+
+    fn remove(&self, key: &str) -> Result<()>;
 }
 
 pub trait AxisArraysOp {
@@ -170,4 +172,6 @@ pub trait AxisArraysOp {
     where
         I: Iterator<Item = D>,
         D: ArrayChunk;
+
+    fn remove(&self, key: &str) -> Result<()>;
 }

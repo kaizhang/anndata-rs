@@ -1,4 +1,4 @@
-use crate::backend::{Backend, BackendData, DatasetOp, GroupOp};
+use crate::backend::{Backend, BackendData, DatasetOp, GroupOp, WriteConfig};
 use crate::data::{ArrayData, DynArray, DynCsrMatrix};
 use crate::data::{SelectInfoElem, Shape};
 
@@ -18,8 +18,12 @@ pub struct ExtendableDataset<B: Backend, T> {
 }
 
 impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
-    pub fn with_capacity(group: &B::Group, name: &str, capacity: Shape) -> Result<Self> {
-        let dataset = group.new_dataset::<T>(name, &capacity, Default::default())?;
+    pub fn with_capacity<G>(group: &G, name: &str, capacity: Shape) -> Result<Self>
+    where
+        G: GroupOp<Backend = B>,
+    {
+        let block_size = vec![1000; capacity.ndim()].into();
+        let dataset = group.new_dataset::<T>(name, &capacity, WriteConfig { block_size: Some(block_size), ..Default::default() })?;
         Ok(Self {
             dataset,
             size: std::iter::repeat(0).take(capacity.ndim()).collect(),
@@ -28,7 +32,7 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
         })
     }
 
-    pub fn reserve(&mut self, additional: &Shape) -> Result<()> {
+    fn reserve(&mut self, additional: &Shape) -> Result<()> {
         self.capacity
             .as_mut()
             .iter_mut()
@@ -60,24 +64,26 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
 
     pub fn extend<'a, D: Dimension>(
         &mut self,
+        axis: usize,
         data: ArrayView<'a, T, D>,
     ) -> Result<()> {
         if !data.is_empty() {
-            let new_size = self
+            let (new_size, slice): (Vec<usize>, SmallVec<[SelectInfoElem; 3]>) = self
                 .size
                 .as_ref()
                 .iter()
                 .zip(data.shape())
-                .map(|(x, y)| *x + *y)
-                .collect();
-            self.check_or_grow(&new_size, 100000)?;
-            let slice: SmallVec<[SelectInfoElem; 3]> = self
-                .size
-                .as_ref()
-                .iter()
-                .zip(new_size.as_ref())
-                .map(|(x, y)| (*x..*y).into())
-                .collect();
+                .enumerate()
+                .map(|(i, (x, y))| if i == axis {
+                    let s = *x + *y;
+                    (s, (*x..s).into())
+                } else if x == y || *x == 0 {
+                    (*y, (0..*y).into())
+                } else {
+                    panic!("Cannot concatenate arrays of different shapes");
+                }).unzip();
+            let new_size = new_size.into();
+            self.check_or_grow(&new_size, 10000)?;
             self.dataset.write_array_slice(data, slice.as_ref())?;
             self.size = new_size;
         }

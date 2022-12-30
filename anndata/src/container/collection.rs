@@ -63,6 +63,11 @@ impl<B: Backend> InnerElemCollection<B> {
         Ok(())
     }
 
+    pub fn remove_data(&mut self, key: &str) -> Result<()> {
+        self.remove(key).map(|x| x.clear()).transpose()?;
+        Ok(())
+    }
+
     pub fn export<O: Backend, G: GroupOp<Backend = O>>(
         &self,
         location: &G,

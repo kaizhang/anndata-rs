@@ -52,6 +52,26 @@ impl From<DynCsrMatrix> for ArrayData {
     }
 }
 
+impl TryFrom<ArrayData> for DynArray {
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        match value {
+            ArrayData::Array(data) => Ok(data),
+            _ => bail!("Cannot convert {:?} to DynArray", value),
+        }
+    }
+}
+
+impl TryFrom<ArrayData> for DynCsrMatrix {
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        match value {
+            ArrayData::CsrMatrix(data) => Ok(data),
+            _ => bail!("Cannot convert {:?} to DynCsrMatrix", value),
+        }
+    }
+}
+
 impl TryFrom<ArrayData> for DataFrame {
     type Error = anyhow::Error;
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {

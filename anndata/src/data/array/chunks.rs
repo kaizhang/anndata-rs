@@ -1,12 +1,14 @@
-use crate::backend::{Backend, DataContainer, GroupOp, LocationOp, BackendData};
+use crate::backend::{Backend, DataContainer, GroupOp, LocationOp, BackendData, ScalarType};
 use crate::data::{
     ArrayData,
     array::utils::ExtendableDataset,
 };
 
 use anyhow::{bail, Result};
-use ndarray::{Array, ArrayView1};
+use ndarray::{Array, ArrayView1, Dimension, ArrayD};
 use nalgebra_sparse::CsrMatrix;
+
+use super::{DynCsrMatrix, DynArray};
 
 pub trait ArrayChunk {
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -22,17 +24,101 @@ impl ArrayChunk for ArrayData {
         I: Iterator<Item = Self>,
         B: Backend,
         G: GroupOp<Backend = B>,
-    {todo!()}
+    {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            ArrayData::Array(_) => DynArray::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            ArrayData::CsrMatrix(_) => DynCsrMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            ArrayData::DataFrame(_) => todo!(),
+        }
+    }
 }
 
-impl<D, T> ArrayChunk for Array<D, T> {
+impl ArrayChunk for DynArray {
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
         B: Backend,
         G: GroupOp<Backend = B>,
-    {todo!()}
+    {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynArray::U8(_) => ArrayD::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::U16(_) => ArrayD::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::U32(_) => ArrayD::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::U64(_) => ArrayD::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::Usize(_) => ArrayD::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::I8(_) => ArrayD::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::I16(_) => ArrayD::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::I32(_) => ArrayD::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::I64(_) => ArrayD::<i64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::F32(_) => ArrayD::<f32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::F64(_) => ArrayD::<f64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::Bool(_) => ArrayD::<bool>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::String(_) => ArrayD::<String>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::Categorical(_) => todo!(),
+        }
+    }
 }
+
+impl<D: Dimension, T: BackendData> ArrayChunk for Array<T, D> {
+    fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let mut iter = iter.peekable();
+        let chunk_size = if let Some(n) = D::NDIM {
+            vec![1000; n].into()
+        } else {
+            let n = iter.peek().unwrap().ndim();
+            vec![1000; n].into()
+        };
+        let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
+            location, name, chunk_size,
+        )?;
+
+        iter.try_for_each(|x| data.extend(0, x.view()))?;
+        let dataset = data.finish()?;
+        let encoding_type = if T::DTYPE == ScalarType::String {
+            "string-array"
+        } else {
+            "array"
+        };
+        let container = DataContainer::<B>::Dataset(dataset);
+        container.write_str_attr("encoding-type", encoding_type)?;
+        container.write_str_attr("encoding-version", "0.2.0")?;
+        Ok(container)
+    }
+}
+
+impl ArrayChunk for DynCsrMatrix {
+    fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynCsrMatrix::U8(_) => CsrMatrix::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::U16(_) => CsrMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::U32(_) => CsrMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::U64(_) => CsrMatrix::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::Usize(_) => CsrMatrix::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::I8(_) => CsrMatrix::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::I16(_) => CsrMatrix::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::I32(_) => CsrMatrix::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::I64(_) => CsrMatrix::<i64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::F32(_) => CsrMatrix::<f32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::F64(_) => CsrMatrix::<f64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::Bool(_) => CsrMatrix::<bool>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrMatrix::String(_) => CsrMatrix::<String>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+        }
+    }
+}
+
 
 impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -47,10 +133,10 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         group.write_str_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
-            &group, "data", 100000.into(),
+            &group, "data", 1000.into(),
         )?;
         let mut indices: ExtendableDataset<B, i64> = ExtendableDataset::with_capacity(
-            &group, "indices", 100000.into(),
+            &group, "indices", 1000.into(),
         )?;
         let mut indptr: Vec<i64> = Vec::new();
         let mut num_rows = 0;
@@ -69,8 +155,8 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
                     .iter()
                     .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
                 nnz += *indptr_.last().unwrap_or(&0) as i64;
-                data.extend(ArrayView1::from_shape(data_.len(), data_)?)?;
-                indices.extend(ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
+                data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
+                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
             } else {
                 bail!("All matrices must have the same number of columns");
             }

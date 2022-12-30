@@ -90,20 +90,6 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
 }
 
 impl<B: Backend> AnnData<B> {
-    pub(crate) fn obs_is_empty(&self) -> bool {
-        self.x.is_empty()
-            && self.obs.is_empty()
-            && self.obsm.is_empty()
-            && self.obsp.is_empty()
-    }
-
-    pub(crate) fn var_is_empty(&self) -> bool {
-        self.x.is_empty()
-            && self.var.is_empty()
-            && self.varm.is_empty()
-            && self.varp.is_empty()
-    }
-
     pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
@@ -756,6 +742,10 @@ impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
     {
         self.inner().add_data_from_iter(key, data)
     }
+
+    fn remove(&self, key: &str) -> Result<()> {
+        self.inner().remove_data(key)
+    }
 }
 
 impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
@@ -777,5 +767,9 @@ impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
 
     fn add<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
         self.inner().add_data(key, data)
+    }
+
+    fn remove(&self, key: &str) -> Result<()> {
+        self.inner().remove_data(key)
     }
 }

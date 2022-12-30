@@ -368,7 +368,7 @@ impl<'py> AnnDataIterator for PyAnnData<'py> {
         Ok(())
     }
 
-    fn fetch_obsm_iter<'a, T>(
+    /*
         &'a self,
         key: &str,
         chunk_size: usize,
@@ -394,6 +394,7 @@ impl<'py> AnnDataIterator for PyAnnData<'py> {
             .call_method1("__setitem__", (key, PyArrayData::from(array).into_py(self.py())))?;
         Ok(())
     }
+    */
 }
 
 pub struct PyArrayIterator<T> {
@@ -494,6 +495,12 @@ pub struct AxisArrays<'a> {
 }
 
 impl AxisArraysOp for AxisArrays<'_> {
+    type ArrayIter<'a, T> = PyArrayIterator<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+        Self: 'a;
+
     fn keys(&self) -> Vec<String> {
         self.arrays.call_method0("keys").unwrap().extract().unwrap()
     }

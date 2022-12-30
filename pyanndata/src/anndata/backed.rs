@@ -159,10 +159,7 @@ impl AnnData {
         backend: Option<&str>,
     ) -> Result<Self> {
         let adata: AnnData = match backend.unwrap_or(H5::NAME) {
-            H5::NAME => {
-                anndata::AnnData::<H5>::new(filename, None, None)?
-                    .into()
-            }
+            H5::NAME => anndata::AnnData::<H5>::new(filename)?.into(),
             backend => bail!("Unknown backend: {}", backend),
         };
 
