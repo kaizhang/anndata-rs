@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
 use anndata::{self, ArrayOp, ElemCollectionOp};
-use anndata::{AnnDataIterator, AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
+use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
 use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data, ArrayChunk};
 use anyhow::{Result, bail};
 
@@ -133,8 +133,37 @@ impl<'py> PyAnnData<'py> {
 }
 
 impl<'py> AnnDataOp for PyAnnData<'py> {
+    type ArrayIter<T> = PyArrayIterator<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
     type ElemCollectionRef<'a> = ElemCollection<'a> where Self: 'a;
     type AxisArraysRef<'a> = AxisArrays<'a> where Self: 'a;
+
+    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        PyArrayIterator::new(
+            self.getattr("X").unwrap().extract().unwrap(),
+            chunk_size
+        ).unwrap()
+    }
+
+    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: Into<ArrayData>,
+    {
+        let array = concat_array_data(iter.map(|x| x.into()))?;
+        let shape = array.shape();
+        self.set_n_obs(shape[0])?;
+        self.set_n_vars(shape[1])?;
+        self.setattr("X", PyArrayData::from(array).into_py(self.py()))?;
+        Ok(())
+    }
 
     fn read_x<D>(&self) -> Result<Option<D>>
     where
@@ -337,38 +366,6 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 }
 
-impl<'py> AnnDataIterator for PyAnnData<'py> {
-    type ArrayIter<'a, T> = PyArrayIterator<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-        Self: 'a;
-
-    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        PyArrayIterator::new(
-            self.getattr("X").unwrap().extract().unwrap(),
-            chunk_size
-        ).unwrap()
-    }
-
-    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: Into<ArrayData>,
-    {
-        let array = concat_array_data(iter.map(|x| x.into()))?;
-        let shape = array.shape();
-        self.set_n_obs(shape[0])?;
-        self.set_n_vars(shape[1])?;
-        self.setattr("X", PyArrayData::from(array).into_py(self.py()))?;
-        Ok(())
-    }
-}
-
 pub struct PyArrayIterator<T> {
     array: PyArrayData,
     chunk_size: usize,
@@ -471,11 +468,10 @@ pub struct AxisArrays<'a> {
 }
 
 impl AxisArraysOp for AxisArrays<'_> {
-    type ArrayIter<'a, T> = PyArrayIterator<T>
+    type ArrayIter<T> = PyArrayIterator<T>
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-        Self: 'a;
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
     fn keys(&self) -> Vec<String> {
         self.arrays.call_method0("keys").unwrap().extract().unwrap()
@@ -501,11 +497,11 @@ impl AxisArraysOp for AxisArrays<'_> {
         self.get::<D>(key).map(|mat| mat.map(|x| x.select(slice.as_ref())))
     }
 
-    fn get_iter<'a, T>(
-            &'a self,
+    fn get_iter<T>(
+            &self,
             key: &str,
             chunk_size: usize,
-        ) -> Result<Self::ArrayIter<'a, T>>
+        ) -> Result<Self::ArrayIter<T>>
         where
             T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
             <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>

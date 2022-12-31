@@ -1,6 +1,6 @@
-use crate::container::Dim;
+use crate::container::{Dim, StackedChunkedArrayElem};
 use crate::container::base::VecVecIndex;
-use crate::traits::{AnnDataIterator, AnnDataOp, ElemCollectionOp};
+use crate::traits::{AnnDataOp, ElemCollectionOp};
 use crate::{
     anndata::AnnData,
     backend::Backend,
@@ -14,6 +14,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use std::collections::HashSet;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 pub struct AnnDataSet<B: Backend> {
@@ -120,6 +121,10 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
 }
 
 impl<B: Backend> AnnDataSet<B> {
+    pub fn adatas(&self) -> &StackedAnnData<B> {
+        &self.anndatas
+    }
+
     pub fn get_x(&self) -> &StackedArrayElem<B> {
         self.anndatas.get_x()
     }
@@ -142,7 +147,7 @@ impl<B: Backend> AnnDataSet<B> {
         annotation.n_obs = Dim::new(n_obs);
         annotation.n_vars = Dim::new(n_vars);
         {
-            // Set UNS. UNS includes children anndata locations.
+            // Set UNS. UNS includes children anndata locations and shared elements.
             let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
                 .iter()
                 .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
@@ -152,6 +157,18 @@ impl<B: Backend> AnnDataSet<B> {
                 Series::new("file_path", filenames),
             ])?;
             annotation.uns().add("AnnDataSet", data)?;
+
+            // Add shared uns elements.
+            let shared_keys: HashSet<String> = anndatas
+                .values()
+                .map(|x| x.uns().keys().into_iter().collect::<HashSet<_>>())
+                .reduce(|a, b| a.intersection(&b).cloned().collect())
+                .unwrap_or(HashSet::new());
+            for key in shared_keys {
+                if anndatas.values().map(|x| x.uns().get::<Data>(&key).unwrap().unwrap()).all_equal() {
+                    annotation.uns().add(&key, anndatas.values().next().unwrap().uns().get::<Data>(&key)?.unwrap())?;
+                }
+            }
         }
         {
             // Set OBS.
@@ -342,8 +359,25 @@ fn update_anndata_locations<B: Backend>(
 }
 
 impl<B: Backend> AnnDataOp for AnnDataSet<B> {
+    type ArrayIter<T> = StackedChunkedArrayElem<B, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
     type AxisArraysRef<'a> = &'a AxisArrays<B>;
     type ElemCollectionRef<'a> = &'a ElemCollection<B>;
+
+    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.anndatas.x.chunked(chunk_size)
+    }
+
+    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
+        bail!("cannot set X in AnnDataSet")
+    }
 
     fn read_x<D>(&self) -> Result<Option<D>>
     where
@@ -536,7 +570,7 @@ impl<B: Backend> StackedAnnData<B> {
     pub fn get_x(&self) -> &StackedArrayElem<B> {
         &self.x
     }
-    pub fn get_obsm(&self) -> &StackedAxisArrays<B> {
+    pub fn obsm(&self) -> &StackedAxisArrays<B> {
         &self.obsm
     }
 

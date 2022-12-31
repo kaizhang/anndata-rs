@@ -10,7 +10,7 @@ use crate::{
         InnerDataFrameElem, Slot,
     },
     data::*,
-    traits::{AnnDataIterator, AnnDataOp, AxisArraysOp, ElemCollectionOp},
+    traits::AnnDataOp,
 };
 
 use anyhow::{ensure, Context, Result};
@@ -379,8 +379,46 @@ impl<B: Backend> AnnData<B> {
 }
 
 impl<B: Backend> AnnDataOp for AnnData<B> {
+    type ArrayIter<T> = ChunkedArrayElem<B, T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
     type AxisArraysRef<'a> = &'a AxisArrays<B>;
     type ElemCollectionRef<'a> = &'a ElemCollection<B>;
+
+    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.get_x().chunked(chunk_size)
+    }
+
+    /// Set the 'X' element from an iterator. Note that the original data will be
+    /// lost if an error occurs during the writing.
+    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
+        let mut obs_lock = self.n_obs.lock();
+        let mut vars_lock = self.n_vars.lock();
+        self.del_x()?;
+        let new_elem =
+            ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
+        let shape = new_elem.inner().shape().clone();
+
+        match obs_lock
+            .try_set(shape[0])
+            .and(vars_lock.try_set(shape[1]))
+        {
+            Ok(_) => {
+                self.x.swap(&new_elem);
+                Ok(())
+            }
+            Err(e) => {
+                new_elem.clear()?;
+                Err(e)
+            }
+        }
+    }
 
     fn read_x<D>(&self) -> Result<Option<D>>
     where
@@ -608,156 +646,18 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn del_uns(&self) -> Result<()> {
-        self.uns().clear()
+        self.uns.clear()
     }
     fn del_obsm(&self) -> Result<()> {
-        self.obsm().clear()
+        self.obsm.clear()
     }
     fn del_obsp(&self) -> Result<()> {
-        self.obsp().clear()
+        self.obsp.clear()
     }
     fn del_varm(&self) -> Result<()> {
-        self.varm().clear()
+        self.varm.clear()
     }
     fn del_varp(&self) -> Result<()> {
-        self.varp().clear()
-    }
-}
-
-impl<B: Backend> AnnDataIterator for AnnData<B> {
-    type ArrayIter<'a, T> = ChunkedArrayElem<B, T>
-    where
-        B: 'a,
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
-    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_x().chunked(chunk_size)
-    }
-
-    /// Set the 'X' element from an iterator. Note that the original data will be
-    /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
-        let mut obs_lock = self.n_obs.lock();
-        let mut vars_lock = self.n_vars.lock();
-        self.del_x()?;
-        let new_elem =
-            ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
-        let shape = new_elem.inner().shape().clone();
-
-        match obs_lock
-            .try_set(shape[0])
-            .and(vars_lock.try_set(shape[1]))
-        {
-            Ok(_) => {
-                self.x.swap(&new_elem);
-                Ok(())
-            }
-            Err(e) => {
-                new_elem.clear()?;
-                Err(e)
-            }
-        }
-    }
-}
-
-impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
-    type ArrayIter<'a, T> = ChunkedArrayElem<B, T>
-    where
-        B: 'a,
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-        Self: 'a;
-
-    fn keys(&self) -> Vec<String> {
-        self.inner().keys().cloned().collect()
-    }
-
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().data())
-            .transpose()
-    }
-
-    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
-    {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().select(slice.as_ref()))
-            .transpose()
-    }
-
-    fn get_iter<'a, T>(
-        &'a self,
-        key: &str,
-        chunk_size: usize,
-    ) -> Result<Self::ArrayIter<'a, T>>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        Ok(self.inner().get(key).unwrap().chunked(chunk_size))
-    }
-
-    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()>
-    {
-        self.inner().add_data(key, data)
-    }
-
-    fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: ArrayChunk,
-    {
-        self.inner().add_data_from_iter(key, data)
-    }
-
-    fn remove(&self, key: &str) -> Result<()> {
-        self.inner().remove_data(key)
-    }
-}
-
-impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
-    fn keys(&self) -> Vec<String> {
-        self.inner().keys().cloned().collect()
-    }
-
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
-        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
-    {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().data())
-            .transpose()
-    }
-
-    fn add<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
-        self.inner().add_data(key, data)
-    }
-
-    fn remove(&self, key: &str) -> Result<()> {
-        self.inner().remove_data(key)
+        self.varp.clear()
     }
 }

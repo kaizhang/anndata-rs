@@ -4,8 +4,25 @@ use anyhow::Result;
 use polars::prelude::DataFrame;
 
 pub trait AnnDataOp {
+    type ArrayIter<T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
     type AxisArraysRef<'a>: AxisArraysOp where Self: 'a;
     type ElemCollectionRef<'a>: ElemCollectionOp where Self: 'a;
+
+    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    /// Set the 'X' element from an iterator. Note that the original data will be
+    /// lost if an error occurs during the writing.
+    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: ArrayChunk + Into<ArrayData>;
 
     /// Reading/writing the 'X' element.
     fn read_x<D>(&self) -> Result<Option<D>>
@@ -96,26 +113,6 @@ pub trait AnnDataOp {
     fn del_varp(&self) -> Result<()>;
 }
 
-pub trait AnnDataIterator: AnnDataOp {
-    type ArrayIter<'a, T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-        Self: 'a;
-
-    fn read_x_iter<'a, T>(&'a self, chunk_size: usize) -> Self::ArrayIter<'a, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
-    /// Set the 'X' element from an iterator. Note that the original data will be
-    /// lost if an error occurs during the writing.
-    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: ArrayChunk + Into<ArrayData>;
-}
-
 pub trait ElemCollectionOp {
     fn keys(&self) -> Vec<String>;
 
@@ -134,11 +131,10 @@ pub trait ElemCollectionOp {
 }
 
 pub trait AxisArraysOp {
-    type ArrayIter<'a, T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
+    type ArrayIter<T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-        Self: 'a;
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
     fn keys(&self) -> Vec<String>;
 
@@ -153,11 +149,11 @@ pub trait AxisArraysOp {
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
-    fn get_iter<'a, T>(
-        &'a self,
+    fn get_iter<T>(
+        &self,
         key: &str,
         chunk_size: usize,
-    ) -> Result<Self::ArrayIter<'a, T>>
+    ) -> Result<Self::ArrayIter<T>>
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
@@ -173,5 +169,6 @@ pub trait AxisArraysOp {
         I: Iterator<Item = D>,
         D: ArrayChunk + Into<ArrayData>;
 
+    /// Remove data by key.
     fn remove(&self, key: &str) -> Result<()>;
 }
