@@ -1,5 +1,5 @@
 mod backed;
-mod memory;
+pub mod memory;
 mod dataset;
 
 pub use backed::AnnData;

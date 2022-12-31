@@ -226,7 +226,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         data.finish()?;
         indptr.push(nnz);
         group.create_array_data("indptr", &indptr, Default::default())?;
-        group.write_arr_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
     }
 }

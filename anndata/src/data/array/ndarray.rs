@@ -412,6 +412,7 @@ impl WriteData for CategoricalArray {
         let group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "categorical")?;
         group.write_str_attr("encoding-version", "0.2.0")?;
+        group.write_scalar_attr("ordered", false)?;
 
         group.create_array_data("codes", &self.codes, Default::default())?;
         group.create_array_data("categories", &self.categories, Default::default())?;

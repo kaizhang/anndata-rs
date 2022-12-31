@@ -127,19 +127,23 @@ pub trait LocationOp {
     /// Returns the path of the location relative to the file root.
     fn path(&self) -> PathBuf;
 
-    /// Write a string attribute at a given location. This function should be able to
+    /// Write a scalar attribute at a given location. This function should be able to
     /// overwrite existing attributes.
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()>;
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()>;
+
+    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+        self.write_scalar_attr(name, value.to_string())
+    }
 
     /// Write a array-like attribute at a given location.
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension;
 
     fn read_str_attr(&self, name: &str) -> Result<String>;
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
 }
 
 pub trait DatasetOp {
@@ -283,21 +287,21 @@ impl<B: Backend> LocationOp for DataContainer<B> {
         }
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
         match self {
-            DataContainer::Group(g) => g.write_arr_attr(name, value),
-            DataContainer::Dataset(d) => d.write_arr_attr(name, value),
+            DataContainer::Group(g) => g.write_array_attr(name, value),
+            DataContainer::Dataset(d) => d.write_array_attr(name, value),
         }
     }
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
         match self {
-            DataContainer::Group(g) => g.write_str_attr(name, value),
-            DataContainer::Dataset(d) => d.write_str_attr(name, value),
+            DataContainer::Group(g) => g.write_scalar_attr(name, value),
+            DataContainer::Dataset(d) => d.write_scalar_attr(name, value),
         }
     }
 
@@ -307,10 +311,10 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.read_str_attr(name),
         }
     }
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
-            DataContainer::Group(g) => g.read_arr_attr(name),
-            DataContainer::Dataset(d) => d.read_arr_attr(name),
+            DataContainer::Group(g) => g.read_array_attr(name),
+            DataContainer::Dataset(d) => d.read_array_attr(name),
         }
     }
 }

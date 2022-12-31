@@ -35,7 +35,7 @@ impl WriteData for DataFrame {
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        group.write_arr_attr("column-order", &columns)?;
+        group.write_array_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
 
@@ -62,7 +62,7 @@ impl WriteData for DataFrame {
             .into_iter()
             .map(|x| x.to_owned())
             .collect();
-        container.write_arr_attr("column-order", &columns)?;
+        container.write_array_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| x.write(container.as_group()?, x.name()).map(|_| ()))?;
 
@@ -72,7 +72,7 @@ impl WriteData for DataFrame {
 
 impl ReadData for DataFrame {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let columns: Array1<String> = container.read_arr_attr("column-order")?;
+        let columns: Array1<String> = container.read_array_attr("column-order")?;
         columns
             .into_iter()
             .map(|x| {
@@ -118,7 +118,7 @@ impl ReadArrayData for DataFrame {
         let group = container.as_group()?;
         let index = group.read_str_attr("_index")?;
         let nrows = group.open_dataset(&index)?.shape()[0];
-        let columns: Array1<String> = container.read_arr_attr("column-order")?;
+        let columns: Array1<String> = container.read_array_attr("column-order")?;
         Ok((nrows, columns.len()).into())
     }
 
@@ -127,7 +127,7 @@ impl ReadArrayData for DataFrame {
         B: Backend,
         S: AsRef<SelectInfoElem>,
     {
-        let columns: Vec<String> = container.read_arr_attr("column-order")?.to_vec();
+        let columns: Vec<String> = container.read_array_attr("column-order")?.to_vec();
         BoundedSelectInfoElem::new(&info.as_ref()[1], columns.len())
             .iter()
             .map(|i| {

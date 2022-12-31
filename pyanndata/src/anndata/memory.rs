@@ -518,6 +518,8 @@ impl AxisArraysOp for AxisArrays<'_> {
         ) -> Result<()>
     {
         let py = self.arrays.py();
+        let shape = data.shape();
+        self.adata.set_n_obs(shape[0])?;
         let d = PyArrayData::from(data.into()).into_py(py);
         let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
             d.call_method0(py, "to_pandas")?

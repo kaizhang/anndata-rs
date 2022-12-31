@@ -1,4 +1,4 @@
-mod anndata;
+pub mod anndata;
 pub mod data;
 pub mod container;
 

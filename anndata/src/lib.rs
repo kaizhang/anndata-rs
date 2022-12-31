@@ -14,7 +14,6 @@ pub use container::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 
     StackedAxisArrays, StackedDataFrame, StackedArrayElem,
 };
-//pub use iterator::{AnnDataIterator, ChunkedMatrix, StackedChunkedMatrix};
 
 /*
 /// Implementation's prelude. Common types used everywhere.

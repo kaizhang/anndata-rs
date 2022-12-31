@@ -412,18 +412,13 @@ fn path(loc: &Location) -> PathBuf {
     hdf5::Location::name(loc).into()
 }
 
-fn write_arr_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Result<()>
+fn write_array_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Result<()>
 where
     A: Into<ArrayView<'a, D, Dim>>,
     D: BackendData,
     Dim: Dimension,
 {
-    unsafe {
-        let c_name = std::ffi::CString::new(name).unwrap().into_raw();
-        if hdf5_sys::h5a::H5Aexists(loc.id(), c_name) != 0 {
-            hdf5_sys::h5a::H5Adelete(loc.id(), c_name);
-        }
-    }
+    del_attr(loc, name);
     match BackendData::into_dyn_arr(value.into()) {
         DynArrayView::U8(x) => loc.new_attr_builder().with_data(x).create(name)?,
         DynArrayView::U16(x) => loc.new_attr_builder().with_data(x).create(name)?,
@@ -454,6 +449,29 @@ fn write_str_attr(loc: &Location, name: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Result<()> {
+    del_attr(loc, name);
+    match value.into_dyn() {
+        DynScalar::U8(x) => loc.new_attr::<u8>().create(name)?.write_scalar(&x)?,
+        DynScalar::U16(x) => loc.new_attr::<u16>().create(name)?.write_scalar(&x)?,
+        DynScalar::U32(x) => loc.new_attr::<u32>().create(name)?.write_scalar(&x)?,
+        DynScalar::U64(x) => loc.new_attr::<u64>().create(name)?.write_scalar(&x)?,
+        DynScalar::Usize(x) => loc.new_attr::<usize>().create(name)?.write_scalar(&x)?,
+        DynScalar::I8(x) => loc.new_attr::<i8>().create(name)?.write_scalar(&x)?,
+        DynScalar::I16(x) => loc.new_attr::<i16>().create(name)?.write_scalar(&x)?,
+        DynScalar::I32(x) => loc.new_attr::<i32>().create(name)?.write_scalar(&x)?,
+        DynScalar::I64(x) => loc.new_attr::<i64>().create(name)?.write_scalar(&x)?,
+        DynScalar::F32(x) => loc.new_attr::<f32>().create(name)?.write_scalar(&x)?,
+        DynScalar::F64(x) => loc.new_attr::<f64>().create(name)?.write_scalar(&x)?,
+        DynScalar::Bool(x) => loc.new_attr::<bool>().create(name)?.write_scalar(&x)?,
+        DynScalar::String(x) => {
+            let value_: VarLenUnicode = x.parse().unwrap();
+            loc.new_attr::<VarLenUnicode>().create(name)?.write_scalar(&value_)?
+        },
+    };
+    Ok(())
+}
+
 fn read_str_attr(loc: &Location, name: &str) -> Result<String> {
     let container = loc.attr(name)?;
     match container.dtype()?.to_descriptor()? {
@@ -471,7 +489,7 @@ fn read_str_attr(loc: &Location, name: &str) -> Result<String> {
     }
 }
 
-fn read_arr_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
+fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
     let array: DynArray = match T::DTYPE {
         ScalarType::I8 => loc.attr(name)?.read::<i8, D>()?.into(),
         ScalarType::I16 => loc.attr(name)?.read::<i16, D>()?.into(),
@@ -598,13 +616,17 @@ impl LocationOp for H5Group {
         path(self)
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        write_arr_attr(self, name, value)
+        write_array_attr(self, name, value)
+    }
+
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        write_scalar_attr(self, name, value)
     }
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
@@ -615,8 +637,8 @@ impl LocationOp for H5Group {
         read_str_attr(self, name)
     }
 
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        read_arr_attr(self, name)
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+        read_array_attr(self, name)
     }
 }
 
@@ -631,13 +653,17 @@ impl LocationOp for H5Dataset {
         path(self)
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        write_arr_attr(self, name, value)
+        write_array_attr(self, name, value)
+    }
+
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        write_scalar_attr(self, name, value)
     }
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
@@ -648,8 +674,8 @@ impl LocationOp for H5Dataset {
         read_str_attr(self, name)
     }
 
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        read_arr_attr(self, name)
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+        read_array_attr(self, name)
     }
 }
 
@@ -676,6 +702,15 @@ where
     }
 }
 
+fn del_attr(loc: &Location, name: &str) {
+    unsafe {
+        let c_name = std::ffi::CString::new(name).unwrap().into_raw();
+        if hdf5_sys::h5a::H5Aexists(loc.id(), c_name) != 0 {
+            hdf5_sys::h5a::H5Adelete(loc.id(), c_name);
+        }
+    }
+}
+
 /// test module
 #[cfg(test)]
 mod tests {
@@ -683,7 +718,7 @@ mod tests {
     use anndata::s;
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
-    use ndarray::{Array1, array, Axis, concatenate, Ix1};
+    use ndarray::{Array1, Axis, concatenate, Ix1};
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -759,3 +794,4 @@ mod tests {
         })
     }
 }
+

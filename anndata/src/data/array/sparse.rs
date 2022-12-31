@@ -180,7 +180,7 @@ impl ReadArrayData for DynCsrMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .read_arr_attr("shape")?
+            .read_array_attr("shape")?
             .to_vec()
             .into())
     }
@@ -412,7 +412,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
 
         group.write_str_attr("encoding-type", "csr_matrix")?;
         group.write_str_attr("encoding-version", "0.1.0")?;
-        group.write_arr_attr("shape", shape.as_ref())?;
+        group.write_array_attr("shape", shape.as_ref())?;
 
         group.create_array_data("data", &self.values(), Default::default())?;
 
@@ -488,7 +488,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
 impl<T: BackendData> ReadData for CsrMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
-        let shape: Vec<usize> = group.read_arr_attr("shape")?.to_vec();
+        let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
         let data = group.open_dataset("data")?.read_array()?.to_vec();
         let indices: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indices")?)?;
         let indptr: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indptr")?)?;
@@ -500,7 +500,7 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .read_arr_attr("shape")?
+            .read_array_attr("shape")?
             .to_vec()
             .into())
     }
