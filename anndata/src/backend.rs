@@ -15,6 +15,7 @@ impl Default for WriteConfig {
     fn default() -> Self {
         Self {
             compression: Some(3),
+            //compression: None,
             block_size: None,
         }
     }

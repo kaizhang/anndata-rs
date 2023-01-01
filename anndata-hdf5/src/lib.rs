@@ -131,7 +131,8 @@ fn new_dataset<T: BackendData>(
     };
 
     builder = if let Some(compression) = config.compression {
-        builder.deflate(compression)
+        //builder.deflate(compression)
+        builder.blosc_blosclz(compression, hdf5::filters::BloscShuffle::Byte)
     } else {
         builder
     };

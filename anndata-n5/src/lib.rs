@@ -15,7 +15,7 @@ use n5::{
     ndarray::N5NdarrayReader,
 };
 use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, Slice};
-use serde_json::value::Value;
+use serde_json::{value::Value, Number};
 use smallvec::smallvec;
 use std::{
     ops::Deref,
@@ -270,31 +270,6 @@ impl GroupOp for Group {
             }
         }
     }
-
-    fn create_array_data<'a, A, D, Dim>(
-        &self,
-        name: &str,
-        arr: A,
-        config: WriteConfig,
-    ) -> Result<<Self::Backend as Backend>::Dataset>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        let arr_view = arr.into();
-        let shape = arr_view.shape();
-        let block_size = config.block_size.unwrap_or_else(||
-            shape.as_ref().iter().map(|&x| x.min(1000)).collect()
-        );
-        let new_config = WriteConfig {
-            compression: config.compression,
-            block_size: Some(block_size),
-        };
-        let dataset = self.new_dataset::<D>(name, &shape.into(), new_config)?;
-        dataset.write_array(arr_view)?;
-        Ok(dataset)
-    }
 }
 
 impl DatasetOp for Dataset {
@@ -491,7 +466,7 @@ impl LocationOp for Location {
         self.path.clone()
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -523,6 +498,27 @@ impl LocationOp for Location {
         Ok(())
     }
 
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        let val = match value.into_dyn() {
+            DynScalar::U8(x) => Value::Number(Number::from(x)), 
+            DynScalar::U16(x) => Value::Number(Number::from(x)),
+            DynScalar::U32(x) => Value::Number(Number::from(x)),
+            DynScalar::U64(x) => Value::Number(Number::from(x)),
+            DynScalar::Usize(x) => Value::Number(Number::from(x)),
+            DynScalar::I8(x) => Value::Number(Number::from(x)),
+            DynScalar::I16(x) => Value::Number(Number::from(x)),
+            DynScalar::I32(x) => Value::Number(Number::from(x)),
+            DynScalar::I64(x) => Value::Number(Number::from(x)),
+            DynScalar::F32(x) => Value::Number(Number::from_f64(x as f64).unwrap()),
+            DynScalar::F64(x) => Value::Number(Number::from_f64(x).unwrap()),
+            DynScalar::Bool(x) => Value::Bool(x),
+            DynScalar::String(x) => Value::String(x),
+        };
+        self.root
+            .set_attribute(&self.path.to_string_lossy(), name.to_string(), val)?;
+        Ok(())
+    }
+
     fn read_str_attr(&self, name: &str) -> Result<String> {
         match self.root.get_attributes(&self.path.to_string_lossy())? {
             Value::Object(map) => match map.get(name) {
@@ -533,7 +529,7 @@ impl LocationOp for Location {
         }
     }
 
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         let val = self.root.get_attributes(&self.path.to_string_lossy())?.as_object().unwrap().get(name).unwrap().clone();
         let array: DynArray = match T::DTYPE {
             ScalarType::U8 => serde_json::from_value::<Array<u8, IxDyn>>(val)?.into(),
@@ -605,20 +601,6 @@ impl GroupOp for Root {
     ) -> Result<<Self::Backend as Backend>::Dataset> {
         self.deref().create_scalar_data(name, data)
     }
-
-    fn create_array_data<'a, A, D, Dim>(
-        &self,
-        name: &str,
-        arr: A,
-        config: WriteConfig,
-    ) -> Result<<Self::Backend as Backend>::Dataset>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        self.deref().create_array_data(name, arr, config)
-    }
 }
 
 impl LocationOp for Group {
@@ -632,13 +614,17 @@ impl LocationOp for Group {
         self.deref().path()
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        self.deref().write_arr_attr(name, value)
+        self.deref().write_array_attr(name, value)
+    }
+
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        self.deref().write_scalar_attr(name, value)
     }
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
@@ -649,8 +635,8 @@ impl LocationOp for Group {
         self.deref().read_str_attr(name)
     }
 
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        self.deref().read_arr_attr(name)
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+        self.deref().read_array_attr(name)
     }
 }
 
@@ -665,13 +651,17 @@ impl LocationOp for Dataset {
         self.deref().path()
     }
 
-    fn write_arr_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        self.deref().write_arr_attr(name, value)
+        self.deref().write_array_attr(name, value)
+    }
+
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        self.deref().write_scalar_attr(name, value)
     }
 
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
@@ -682,8 +672,8 @@ impl LocationOp for Dataset {
         self.deref().read_str_attr(name)
     }
 
-    fn read_arr_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        self.deref().read_arr_attr(name)
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+        self.deref().read_array_attr(name)
     }
 }
 
@@ -765,8 +755,8 @@ mod tests {
     {
         let arr = data.into();
         let dataset = root.create_scalar_data("scalar", &1u8)?;
-        dataset.write_arr_attr("test", &arr)?;
-        assert_eq!(dataset.read_arr_attr::<T, D>("test")?, arr);
+        dataset.write_array_attr("test", &arr)?;
+        assert_eq!(dataset.read_array_attr::<T, D>("test")?, arr);
         Ok(())
     }
 

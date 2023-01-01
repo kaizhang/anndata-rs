@@ -32,7 +32,7 @@ fn array_io<B: Backend>(name: &str, c: &mut Criterion) {
         let n = 200;
         let m = 300;
         let z = 10;
-        let adata: AnnData<H5> = AnnData::new(file, n, m).unwrap();
+        let adata: AnnData<B> = AnnData::new(file).unwrap();
         let arr: Array3<i32> = Array::random((n, m, z), Uniform::new(-100, 100));
         let mut fancy_d1: Vec<usize> = Array::random((30,), Uniform::new(0, n-1)).to_vec();
         let mut fancy_d2: Vec<usize> = Array::random((40,), Uniform::new(0, m-1)).to_vec();
@@ -40,18 +40,17 @@ fn array_io<B: Backend>(name: &str, c: &mut Criterion) {
 
         group.bench_function(
             BenchmarkId::new("read full", "200 x 300 x 10"),
-            |b| b.iter(|| adata.read_x::<ArrayData>().unwrap().unwrap()),
+            |b| b.iter(|| adata.x().get::<ArrayData>().unwrap().unwrap()),
         );
 
         group.bench_function(
             BenchmarkId::new("read slice", "30 x 40 x 10"),
-            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![3..33, 4..44, ..]).unwrap().unwrap())
+            |b| b.iter(|| adata.x().slice::<ArrayData, _>(s![3..33, 4..44, ..]).unwrap().unwrap())
         );
 
-        /*
         group.bench_function(
             BenchmarkId::new("read fancy", "30 x 40 x 10"),
-            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
+            |b| b.iter(|| adata.x().slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
         );
 
         fancy_d1.sort();
@@ -59,9 +58,8 @@ fn array_io<B: Backend>(name: &str, c: &mut Criterion) {
 
         group.bench_function(
             BenchmarkId::new("read fancy (sorted)", "30 x 40 x 10"),
-            |b| b.iter(|| adata.read_x_slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
+            |b| b.iter(|| adata.x().slice::<ArrayData, _>(s![&fancy_d1, &fancy_d2, ..]).unwrap().unwrap())
         );
-        */
 
         group.finish();
     })
@@ -76,7 +74,7 @@ fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
         let arr: Array2<i32> = Array::random((n, m), Uniform::new(-100, 100));
 
         let adatas = (0..3).into_iter().map(|i| {
-            let d: AnnData<B> = AnnData::new(dir.join(format!("{}.h5ad", i)), n, m).unwrap();
+            let d: AnnData<B> = AnnData::new(dir.join(format!("{}.h5ad", i))).unwrap();
             d.set_x(&arr).unwrap();
             (format!("{}", i), d)
         }).collect::<Vec<_>>();
