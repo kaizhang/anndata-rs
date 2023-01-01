@@ -2,20 +2,15 @@ use crate::data::*;
 
 use anyhow::Result;
 use polars::prelude::DataFrame;
+use smallvec::SmallVec;
 
+/// AnnData container operations.
 pub trait AnnDataOp {
-    type ArrayIter<T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
+    type X: ArrayElemOp;
     type AxisArraysRef<'a>: AxisArraysOp where Self: 'a;
     type ElemCollectionRef<'a>: ElemCollectionOp where Self: 'a;
 
-    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    fn x(&self) -> Self::X;
 
     /// Set the 'X' element from an iterator. Note that the original data will be
     /// lost if an error occurs during the writing.
@@ -23,18 +18,6 @@ pub trait AnnDataOp {
     where
         I: Iterator<Item = D>,
         D: ArrayChunk + Into<ArrayData>;
-
-    /// Reading/writing the 'X' element.
-    fn read_x<D>(&self) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
-    fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
     fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()>;
 
@@ -116,7 +99,7 @@ pub trait AnnDataOp {
 pub trait ElemCollectionOp {
     fn keys(&self) -> Vec<String>;
 
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
+    fn get_item<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<Data> + TryFrom<Data> + Clone,
         <D as TryFrom<Data>>::Error: Into<anyhow::Error>;
@@ -130,34 +113,40 @@ pub trait ElemCollectionOp {
     fn remove(&self, key: &str) -> Result<()>;
 }
 
+/// A trait for accessing arrays with multiple axes.
 pub trait AxisArraysOp {
-    type ArrayIter<T>: Iterator<Item = (T, usize, usize)> + ExactSizeIterator
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    type ArrayElem: ArrayElemOp;
 
     fn keys(&self) -> Vec<String>;
 
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
+    fn get(&self, key: &str) -> Option<Self::ArrayElem>;
+
+    fn get_item<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.get(key).and_then(|x| x.get().transpose()).transpose()
+    }
 
-    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
+    fn get_item_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
     where
         D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
         S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.get(key).and_then(|x| x.slice(slice).transpose()).transpose()
+    }
 
-    fn get_iter<T>(
-        &self,
-        key: &str,
-        chunk_size: usize,
-    ) -> Result<Self::ArrayIter<T>>
+    fn get_item_iter<T>(&self, key: &str, chunk_size: usize
+    ) -> Option<<Self::ArrayElem as ArrayElemOp>::ArrayIter<T>>
     where
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
- 
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.get(key).map(|x| x.iter(chunk_size))
+    }
+
     fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
         key: &str,
@@ -171,4 +160,47 @@ pub trait AxisArraysOp {
 
     /// Remove data by key.
     fn remove(&self, key: &str) -> Result<()>;
+}
+
+pub trait ArrayElemOp {
+    type ArrayIter<T>: ExactSizeIterator<Item = (T, usize, usize)>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn shape(&self) -> Option<Shape>;
+
+    fn get<D>(&self) -> Result<Option<D>>
+    where
+        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn slice<D, S>(&self, slice: S) -> Result<Option<D>>
+    where
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+        S: AsRef<[SelectInfoElem]>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+
+    fn slice_axis<D, S>(&self, axis: usize, slice: S) -> Result<Option<D>>
+    where
+        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+        S: AsRef<SelectInfoElem>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.shape().and_then(|shape| {
+            let full = SelectInfoElem::full();
+            let slice: SmallVec<[SelectInfoElem; 3]> = slice
+                .as_ref()
+                .set_axis(axis, shape.ndim(), &full).into_iter().cloned().collect();
+            self.slice(slice.as_slice()).transpose()
+        }).transpose()
+    }
+
+    fn iter<T>(
+        &self,
+        chunk_size: usize,
+    ) -> Self::ArrayIter<T>
+    where
+        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 }

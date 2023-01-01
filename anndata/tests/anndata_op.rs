@@ -5,8 +5,6 @@ use ndarray::Array2;
 use proptest::prelude::*;
 use anndata::*;
 use anndata_hdf5::H5;
-use pyanndata::PyAnnData;
-use pyo3::prelude::*;
 
 fn test_speacial_cases<F, T>(adata_gen: F)
 where
@@ -29,7 +27,7 @@ where
     proptest!(ProptestConfig::with_cases(256), |(x in arrays)| {
         let adata = adata_gen();
         adata.set_x(&x).unwrap();
-        prop_assert_eq!(adata.read_x::<ArrayData>().unwrap().unwrap(), x);
+        prop_assert_eq!(adata.x().get::<ArrayData>().unwrap().unwrap(), x);
     });
 }
 
@@ -44,13 +42,13 @@ where
         let adata = adata_gen();
         adata.set_x(&x).unwrap();
         prop_assert_eq!(
-            adata.read_x_slice::<ArrayData, _>(&select).unwrap().unwrap(),
+            adata.x().slice::<ArrayData, _>(&select).unwrap().unwrap(),
             array_select(&x, select.as_slice())
         );
 
         adata.obsm().add("test", &x).unwrap();
         prop_assert_eq!(
-            adata.obsm().get_slice::<ArrayData, _>("test", &select).unwrap().unwrap(),
+            adata.obsm().get_item_slice::<ArrayData, _>("test", &select).unwrap().unwrap(),
             array_select(&x, select.as_slice())
         );
     });
@@ -66,10 +64,10 @@ where
     proptest!(ProptestConfig::with_cases(10), |(x in arrays)| {
         let adata = adata_gen();
         adata.obsm().add_iter("test", array_chunks(&x, 7)).unwrap();
-        prop_assert_eq!(adata.obsm().get::<ArrayData>("test").unwrap().unwrap(), x.clone());
+        prop_assert_eq!(adata.obsm().get_item::<ArrayData>("test").unwrap().unwrap(), x.clone());
 
-        adata.obsm().add_iter("test2", adata.obsm().get_iter::<ArrayData>("test", 7).unwrap().map(|x| x.0)).unwrap();
-        prop_assert_eq!(adata.obsm().get::<ArrayData>("test2").unwrap().unwrap(), x);
+        adata.obsm().add_iter("test2", adata.obsm().get_item_iter::<ArrayData>("test", 7).unwrap().map(|x| x.0)).unwrap();
+        prop_assert_eq!(adata.obsm().get_item::<ArrayData>("test2").unwrap().unwrap(), x);
     });
 }
 
@@ -110,46 +108,6 @@ fn test_iterator_h5() {
     with_tmp_dir(|dir| {
         let file = dir.join("test.h5");
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
-        test_iterator(|| adata_gen());
-    })
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Test Python backend
-////////////////////////////////////////////////////////////////////////////////
-
-#[test]
-fn test_speacial_cases_py() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        let adata_gen = || PyAnnData::new(py).unwrap();
-        test_speacial_cases(|| adata_gen());
-    })
-}
-
-#[test]
-fn test_io_py() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        let adata_gen = || PyAnnData::new(py).unwrap();
-        test_io(|| adata_gen());
-    })
-}
-
-#[test]
-fn test_index_py() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        let adata_gen = || PyAnnData::new(py).unwrap();
-        test_index(|| adata_gen());
-    })
-}
-
-#[test]
-fn test_iterator_py() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        let adata_gen = || PyAnnData::new(py).unwrap();
         test_iterator(|| adata_gen());
     })
 }

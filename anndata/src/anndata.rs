@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use crate::{
     backend::{Backend, DataContainer, FileOp, GroupOp},
     container::{
-        Dim, ArrayElem, Axis, AxisArrays, ChunkedArrayElem, DataFrameElem, ElemCollection,
+        Dim, ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
         InnerDataFrameElem, Slot,
     },
     data::*,
@@ -379,20 +379,12 @@ impl<B: Backend> AnnData<B> {
 }
 
 impl<B: Backend> AnnDataOp for AnnData<B> {
-    type ArrayIter<T> = ChunkedArrayElem<B, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
+    type X = ArrayElem<B>;
     type AxisArraysRef<'a> = &'a AxisArrays<B>;
     type ElemCollectionRef<'a> = &'a ElemCollection<B>;
 
-    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.get_x().chunked(chunk_size)
+    fn x(&self) -> Self::X {
+        self.x.clone()
     }
 
     /// Set the 'X' element from an iterator. Note that the original data will be
@@ -417,33 +409,6 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
                 new_elem.clear()?;
                 Err(e)
             }
-        }
-    }
-
-    fn read_x<D>(&self) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        let x = self.get_x();
-        if x.is_empty() {
-            Ok(None)
-        } else {
-            x.inner().data().map(Option::Some)
-        }
-    }
-
-    fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        let x = self.get_x();
-        if x.is_empty() {
-            Ok(None)
-        } else {
-            x.inner().select(select.as_ref()).map(Option::Some)
         }
     }
 

@@ -4,7 +4,7 @@ use crate::{
     data::{
         array::slice::BoundedSlice,
         *,
-    },
+    }, ArrayElemOp,
 };
 
 use anyhow::{bail, ensure, Result};
@@ -647,6 +647,41 @@ impl<B: Backend> TryFrom<DataContainer<B>> for ArrayElem<B> {
     }
 }
 
+impl<B: Backend> ArrayElemOp for ArrayElem<B> {
+    type ArrayIter<T> = ChunkedArrayElem<B, T>
+        where
+            T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+            <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    
+    fn shape(&self) -> Option<Shape> {
+        self.lock().as_ref().map(|x| x.shape().clone())
+    }
+
+    fn get<D>(&self) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.lock().as_mut().map(|x| x.data()).transpose()
+    }
+
+    fn slice<D, S>(&self, slice: S) -> Result<Option<D>>
+        where
+            D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+            S: AsRef<[SelectInfoElem]>,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
+        self.lock().as_mut().map(|x| x.select(slice.as_ref())).transpose()
+    }
+
+    fn iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+        where
+            T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+            <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.chunked(chunk_size)
+    }
+}
+
 impl<B: Backend> ArrayElem<B> {
     /// Delete and Remove the data from the element.
     pub fn clear(&self) -> Result<()> {
@@ -793,7 +828,7 @@ impl<B: Backend> StackedDataFrame<B> {
 }
 
 pub struct InnerStackedArrayElem<B: Backend> {
-    shape: Shape,
+    shape: Option<Shape>,
     elems: SmallVec<[ArrayElem<B>; 96]>,
     index: VecVecIndex,
 }
@@ -806,7 +841,7 @@ impl<B: Backend> std::fmt::Display for InnerStackedArrayElem<B> {
             write!(
                 f,
                 "{} stacked elements ({}) with {}",
-                self.shape,
+                self.shape.as_ref().unwrap(),
                 self.elems.len(),
                 self.elems[0].inner().dtype(),
             )
@@ -819,113 +854,139 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         &self.index
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.elems.is_empty()
+    }
+
     pub fn dtype(&self) -> DataType {
         self.elems[0].inner().dtype()
     }
 
-    pub fn shape(&self) -> &Shape {
+    pub fn shape(&self) -> &Option<Shape> {
         &self.shape
     }
 
-    pub fn data<D>(&self) -> Result<D>
+    pub fn data<D>(&self) -> Result<Option<D>>
     where
         D: Into<ArrayData> + ReadData + Clone + TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let arrays: Result<SmallVec<[_; 96]>> = self
-            .elems
-            .iter()
-            .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
-            .collect();
-        Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+        let data = if self.is_empty() {
+            None
+        } else {
+            let arrays: Result<SmallVec<[_; 96]>> = self
+                .elems
+                .iter()
+                .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
+                .collect();
+            Some(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+        };
+        Ok(data)
     }
 
-    pub fn par_data<D>(&self) -> Result<D>
+    pub fn par_data<D>(&self) -> Result<Option<D>>
     where
         D: Into<ArrayData> + ReadData + Clone + TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let arrays: Result<Vec<_>> = self
-            .elems
-            .par_iter()
-            .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
-            .collect();
-        Ok(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+        let data = if self.is_empty() {
+            None
+        } else {
+            let arrays: Result<Vec<_>> = self
+                .elems
+                .par_iter()
+                .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
+                .collect();
+            Some(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+        };
+        Ok(data)
     }
 
-    pub fn select_axis<D, S>(&self, axis: usize, selection: S) -> Result<D>
+    pub fn select_axis<D, S>(&self, axis: usize, selection: S) -> Result<Option<D>>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         S: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let full = SelectInfoElem::full();
-        let slice = selection
-            .as_ref()
-            .set_axis(axis, self.shape().ndim(), &full);
-        self.select(slice.as_slice())
+        self.shape.as_ref().map(|s| {
+            let n = s.ndim();
+            let full = SelectInfoElem::full();
+            let slice = selection
+                .as_ref()
+                .set_axis(axis, n, &full);
+            self.select(slice.as_slice()).map(|x| x.unwrap())
+        }).transpose()
     }
  
-    pub fn select<D, S>(&self, selection: &[S]) -> Result<D>
+    pub fn select<D, S>(&self, selection: &[S]) -> Result<Option<D>>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         S: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
-        let array = self
-            .elems
-            .iter()
-            .enumerate()
-            .flat_map(|(i, el)| {
-                indices.get(&i).map(|idx| {
-                    let select: SmallVec<[_; 3]> = std::iter::once(idx)
-                        .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
-                        .collect();
-                    el.inner().select(select.as_slice())
-                })
-            })
-            .collect::<Result<Vec<_>>>()
-            .and_then(concat_array_data)?;
-        if let Some(m) = mapping {
-            array
-                .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
-                .try_into()
-                .map_err(Into::into)
+        let data = if self.is_empty() {
+            None
         } else {
-            array.try_into().map_err(Into::into)
-        }
+            let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
+            let array = self
+                .elems
+                .iter()
+                .enumerate()
+                .flat_map(|(i, el)| {
+                    indices.get(&i).map(|idx| {
+                        let select: SmallVec<[_; 3]> = std::iter::once(idx)
+                            .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
+                            .collect();
+                        el.inner().select(select.as_slice())
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+                .and_then(concat_array_data)?;
+            if let Some(m) = mapping {
+                Some(array
+                    .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
+                    .try_into().map_err(Into::into)?)
+            } else {
+                Some(array.try_into().map_err(Into::into)?)
+            }
+        };
+        Ok(data)
     }
 
-    pub fn par_select<D, S>(&self, selection: &[S]) -> Result<D>
+    pub fn par_select<D, S>(&self, selection: &[S]) -> Result<Option<D>>
     where
         D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         S: AsRef<SelectInfoElem> + Sync,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
-        let array = self
-            .elems
-            .par_iter()
-            .enumerate()
-            .flat_map(|(i, el)| {
-                indices.get(&i).map(|idx| {
-                    let select: SmallVec<[_; 3]> = std::iter::once(idx)
-                        .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
-                        .collect();
-                    el.inner().select(select.as_slice())
-                })
-            })
-            .collect::<Result<Vec<_>>>()
-            .and_then(concat_array_data)?;
-        if let Some(m) = mapping {
-            array
-                .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
-                .try_into()
-                .map_err(Into::into)
+        let data = if self.is_empty() {
+            None
         } else {
-            array.try_into().map_err(Into::into)
-        }
+            let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
+            let array = self
+                .elems
+                .par_iter()
+                .enumerate()
+                .flat_map(|(i, el)| {
+                    indices.get(&i).map(|idx| {
+                        let select: SmallVec<[_; 3]> = std::iter::once(idx)
+                            .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
+                            .collect();
+                        el.inner().select(select.as_slice())
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+                .and_then(concat_array_data)?;
+            if let Some(m) = mapping {
+                Some(array
+                    .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
+                    .try_into()
+                    .map_err(Into::into)?)
+            } else {
+                Some(array.try_into().map_err(Into::into)?)
+            }
+        };
+        Ok(data)
     }
 
     /// Activate the cache for all elements.
@@ -968,10 +1029,46 @@ impl<B: Backend> Deref for StackedArrayElem<B> {
     }
 }
 
+impl<B: Backend> ArrayElemOp for StackedArrayElem<B> {
+    type ArrayIter<T> = StackedChunkedArrayElem<B, T>
+        where
+            T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+            <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    
+    fn shape(&self) -> Option<Shape> {
+        self.shape.clone()
+    }
+
+    fn get<D>(&self) -> Result<Option<D>>
+        where
+            D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.data()
+    }
+
+    fn slice<D, S>(&self, slice: S) -> Result<Option<D>>
+        where
+            D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+            S: AsRef<[SelectInfoElem]>,
+            <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error> {
+        self.select(slice.as_ref())
+    }
+
+    fn iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
+        where
+            T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+            <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
+    {
+        self.chunked(chunk_size)
+    }
+}
+
+
 impl<B: Backend> StackedArrayElem<B> {
     pub fn empty() -> Self {
         Self(Arc::new(InnerStackedArrayElem {
-            shape: (0, 0).into(),
+            shape: None,
             elems: SmallVec::new(),
             index: std::iter::empty().collect(),
         }))
@@ -981,22 +1078,25 @@ impl<B: Backend> StackedArrayElem<B> {
         ensure!(
             elems
                 .iter()
-                .map(|x| x.lock().as_ref().map(|x| x.dtype()))
+                .map(|x| x.inner().dtype())
                 .all_equal(),
             "all elements must have the same dtype"
         );
 
         let shapes: Vec<_> = elems
             .iter()
-            .map(|x| x.lock().as_ref().map(|e| e.shape().clone()))
+            .map(|x| x.inner().shape().clone())
             .collect();
         ensure!(
-            shapes.iter().map(|x| x.as_ref().map(|e| &e.as_ref()[1..])).all_equal(),
+            shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
             "all elements must have the same shape except for the first axis"
         );
-        let index: VecVecIndex = shapes.iter().map(|x| x.as_ref().map(|e| e[0]).unwrap_or(0)).collect();
-        let mut shape = shapes[0].clone().unwrap_or((0, 0).into());
-        shape[0] = index.len();
+        let index: VecVecIndex = shapes.iter().map(|x| x.as_ref()[0]).collect();
+        let shape = shapes.get(0).map(|x| {
+            let mut s = x.clone();
+            s[0] = index.len();
+            s
+        });
         Ok(Self(Arc::new(InnerStackedArrayElem {
             shape,
             elems: elems,

@@ -115,7 +115,7 @@ impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
         self.inner().keys().cloned().collect()
     }
 
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
+    fn get_item<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<Data> + TryFrom<Data> + Clone,
         <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
@@ -482,50 +482,14 @@ impl<B: Backend> AxisArrays<B> {
 }
 
 impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
-    type ArrayIter<T> = ChunkedArrayElem<B, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    type ArrayElem = ArrayElem<B>;
 
     fn keys(&self) -> Vec<String> {
         self.inner().keys().cloned().collect()
     }
 
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().data())
-            .transpose()
-    }
-
-    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
-    {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().select(slice.as_ref()))
-            .transpose()
-    }
-
-    fn get_iter<T>(
-        &self,
-        key: &str,
-        chunk_size: usize,
-    ) -> Result<Self::ArrayIter<T>>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        Ok(self.inner().get(key).unwrap().chunked(chunk_size))
+    fn get(&self, key: &str) -> Option<Self::ArrayElem> {
+        self.lock().as_ref().and_then(|x| x.get(key).cloned())
     }
 
     fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
@@ -582,46 +546,14 @@ impl<B: Backend> std::fmt::Display for StackedAxisArrays<B> {
 }
 
 impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
-    type ArrayIter<T> = StackedChunkedArrayElem<B, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    type ArrayElem = StackedArrayElem<B>;
 
     fn keys(&self) -> Vec<String> {
         self.data.keys().cloned().collect()
     }
 
-    fn get<D>(&self, key: &str) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.data.get(key)
-            .map(|x| x.data())
-            .transpose()
-    }
-
-    fn get_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
-    {
-        self.data.get(key)
-            .map(|x| x.select(slice.as_ref()))
-            .transpose()
-    }
-
-    fn get_iter<T>(
-        &self,
-        key: &str,
-        chunk_size: usize,
-    ) -> Result<Self::ArrayIter<T>>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        Ok(self.data.get(key).unwrap().chunked(chunk_size))
+    fn get(&self, key: &str) -> Option<Self::ArrayElem> {
+        self.data.get(key).cloned()
     }
 
     fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(

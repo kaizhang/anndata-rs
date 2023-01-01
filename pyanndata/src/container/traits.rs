@@ -129,9 +129,9 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
     }
 
     fn get(&self, subscript: &PyAny) -> Result<PyArrayData> {
-        let slice = to_select_info(subscript, self.deref().shape())?;
+        let slice = to_select_info(subscript, self.deref().shape().as_ref().unwrap())?;
         self.select::<ArrayData, _>(slice.as_ref())
-            .map(|x| x.into())
+            .map(|x| x.unwrap().into())
     }
 
     fn show(&self) -> String {
@@ -139,7 +139,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
     }
 
     fn shape(&self) -> Vec<usize> {
-        self.deref().shape().as_ref().to_vec()
+        self.deref().shape().as_ref().unwrap().as_ref().to_vec()
     }
 
     fn chunk(
@@ -158,6 +158,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
         self.select_axis::<ArrayData, _>(0, &SelectInfoElem::from(idx))
+            .map(|x| x.unwrap())
     }
 
     fn chunked(&self, chunk_size: usize) -> PyChunkedArray {
@@ -292,7 +293,7 @@ impl<B: Backend + 'static> AxisArrayTrait for StackedAxisArrays<B> {
             .deref()
             .get(key)
             .context(format!("No such key: {}", key))?
-            .data::<ArrayData>()?
+            .data::<ArrayData>()?.unwrap()
             .into())
     }
 

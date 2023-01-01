@@ -1,4 +1,4 @@
-use crate::container::{Dim, StackedChunkedArrayElem};
+use crate::container::Dim;
 use crate::container::base::VecVecIndex;
 use crate::traits::{AnnDataOp, ElemCollectionOp};
 use crate::{
@@ -165,8 +165,8 @@ impl<B: Backend> AnnDataSet<B> {
                 .reduce(|a, b| a.intersection(&b).cloned().collect())
                 .unwrap_or(HashSet::new());
             for key in shared_keys {
-                if anndatas.values().map(|x| x.uns().get::<Data>(&key).unwrap().unwrap()).all_equal() {
-                    annotation.uns().add(&key, anndatas.values().next().unwrap().uns().get::<Data>(&key)?.unwrap())?;
+                if anndatas.values().map(|x| x.uns().get_item::<Data>(&key).unwrap().unwrap()).all_equal() {
+                    annotation.uns().add(&key, anndatas.values().next().unwrap().uns().get_item::<Data>(&key)?.unwrap())?;
                 }
             }
         }
@@ -211,7 +211,7 @@ impl<B: Backend> AnnDataSet<B> {
             .to_path_buf();
 
         let df: DataFrame = annotation
-            .uns().get("AnnDataSet")?
+            .uns().get_item("AnnDataSet")?
             .context("key 'AnnDataSet' is not present")?;
         let keys = df
             .column("keys")?
@@ -308,6 +308,21 @@ impl<B: Backend> AnnDataSet<B> {
         Ok(adata)
     }
 
+    pub fn to_adata_select<O, P, S>(&self, select: S, out: P, copy_x: bool) -> Result<AnnData<O>>
+    where
+        O: Backend,
+        P: AsRef<Path>,
+        S: AsRef<[SelectInfoElem]>,
+    {
+        self.annotation.write_select::<O, _, _>(&select, &out)?;
+        let adata = AnnData::open(O::open_rw(&out)?)?;
+        if copy_x {
+            let x: ArrayData = self.anndatas.get_x().select(select.as_ref())?.unwrap();
+            adata.set_x(x)?;
+        }
+        Ok(adata)
+    }
+
     /// Convert AnnDataSet to AnnData object
     pub fn into_adata(self, copy_x: bool) -> Result<AnnData<B>> {
         if copy_x {
@@ -334,7 +349,7 @@ fn update_anndata_locations<B: Backend>(
     new_locations: HashMap<String, String>,
 ) -> Result<()> {
     let df: DataFrame = ann
-        .uns().get("AnnDataSet")?
+        .uns().get_item("AnnDataSet")?
         .context("key 'AnnDataSet' is not present")?;
     let keys = df.column("keys").unwrap();
     let filenames = df
@@ -359,41 +374,16 @@ fn update_anndata_locations<B: Backend>(
 }
 
 impl<B: Backend> AnnDataOp for AnnDataSet<B> {
-    type ArrayIter<T> = StackedChunkedArrayElem<B, T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
-
+    type X = StackedArrayElem<B>;
     type AxisArraysRef<'a> = &'a AxisArrays<B>;
     type ElemCollectionRef<'a> = &'a ElemCollection<B>;
 
-    fn read_x_iter<T>(&self, chunk_size: usize) -> Self::ArrayIter<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        self.anndatas.x.chunked(chunk_size)
+    fn x(&self) -> Self::X {
+        self.anndatas.x.clone()
     }
 
-    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
+    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, _iter: I) -> Result<()> {
         bail!("cannot set X in AnnDataSet")
-    }
-
-    fn read_x<D>(&self) -> Result<Option<D>>
-    where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        Ok(Some(self.anndatas.x.data()?))
-    }
-
-    fn read_x_slice<D, S>(&self, select: S) -> Result<Option<D>>
-    where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
-        S: AsRef<[SelectInfoElem]>,
-        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
-    {
-        Ok(Some(self.anndatas.x.select(select.as_ref())?))
     }
 
     fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, _: D) -> Result<()> {

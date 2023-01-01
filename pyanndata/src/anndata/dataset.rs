@@ -1,17 +1,20 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollection, PyChunkedArray};
+use crate::container::{
+    PyArrayElem, PyAxisArrays, PyChunkedArray, PyDataFrameElem, PyElemCollection,
+};
 use crate::data::{to_select_elem, PyArrayData, PyData, PyDataFrame};
-use crate::AnnData;
+use crate::{AnnData, PyAnnData};
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use anndata::container::Slot;
+use anndata::data::{ArrayData, BoundedSelectInfoElem, DataFrameIndex, SelectInfoElem};
+use anndata::{self, ArrayElemOp, Data, ArrayOp};
+use anndata::{AnnDataOp, Backend};
+use anndata::{AxisArraysOp, ElemCollectionOp};
 use anndata_hdf5::H5;
+use anyhow::{bail, Result};
 use downcast_rs::Downcast;
 use pyo3::prelude::*;
-use anndata;
-use anndata::{AnnDataOp, Backend};
-use anndata::container::Slot;
-use anndata::data::{DataFrameIndex, SelectInfoElem};
-use anyhow::{Result, bail};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
@@ -58,6 +61,20 @@ impl AnnDataSet {
                 .expect("downcast failed")
         })
     }
+
+    fn indices_to_selection(
+        &self,
+        obs_indices: Option<&PyAny>,
+        var_indices: Option<&PyAny>,
+    ) -> [SelectInfoElem; 2] {
+        let i = obs_indices
+            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        let j = var_indices
+            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        [i, j]
+    }
 }
 
 #[derive(FromPyObject)]
@@ -78,14 +95,15 @@ impl AnnDataSet {
     ) -> Result<Self> {
         match backend.unwrap_or(H5::NAME) {
             H5::NAME => {
-                let anndatas = adatas.into_iter()
-                    .map(|(key, data_file)| {
-                        let adata = match data_file {
-                            AnnDataFile::Data(data) => data.borrow().take_inner::<H5>().unwrap(),
-                            AnnDataFile::Path(path) => anndata::AnnData::open(H5::open(path).unwrap()).unwrap(),
-                        };
-                        (key, adata)
-                    });
+                let anndatas = adatas.into_iter().map(|(key, data_file)| {
+                    let adata = match data_file {
+                        AnnDataFile::Data(data) => data.borrow().take_inner::<H5>().unwrap(),
+                        AnnDataFile::Path(path) => {
+                            anndata::AnnData::open(H5::open(path).unwrap()).unwrap()
+                        }
+                    };
+                    (key, adata)
+                });
                 Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
             }
             _ => todo!(),
@@ -277,13 +295,28 @@ impl AnnDataSet {
         if out.is_none() {
             bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
         }
-        let i = obs_indices
-            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        let j = var_indices
-            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        self.0.inner().subset([i, j].as_slice(), out.unwrap(), backend)
+        let select = self.indices_to_selection(obs_indices, var_indices);
+        self.0
+            .inner()
+            .subset(select.as_slice(), out.unwrap(), backend)
+    }
+
+    /// Convert AnnDataSet to AnnData object.
+    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
+    #[args(copy_x = "true")]
+    pub fn to_adata(
+        &self,
+        py: Python<'_>,
+        obs_indices: Option<&PyAny>,
+        var_indices: Option<&PyAny>,
+        copy_x: bool,
+        file: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<PyObject> {
+        let select = self.indices_to_selection(obs_indices, var_indices);
+        self.0
+            .inner()
+            .to_adata(py, select.as_slice(), copy_x, file, backend)
     }
 
     /// Parameters
@@ -311,9 +344,11 @@ impl AnnDataSet {
     #[pyo3(text_signature = "($self)")]
     pub fn close(&self) -> Result<()> {
         match self.backend().as_str() {
-            H5::NAME => if let Some(adata) = self.get_inner::<H5>() {
-                adata.close()?;
-            },
+            H5::NAME => {
+                if let Some(adata) = self.get_inner::<H5>() {
+                    adata.close()?;
+                }
+            }
             x => bail!("Unsupported backend: {}", x),
         }
         Ok(())
@@ -385,17 +420,16 @@ trait AnnDataSetTrait: Send + Downcast {
         backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
 
-    /*
     fn to_adata(
         &self,
+        py: Python<'_>,
+        slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<PyObject>;
-    */
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
- 
 
     fn backend(&self) -> &str;
     fn show(&self) -> String;
@@ -556,6 +590,106 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
                 Ok((anndata::AnnDataSet::<H5>::open(file, None)?.into(), order))
             }
             x => bail!("Unsupported backend: {}", x),
+        }
+    }
+
+    fn to_adata(
+        &self,
+        py: Python<'_>,
+        slice: &[SelectInfoElem],
+        copy_x: bool,
+        file: Option<PathBuf>,
+        backend: Option<&str>,
+    ) -> Result<PyObject> {
+        if let Some(file) = file {
+            match backend.unwrap_or(H5::NAME) {
+                H5::NAME => self
+                    .to_adata_select::<H5, _, _>(slice, file, copy_x)
+                    .map(|x| AnnData::from(x).into_py(py)),
+                x => bail!("Unsupported backend: {}", x),
+            }
+        } else {
+            let adata = PyAnnData::new(py)?;
+            let obs_slice = BoundedSelectInfoElem::new(&slice[0], self.n_obs());
+            let var_slice = BoundedSelectInfoElem::new(&slice[1], self.n_vars());
+            let n_obs = obs_slice.len();
+            let n_vars = var_slice.len();
+            adata.set_n_obs(n_obs)?;
+            adata.set_n_vars(n_vars)?;
+
+            if copy_x {
+                // Set X
+                if let Some(x) = self.x().slice::<ArrayData, _>(slice)? {
+                    adata.set_x(x)?;
+                }
+            }
+            {
+                // Set obs and var
+                let obs_names: Vec<String> = AnnDataOp::obs_names(self).names;
+                adata.set_obs_names(obs_slice.iter().map(|i| obs_names[i].clone()).collect())?;
+                adata.set_obs(self.read_obs()?.select_axis(0, &slice[0]))?;
+                let var_names: Vec<String> = AnnDataOp::var_names(self).names;
+                adata.set_var_names(var_slice.iter().map(|i| var_names[i].clone()).collect())?;
+                adata.set_var(self.read_var()?.select_axis(0, &slice[1]))?;
+            }
+            {
+                // Set uns
+                self.uns()
+                    .keys()
+                    .into_iter()
+                    .try_for_each(|k| adata.uns().add(&k, self.uns().get_item::<Data>(&k)?.unwrap()))?;
+            }
+            {
+                // Set obsm
+                self.obsm().keys().into_iter().try_for_each(|k| {
+                    adata.obsm().add(
+                        &k,
+                        self.obsm()
+                            .get(&k)
+                            .unwrap()
+                            .slice_axis::<ArrayData, _>(0, &slice[0])?
+                            .unwrap(),
+                    )
+                })?;
+            }
+            {
+                // Set obsp
+                self.obsp().keys().into_iter().try_for_each(|k| {
+                    let elem = self.obsp().get(&k).unwrap();
+                    let n = elem.shape().unwrap().ndim();
+                    let mut select = vec![SelectInfoElem::full(); n];
+                    select[0] = slice[0].clone();
+                    select[1] = slice[0].clone();
+                    let data = elem.slice::<ArrayData, _>(select)?.unwrap();
+                    adata.obsp().add(&k, data)
+                })?;
+            }
+            {
+                // Set varm
+                self.varm().keys().into_iter().try_for_each(|k| {
+                    adata.varm().add(
+                        &k,
+                        self.varm()
+                            .get(&k)
+                            .unwrap()
+                            .slice_axis::<ArrayData, _>(0, &slice[1])?
+                            .unwrap(),
+                    )
+                })?;
+            }
+            {
+                // Set varp
+                self.varp().keys().into_iter().try_for_each(|k| {
+                    let elem = self.varp().get(&k).unwrap();
+                    let n = elem.shape().unwrap().ndim();
+                    let mut select = vec![SelectInfoElem::full(); n];
+                    select[0] = slice[1].clone();
+                    select[1] = slice[1].clone();
+                    let data = elem.slice::<ArrayData, _>(select)?.unwrap();
+                    adata.varp().add(&k, data)
+                })?;
+            }
+            Ok(adata.to_object(py))
         }
     }
 

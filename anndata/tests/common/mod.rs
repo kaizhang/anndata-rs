@@ -1,7 +1,6 @@
 use anndata::*;
 
-use anndata::backend::{BackendData, ScalarType, DatasetOp};
-use anndata::data::{SelectInfoElem, BoundedSelectInfo, BoundedSelectInfoElem};
+use anndata::data::{SelectInfoElem, BoundedSelectInfoElem};
 use itertools::Itertools;
 use nalgebra::{Scalar, ClosedAdd};
 use ndarray_rand::rand_distr::uniform::SampleUniform;
@@ -17,8 +16,7 @@ use ndarray_rand::rand_distr::Uniform;
 use rand::Rng;
 use tempfile::tempdir;
 use std::path::{PathBuf, Path};
-use std::fmt::Debug;
-use rand::seq::{SliceRandom, IteratorRandom};
+use rand::seq::IteratorRandom;
 use proptest::strategy::BoxedStrategy;
 
 pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
@@ -174,21 +172,21 @@ pub fn anndata_eq<B1: Backend, B2: Backend>(adata1: &AnnData<B1>, adata2: &AnnDa
         adata1.var_names().names == adata2.var_names().names &&
         adata1.read_obs()? == adata2.read_obs()? &&
         adata1.read_var()? == adata2.read_var()? &&
-        adata1.read_x::<ArrayData>()? == adata2.read_x()? &&
+        adata1.x().get::<ArrayData>()? == adata2.x().get()? &&
         adata1.obsm().keys().iter().all(|k| {
-            adata1.obsm().get::<ArrayData>(k).unwrap() == adata2.obsm().get(k).unwrap()
+            adata1.obsm().get_item::<ArrayData>(k).unwrap() == adata2.obsm().get_item(k).unwrap()
         }) &&
         adata1.obsp().keys().iter().all(|k| {
-            adata1.obsp().get::<ArrayData>(k).unwrap() == adata2.obsp().get(k).unwrap()
+            adata1.obsp().get_item::<ArrayData>(k).unwrap() == adata2.obsp().get_item(k).unwrap()
         }) &&
         adata1.varm().keys().iter().all(|k| {
-            adata1.varm().get::<ArrayData>(k).unwrap() == adata2.varm().get(k).unwrap()
+            adata1.varm().get_item::<ArrayData>(k).unwrap() == adata2.varm().get_item(k).unwrap()
         }) &&
         adata1.varp().keys().iter().all(|k| {
-            adata1.varp().get::<ArrayData>(k).unwrap() == adata2.varp().get(k).unwrap()
+            adata1.varp().get_item::<ArrayData>(k).unwrap() == adata2.varp().get_item(k).unwrap()
         }) &&
         adata1.uns().keys().iter().all(|k| {
-            adata1.uns().get::<Data>(k).unwrap() == adata2.uns().get(k).unwrap()
+            adata1.uns().get_item::<Data>(k).unwrap() == adata2.uns().get_item(k).unwrap()
         });
     Ok(is_equal)
 }
