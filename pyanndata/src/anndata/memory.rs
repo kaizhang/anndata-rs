@@ -212,12 +212,8 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn obs_ix(&self, _names: &[String]) -> Result<Vec<usize>> {
-        todo!()
-    }
-    fn var_ix(&self, _names: &[String]) -> Result<Vec<usize>> {
-        todo!()
-    }
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {todo!()}
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {todo!()}
 
     fn read_obs(&self) -> Result<DataFrame> {
         let py = self.py();

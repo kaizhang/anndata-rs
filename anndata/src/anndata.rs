@@ -477,10 +477,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         Ok(())
     }
 
-    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>>
+    {
         let inner = self.obs.inner();
         names
-            .iter()
+            .into_iter()
             .map(|i| {
                 inner
                     .index
@@ -490,10 +491,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .collect()
     }
 
-    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
         let inner = self.var.inner();
         names
-            .iter()
+            .into_iter()
             .map(|i| {
                 inner
                     .index

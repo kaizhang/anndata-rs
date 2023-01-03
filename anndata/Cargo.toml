@@ -12,6 +12,7 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
 anyhow = "1.0"
+flate2 = "1.0"
 indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
 ndarray = { version = "0.15" }

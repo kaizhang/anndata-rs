@@ -401,10 +401,10 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         self.anndatas.n_vars
     }
 
-    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
         self.annotation.obs_ix(names)
     }
-    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>> {
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
         self.annotation.var_ix(names)
     }
     fn obs_names(&self) -> DataFrameIndex {

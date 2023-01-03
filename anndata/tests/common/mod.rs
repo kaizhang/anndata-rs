@@ -60,6 +60,8 @@ pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, 
     (x, obsm, obsp, varm, varp).prop_map(move |(x, obsm, obsp, varm, varp)| {
         let adata: AnnData<B> = AnnData::new(file.clone()).unwrap();
         adata.set_x(x).unwrap();
+        adata.set_obs_names((0..n_obs).map(|i| format!("obs_{}", i)).collect()).unwrap();
+        adata.set_var_names((0..n_vars).map(|i| format!("var_{}", i)).collect()).unwrap();
         obsm.into_iter().enumerate().for_each(|(i, arr)| {
             adata.obsm().add(&format!("varm_{}", i), arr).unwrap();
         });

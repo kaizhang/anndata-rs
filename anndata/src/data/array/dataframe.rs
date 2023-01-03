@@ -335,7 +335,7 @@ impl DataFrameIndex {
         self.names.len()
     }
 
-    pub fn get(&self, k: &String) -> Option<usize> {
+    pub fn get(&self, k: &str) -> Option<usize> {
         self.index_map.get(k).map(|x| *x)
     }
 

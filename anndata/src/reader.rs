@@ -1,7 +1,107 @@
-use crate::data::MatrixData;
+use crate::{data::array::DataFrameIndex, AnnData, AnnDataOp, ArrayData, Backend};
 
+use anyhow::Result;
+use flate2::read::MultiGzDecoder;
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
+use std::path::Path;
 use std::{error::Error, fmt, io};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
+
+pub struct MMReader {
+    reader: Box<dyn BufRead>,
+    obs_names: Option<DataFrameIndex>,
+    var_names: Option<DataFrameIndex>,
+}
+
+impl MMReader {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Ok(Self {
+            reader: open_file(path)?,
+            obs_names: None,
+            var_names: None,
+        })
+    }
+
+    pub fn obs_names<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
+        let reader = open_file(path)?;
+        let obs_names: Result<DataFrameIndex> = reader
+            .lines()
+            .map(|line| Ok(line?.split('\t').next().unwrap().to_string()))
+            .collect();
+        self.obs_names = Some(obs_names?);
+        Ok(self)
+    }
+
+    pub fn var_names<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
+        let reader = open_file(path)?;
+        let var_names: Result<DataFrameIndex> = reader
+            .lines()
+            .map(|line| Ok(line?.split('\t').next().unwrap().to_string()))
+            .collect();
+        self.var_names = Some(var_names?);
+        Ok(self)
+    }
+
+    pub fn finish<O: AnnDataOp>(mut self, output: &O) -> Result<()> {
+        output.set_x(read_matrix_market_from_bufread(&mut self.reader)?)?;
+        if let Some(obs_names) = self.obs_names {
+            output.set_obs_names(obs_names)?;
+        }
+        if let Some(var_names) = self.var_names {
+            output.set_var_names(var_names)?;
+        }
+        Ok(())
+    }
+}
+
+fn open_file<P: AsRef<Path>>(file: P) -> Result<Box<dyn BufRead>> {
+    fn is_gzipped<P: AsRef<Path>>(file: P) -> Result<bool> {
+        Ok(MultiGzDecoder::new(File::open(file)?).header().is_some())
+    }
+
+    let reader: Box<dyn BufRead> = if is_gzipped(&file)? {
+        Box::new(BufReader::new(MultiGzDecoder::new(File::open(file)?)))
+    } else {
+        Box::new(BufReader::new(File::open(file)?))
+    };
+    Ok(reader)
+}
+
+/*
+// TODO: fix dataframe index
+pub fn import_csv<P>(
+    &self,
+    path: P,
+    has_header: bool,
+    index_column: Option<usize>,
+    delimiter: u8,
+) -> Result<()>
+where
+    P: Into<PathBuf>,
+{
+    let mut df = polars::prelude::CsvReader::from_path(path)?
+        .has_header(has_header)
+        .with_delimiter(delimiter)
+        .finish()?;
+    let mut colnames = df.get_column_names_owned();
+    if let Some(idx_col) = index_column {
+        let series = df.drop_in_place(&colnames.remove(idx_col))?;
+        self.set_obs(Some(DataFrame::new(vec![series])?))?;
+    }
+    if has_header {
+        self.set_var(Some(DataFrame::new(vec![Series::new("Index", colnames)])?))?;
+    }
+    let data: Box<dyn MatrixData> = Box::new(
+        df.to_ndarray::<polars::datatypes::Float64Type>()?
+            .into_dyn(),
+    );
+    self.set_x(Some(data))?;
+    Ok(())
+}
+*/
 
 #[derive(Debug)]
 pub(crate) enum IoError {
@@ -46,7 +146,7 @@ pub(crate) enum SymmetryMode {
     SkewSymmetric,
 }
 
-pub(crate) fn read_sorted_mm_body_from_bufread<R, T>(
+fn read_sorted_mm_body_from_bufread<R, T>(
     reader: &mut R,
 ) -> (usize, usize, impl Iterator<Item = (usize, usize, T)> + '_)
 where
@@ -128,9 +228,7 @@ where
     (rows, cols, iter)
 }
 
-pub(crate) fn read_matrix_market_from_bufread<R>(
-    reader: &mut R,
-) -> Result<Box<dyn MatrixData>, IoError>
+fn read_matrix_market_from_bufread<R>(reader: &mut R) -> Result<ArrayData, IoError>
 where
     R: io::BufRead,
 {
@@ -146,11 +244,11 @@ where
     match data_type {
         DataType::Integer => {
             let coo: CooMatrix<i64> = read_mtx_body(reader, sym_mode)?;
-            Ok(Box::new(CsrMatrix::from(&coo)))
+            Ok(CsrMatrix::from(&coo).into())
         }
         DataType::Real => {
             let coo: CooMatrix<f64> = read_mtx_body(reader, sym_mode)?;
-            Ok(Box::new(CsrMatrix::from(&coo)))
+            Ok(CsrMatrix::from(&coo).into())
         }
         DataType::Complex => unreachable!(),
     }
@@ -255,7 +353,7 @@ where
         .map_err(|_| BadMatrixMarketFile)
 }
 
-pub(crate) fn read_header<R>(reader: &mut R) -> Result<(SymmetryMode, DataType), IoError>
+fn read_header<R>(reader: &mut R) -> Result<(SymmetryMode, DataType), IoError>
 where
     R: io::BufRead,
 {

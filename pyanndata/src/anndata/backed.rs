@@ -11,8 +11,8 @@ use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::path::PathBuf;
+use std::ops::Deref;
 
 /** An annotated data matrix.
 
@@ -91,7 +91,7 @@ impl AnnData {
         }
     }
 
-    fn obs_ix(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+    fn select_obs(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
@@ -109,7 +109,7 @@ impl AnnData {
         }
     }
 
-    fn var_ix(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+    fn select_var(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
@@ -228,6 +228,9 @@ impl AnnData {
         self.0.set_obs_names(names)
     }
 
+    #[pyo3(text_signature = "($self, names)")]
+    fn obs_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.obs_ix(names) }
+
     /// Names of variables.
     ///
     /// Returns
@@ -241,6 +244,9 @@ impl AnnData {
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
         self.0.set_var_names(names)
     }
+
+    #[pyo3(text_signature = "($self, names)")]
+    fn var_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.var_ix(names) }
 
     /// Data matrix of shape n_obs × n_vars.
     ///
@@ -359,12 +365,12 @@ impl AnnData {
         backend: Option<&str>,
     ) -> Result<Option<AnnData>> {
         let i = obs_indices
-            .map(|x| self.obs_ix(x).unwrap())
+            .map(|x| self.select_obs(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         let j = var_indices
-            .map(|x| self.var_ix(x).unwrap())
+            .map(|x| self.select_var(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
-        self.0.subset([i, j].as_slice(), out, backend)
+        self.0.subset(&[i, j], out, backend)
     }
 
     /// Return an iterator over the rows of the data matrix X.
@@ -476,8 +482,10 @@ trait AnnDataTrait: Send + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: &PyAny) -> Result<()>;
+    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
     fn var_names(&self) -> DataFrameIndex;
     fn set_var_names(&self, names: &PyAny) -> Result<()>;
+    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
 
     fn get_x(&self) -> Option<PyArrayElem>;
     fn get_obs(&self) -> Option<PyDataFrameElem>;
@@ -520,30 +528,42 @@ trait AnnDataTrait: Send + Downcast {
 }
 impl_downcast!(AnnDataTrait);
 
-impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
+impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn shape(&self) -> (usize, usize) {
         let inner = self.inner();
         (inner.n_obs(), inner.n_vars())
     }
 
     fn obs_names(&self) -> DataFrameIndex {
-        AnnDataOp::obs_names(self.inner().deref())
+        self.inner().obs_names()
+    }
+
+    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
+        self.inner().obs_ix(
+            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
+        )
     }
 
     fn set_obs_names(&self, names: &PyAny) -> Result<()> {
         let obs_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        AnnDataOp::set_obs_names(self.inner().deref(), obs_names?)
+        self.inner().set_obs_names(obs_names?)
     }
 
     fn var_names(&self) -> DataFrameIndex {
-        AnnDataOp::var_names(self.inner().deref())
+        self.inner().var_names()
+    }
+
+    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
+        self.inner().var_ix(
+            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
+        )
     }
 
     fn set_var_names(&self, names: &PyAny) -> Result<()> {
         let var_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        AnnDataOp::set_var_names(self.inner().deref(), var_names?)
+        self.inner().set_var_names(var_names?)
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
@@ -622,7 +642,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
         let inner = self.inner();
         if let Some(d) = data {
-            AnnDataOp::set_x::<ArrayData>(inner.deref(), d.into())?;
+            inner.set_x::<ArrayData>(d.into())?;
         } else {
             inner.del_x()?;
         }
@@ -631,7 +651,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
         let inner = self.inner();
         if let Some(o) = obs {
-            AnnDataOp::set_obs(inner.deref(), o.into())?;
+            inner.set_obs(o.into())?;
         } else {
             inner.del_obs()?;
         }
@@ -640,7 +660,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
         let inner = self.inner();
         if let Some(v) = var {
-            AnnDataOp::set_var(inner.deref(), v.into())?;
+            inner.set_var(v.into())?;
         } else {
             inner.del_var()?;
         }
@@ -649,7 +669,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(u) = uns {
-            AnnDataOp::set_uns(inner.deref(), u.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_uns(u.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_uns()?;
         }
@@ -658,7 +678,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(o) = obsm {
-            AnnDataOp::set_obsm(inner.deref(), o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsm(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_obsm()?;
         }
@@ -667,7 +687,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(o) = obsp {
-            AnnDataOp::set_obsp(inner.deref(), o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsp(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_obsp()?;
         }
@@ -676,7 +696,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(v) = varm {
-            AnnDataOp::set_varm(inner.deref(), v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varm(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_varm()?;
         }
@@ -685,7 +705,7 @@ impl<B: Backend + 'static> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(v) = varp {
-            AnnDataOp::set_varp(inner.deref(), v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_varp()?;
         }

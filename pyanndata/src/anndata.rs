@@ -39,6 +39,50 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
     Ok(adata)
 }
 
+/// Read Matrix Market file.
+///
+/// Parameters
+/// ----------
+///
+/// mtx_file
+///     File name of the input matrix market file.
+/// file
+///     File name of the output ".h5ad" file.
+/// obs_names
+/// var_names
+#[pyfunction]
+#[pyo3(text_signature = "(mtx_file, *, obs_names, var_names, file, backend, /)")]
+pub fn read_mtx(
+    py: Python<'_>,
+    mtx_file: PathBuf,
+    obs_names: Option<PathBuf>,
+    var_names: Option<PathBuf>,
+    file: Option<PathBuf>,
+    backend: Option<&str>,
+) -> Result<PyObject> {
+    let mut reader = anndata::reader::MMReader::from_path(mtx_file)?;
+    if let Some(obs_names) = obs_names {
+        reader = reader.obs_names(obs_names)?;
+    }
+    if let Some(var_names) = var_names {
+        reader = reader.var_names(var_names)?;
+    }
+    if let Some(file) =  file {
+        match backend.unwrap_or(H5::NAME) {
+            H5::NAME => {
+                let adata = anndata::AnnData::<H5>::new(file)?;
+                reader.finish(&adata)?;
+                Ok(AnnData::from(adata).into_py(py))
+            },
+            backend => todo!("Backend {} is not supported", backend),
+        }
+    } else {
+        let adata = PyAnnData::new(py)?;
+        reader.finish(&adata)?;
+        Ok(adata.to_object(py))
+    }
+}
+
 /// Read AnnDataSet object.
 ///
 /// Read AnnDataSet from .h5ads file. If the file paths stored in AnnDataSet

@@ -39,8 +39,8 @@ pub trait AnnDataOp {
     /// Chagne the names of variables.
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()>;
 
-    fn obs_ix(&self, names: &[String]) -> Result<Vec<usize>>;
-    fn var_ix(&self, names: &[String]) -> Result<Vec<usize>>;
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>>;
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>>;
 
     fn read_obs(&self) -> Result<DataFrame>;
     fn read_var(&self) -> Result<DataFrame>;

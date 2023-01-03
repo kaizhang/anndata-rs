@@ -11,7 +11,7 @@ use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
 use anndata_hdf5::H5;
 use anyhow::{bail, Result};
-use downcast_rs::Downcast;
+use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -41,39 +41,56 @@ use std::path::PathBuf;
     read_dataset
 */
 #[pyclass]
-#[pyo3(text_signature = "(*, adatas, filename, add_key /)")]
+#[pyo3(text_signature = "(adatas, filename, add_key, backend, /)")]
 #[repr(transparent)]
-#[derive(Clone)]
-pub struct AnnDataSet(Slot<Box<dyn AnnDataSetTrait>>);
+pub struct AnnDataSet(Box<dyn AnnDataSetTrait>);
 
-impl<B: Backend + 'static> From<anndata::AnnDataSet<B>> for AnnDataSet {
+impl<B: Backend> From<anndata::AnnDataSet<B>> for AnnDataSet {
     fn from(adata: anndata::AnnDataSet<B>) -> Self {
-        AnnDataSet(Slot::new(Box::new(adata)))
+        AnnDataSet(Box::new(Slot::new(adata)))
     }
 }
 
 impl AnnDataSet {
-    pub fn get_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnDataSet<B>> {
-        self.0.extract().map(|adata| {
-            *adata
-                .into_any()
-                .downcast::<anndata::AnnDataSet<B>>()
-                .expect("downcast failed")
-        })
+    pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnDataSet<B>> {
+        self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>()
+            .expect("downcast to AnnDataSet failed").extract()
     }
 
-    fn indices_to_selection(
-        &self,
-        obs_indices: Option<&PyAny>,
-        var_indices: Option<&PyAny>,
-    ) -> [SelectInfoElem; 2] {
-        let i = obs_indices
-            .map(|x| to_select_elem(x, self.n_obs()).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        let j = var_indices
-            .map(|x| to_select_elem(x, self.n_vars()).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        [i, j]
+    fn select_obs(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+        let from_iter = ix.iter().and_then(|iter| 
+            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
+        ).and_then(|names| {
+            let index = self.0.obs_names();
+            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
+            })).collect::<PyResult<Vec<_>>>()
+        });
+
+        if let Ok(indices) = from_iter {
+            Ok(indices.into())
+        } else {
+            let n = self.n_obs();
+            to_select_elem(ix, n)
+        }
+    }
+
+    fn select_var(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+        let from_iter = ix.iter().and_then(|iter| 
+            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
+        ).and_then(|names| {
+            let index = self.0.var_names();
+            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
+            })).collect::<PyResult<Vec<_>>>()
+        });
+
+        if let Ok(indices) = from_iter {
+            Ok(indices.into())
+        } else {
+            let n = self.n_vars();
+            to_select_elem(ix, n)
+        }
     }
 }
 
@@ -86,7 +103,13 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    //#[args("*", adatas, filename, add_key = "\"sample\"", backend = None)]
+    #[args(
+        adatas,
+        "*",
+        filename,
+        add_key = "\"sample\"",
+        backend = "None",
+    )]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
@@ -117,7 +140,7 @@ impl AnnDataSet {
     /// tuple[int, int]
     #[getter]
     pub fn shape(&self) -> (usize, usize) {
-        self.0.inner().shape()
+        self.0.shape()
     }
 
     /// Number of observations.
@@ -147,12 +170,15 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> {
-        self.0.inner().obs_names().names
+        self.0.obs_names().names
     }
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
-        self.0.inner().set_obs_names(names)
+        self.0.set_obs_names(names)
     }
+
+    #[pyo3(text_signature = "($self, names)")]
+    fn obs_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.obs_ix(names) }
 
     /// Names of variables.
     ///
@@ -161,12 +187,15 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> {
-        self.0.inner().var_names().names
+        self.0.var_names().names
     }
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
-        self.0.inner().set_var_names(names)
+        self.0.set_var_names(names)
     }
+
+    #[pyo3(text_signature = "($self, names)")]
+    fn var_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.var_ix(names) }
 
     /// Data matrix of shape n_obs × n_vars.
     ///
@@ -175,7 +204,7 @@ impl AnnDataSet {
     /// PyArrayElem
     #[getter(X)]
     pub fn get_x(&self) -> Option<PyArrayElem> {
-        self.0.inner().get_x()
+        self.0.get_x()
     }
 
     /// Observation annotations.
@@ -185,11 +214,11 @@ impl AnnDataSet {
     /// PyDataFrameElem
     #[getter(obs)]
     fn get_obs(&self) -> Option<PyDataFrameElem> {
-        self.0.inner().get_obs()
+        self.0.get_obs()
     }
     #[setter(obs)]
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
-        self.0.inner().set_obs(obs)
+        self.0.set_obs(obs)
     }
 
     /// Variable annotations.
@@ -199,11 +228,11 @@ impl AnnDataSet {
     /// PyDataFrameElem
     #[getter(var)]
     fn get_var(&self) -> Option<PyDataFrameElem> {
-        self.0.inner().get_var()
+        self.0.get_var()
     }
     #[setter(var)]
     fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
-        self.0.inner().set_var(var)
+        self.0.set_var(var)
     }
 
     /// Unstructured annotation (ordered dictionary).
@@ -213,47 +242,47 @@ impl AnnDataSet {
     /// PyElemCollection
     #[getter(uns)]
     pub fn get_uns(&self) -> Option<PyElemCollection> {
-        self.0.inner().get_uns()
+        self.0.get_uns()
     }
     #[setter(uns)]
     pub fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
-        self.0.inner().set_uns(uns)
+        self.0.set_uns(uns)
     }
 
     #[getter(obsm)]
     pub fn get_obsm(&self) -> Option<PyAxisArrays> {
-        self.0.inner().get_obsm()
+        self.0.get_obsm()
     }
     #[setter(obsm)]
     pub fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        self.0.inner().set_obsm(obsm)
+        self.0.set_obsm(obsm)
     }
 
     #[getter(obsp)]
     pub fn get_obsp(&self) -> Option<PyAxisArrays> {
-        self.0.inner().get_obsp()
+        self.0.get_obsp()
     }
     #[setter(obsp)]
     pub fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        self.0.inner().set_obsp(obsp)
+        self.0.set_obsp(obsp)
     }
 
     #[getter(varm)]
     pub fn get_varm(&self) -> Option<PyAxisArrays> {
-        self.0.inner().get_varm()
+        self.0.get_varm()
     }
     #[setter(varm)]
     pub fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        self.0.inner().set_varm(varm)
+        self.0.set_varm(varm)
     }
 
     #[getter(varp)]
     pub fn get_varp(&self) -> Option<PyAxisArrays> {
-        self.0.inner().get_varp()
+        self.0.get_varp()
     }
     #[setter(varp)]
     pub fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        self.0.inner().set_varp(varp)
+        self.0.set_varp(varp)
     }
 
     /// Subsetting the AnnDataSet object.
@@ -295,10 +324,14 @@ impl AnnDataSet {
         if out.is_none() {
             bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
         }
-        let select = self.indices_to_selection(obs_indices, var_indices);
+        let i = obs_indices
+            .map(|x| self.select_obs(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        let j = var_indices
+            .map(|x| self.select_var(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
         self.0
-            .inner()
-            .subset(select.as_slice(), out.unwrap(), backend)
+            .subset(&[i, j], out.unwrap(), backend)
     }
 
     /// Convert AnnDataSet to AnnData object.
@@ -313,10 +346,14 @@ impl AnnDataSet {
         file: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<PyObject> {
-        let select = self.indices_to_selection(obs_indices, var_indices);
+        let i = obs_indices
+            .map(|x| self.select_obs(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        let j = var_indices
+            .map(|x| self.select_var(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
         self.0
-            .inner()
-            .to_adata(py, select.as_slice(), copy_x, file, backend)
+            .to_adata(py, &[i, j], copy_x, file, backend)
     }
 
     /// Parameters
@@ -327,7 +364,7 @@ impl AnnDataSet {
     #[pyo3(text_signature = "($self, chunk_size, /)")]
     #[pyo3(name = "chunked_X")]
     pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
-        self.0.inner().chunked_x(chunk_size)
+        self.0.chunked_x(chunk_size)
     }
 
     /// Whether the AnnDataSet object is backed. This is always true.
@@ -343,15 +380,7 @@ impl AnnDataSet {
     /// Close the AnnDataSet object.
     #[pyo3(text_signature = "($self)")]
     pub fn close(&self) -> Result<()> {
-        match self.backend().as_str() {
-            H5::NAME => {
-                if let Some(adata) = self.get_inner::<H5>() {
-                    adata.close()?;
-                }
-            }
-            x => bail!("Unsupported backend: {}", x),
-        }
-        Ok(())
+        self.0.close()
     }
 
     /// If the AnnDataSet object has been closed.
@@ -361,20 +390,16 @@ impl AnnDataSet {
     /// bool
     #[pyo3(text_signature = "($self)")]
     pub fn is_closed(&self) -> bool {
-        self.0.is_empty()
+        self.0.is_closed()
     }
 
     #[getter]
     pub fn backend(&self) -> String {
-        self.0.inner().backend().to_string()
+        self.0.backend().to_string()
     }
 
     fn __repr__(&self) -> String {
-        if self.is_closed() {
-            "Closed AnnDataSet object".to_string()
-        } else {
-            self.0.inner().show()
-        }
+        self.0.show()
     }
 
     fn __str__(&self) -> String {
@@ -393,8 +418,10 @@ trait AnnDataSetTrait: Send + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: &PyAny) -> Result<()>;
+    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
     fn var_names(&self) -> DataFrameIndex;
     fn set_var_names(&self, names: &PyAny) -> Result<()>;
+    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
 
     fn get_x(&self) -> Option<PyArrayElem>;
     fn get_obs(&self) -> Option<PyDataFrameElem>;
@@ -432,39 +459,58 @@ trait AnnDataSetTrait: Send + Downcast {
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
     fn backend(&self) -> &str;
+    fn is_closed(&self) -> bool;
     fn show(&self) -> String;
-}
 
-impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
+    fn close(&self) -> Result<()>;
+    fn clone_ref(&self) -> Box<dyn AnnDataSetTrait>;
+}
+impl_downcast!(AnnDataSetTrait);
+
+impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn shape(&self) -> (usize, usize) {
-        (self.n_obs(), self.n_vars())
+        let inner = self.inner();
+        (inner.n_obs(), inner.n_vars())
     }
 
     fn obs_names(&self) -> DataFrameIndex {
-        AnnDataOp::obs_names(self)
+        self.inner().obs_names()
     }
 
     fn set_obs_names(&self, names: &PyAny) -> Result<()> {
         let obs_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        AnnDataOp::set_obs_names(self, obs_names?)
+        self.inner().set_obs_names(obs_names?)
+    }
+
+    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
+        self.inner().obs_ix(
+            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
+        )
     }
 
     fn var_names(&self) -> DataFrameIndex {
-        AnnDataOp::var_names(self)
+        self.inner().var_names()
     }
 
     fn set_var_names(&self, names: &PyAny) -> Result<()> {
         let var_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        AnnDataOp::set_var_names(self, var_names?)
+        self.inner().set_var_names(var_names?)
+    }
+
+    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
+        self.inner().var_ix(
+            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
+        )
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
-        Some(self.get_x().clone().into())
+        Some(self.inner().get_x().clone().into())
     }
     fn get_obs(&self) -> Option<PyDataFrameElem> {
-        let obs = self.get_anno().get_obs();
+        let inner = self.inner();
+        let obs = inner.get_anno().get_obs();
         if obs.is_empty() {
             None
         } else {
@@ -472,7 +518,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_var(&self) -> Option<PyDataFrameElem> {
-        let var = self.get_anno().get_var();
+        let inner = self.inner();
+        let var = inner.get_anno().get_var();
         if var.is_empty() {
             None
         } else {
@@ -480,7 +527,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_uns(&self) -> Option<PyElemCollection> {
-        let uns = self.get_anno().uns();
+        let inner = self.inner();
+        let uns = inner.get_anno().uns();
         if uns.is_empty() {
             None
         } else {
@@ -488,7 +536,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_obsm(&self) -> Option<PyAxisArrays> {
-        let obsm = self.get_anno().obsm();
+        let inner = self.inner();
+        let obsm = inner.get_anno().obsm();
         if obsm.is_empty() {
             None
         } else {
@@ -496,7 +545,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_obsp(&self) -> Option<PyAxisArrays> {
-        let obsp = self.get_anno().obsp();
+        let inner = self.inner();
+        let obsp = inner.get_anno().obsp();
         if obsp.is_empty() {
             None
         } else {
@@ -504,7 +554,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_varm(&self) -> Option<PyAxisArrays> {
-        let varm = self.get_anno().varm();
+        let inner = self.inner();
+        let varm = inner.get_anno().varm();
         if varm.is_empty() {
             None
         } else {
@@ -512,7 +563,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         }
     }
     fn get_varp(&self) -> Option<PyAxisArrays> {
-        let varp = self.get_anno().varp();
+        let inner = self.inner();
+        let varp = inner.get_anno().varp();
         if varp.is_empty() {
             None
         } else {
@@ -521,58 +573,65 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
     }
 
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
+        let inner = self.inner();
         if let Some(o) = obs {
-            AnnDataOp::set_obs(self, o.into())?;
+            inner.set_obs(o.into())?;
         } else {
-            self.del_obs()?;
+            inner.del_obs()?;
         }
         Ok(())
     }
     fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
+        let inner = self.inner();
         if let Some(v) = var {
-            AnnDataOp::set_var(self, v.into())?;
+            inner.set_var(v.into())?;
         } else {
-            self.del_var()?;
+            inner.del_var()?;
         }
         Ok(())
     }
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
+        let inner = self.inner();
         if let Some(u) = uns {
-            AnnDataOp::set_uns(self, u.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_uns(u.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
-            self.del_uns()?;
+            inner.del_uns()?;
         }
         Ok(())
     }
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        let inner = self.inner();
         if let Some(o) = obsm {
-            AnnDataOp::set_obsm(self, o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsm(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
-            self.del_obsm()?;
+            inner.del_obsm()?;
         }
         Ok(())
     }
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        let inner = self.inner();
         if let Some(o) = obsp {
-            AnnDataOp::set_obsp(self, o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsp(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
-            self.del_obsp()?;
+            inner.del_obsp()?;
         }
         Ok(())
     }
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        let inner = self.inner();
         if let Some(v) = varm {
-            AnnDataOp::set_varm(self, v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varm(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
-            self.del_varm()?;
+            inner.del_varm()?;
         }
         Ok(())
     }
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        let inner = self.inner();
         if let Some(v) = varp {
-            AnnDataOp::set_varp(self, v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
-            self.del_varp()?;
+            inner.del_varp()?;
         }
         Ok(())
     }
@@ -585,7 +644,7 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
         match backend.unwrap_or(H5::NAME) {
             H5::NAME => {
-                let order = self.write_select::<H5, _, _>(slice, &out)?;
+                let order = self.inner().write_select::<H5, _, _>(slice, &out)?;
                 let file = H5::open_rw(out.join("_dataset.h5ads"))?;
                 Ok((anndata::AnnDataSet::<H5>::open(file, None)?.into(), order))
             }
@@ -601,17 +660,18 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
         file: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<PyObject> {
+        let inner = self.inner();
         if let Some(file) = file {
             match backend.unwrap_or(H5::NAME) {
-                H5::NAME => self
+                H5::NAME => inner
                     .to_adata_select::<H5, _, _>(slice, file, copy_x)
                     .map(|x| AnnData::from(x).into_py(py)),
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
             let adata = PyAnnData::new(py)?;
-            let obs_slice = BoundedSelectInfoElem::new(&slice[0], self.n_obs());
-            let var_slice = BoundedSelectInfoElem::new(&slice[1], self.n_vars());
+            let obs_slice = BoundedSelectInfoElem::new(&slice[0], inner.n_obs());
+            let var_slice = BoundedSelectInfoElem::new(&slice[1], inner.n_vars());
             let n_obs = obs_slice.len();
             let n_vars = var_slice.len();
             adata.set_n_obs(n_obs)?;
@@ -619,32 +679,32 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
 
             if copy_x {
                 // Set X
-                if let Some(x) = self.x().slice::<ArrayData, _>(slice)? {
+                if let Some(x) = inner.x().slice::<ArrayData, _>(slice)? {
                     adata.set_x(x)?;
                 }
             }
             {
                 // Set obs and var
-                let obs_names: Vec<String> = AnnDataOp::obs_names(self).names;
+                let obs_names: Vec<String> = inner.obs_names().names;
                 adata.set_obs_names(obs_slice.iter().map(|i| obs_names[i].clone()).collect())?;
-                adata.set_obs(self.read_obs()?.select_axis(0, &slice[0]))?;
-                let var_names: Vec<String> = AnnDataOp::var_names(self).names;
+                adata.set_obs(inner.read_obs()?.select_axis(0, &slice[0]))?;
+                let var_names: Vec<String> = inner.var_names().names;
                 adata.set_var_names(var_slice.iter().map(|i| var_names[i].clone()).collect())?;
-                adata.set_var(self.read_var()?.select_axis(0, &slice[1]))?;
+                adata.set_var(inner.read_var()?.select_axis(0, &slice[1]))?;
             }
             {
                 // Set uns
-                self.uns()
+                inner.uns()
                     .keys()
                     .into_iter()
-                    .try_for_each(|k| adata.uns().add(&k, self.uns().get_item::<Data>(&k)?.unwrap()))?;
+                    .try_for_each(|k| adata.uns().add(&k, inner.uns().get_item::<Data>(&k)?.unwrap()))?;
             }
             {
                 // Set obsm
-                self.obsm().keys().into_iter().try_for_each(|k| {
+                inner.obsm().keys().into_iter().try_for_each(|k| {
                     adata.obsm().add(
                         &k,
-                        self.obsm()
+                        inner.obsm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[0])?
@@ -654,8 +714,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             }
             {
                 // Set obsp
-                self.obsp().keys().into_iter().try_for_each(|k| {
-                    let elem = self.obsp().get(&k).unwrap();
+                inner.obsp().keys().into_iter().try_for_each(|k| {
+                    let elem = inner.obsp().get(&k).unwrap();
                     let n = elem.shape().unwrap().ndim();
                     let mut select = vec![SelectInfoElem::full(); n];
                     select[0] = slice[0].clone();
@@ -666,10 +726,10 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             }
             {
                 // Set varm
-                self.varm().keys().into_iter().try_for_each(|k| {
+                inner.varm().keys().into_iter().try_for_each(|k| {
                     adata.varm().add(
                         &k,
-                        self.varm()
+                        inner.varm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[1])?
@@ -679,8 +739,8 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
             }
             {
                 // Set varp
-                self.varp().keys().into_iter().try_for_each(|k| {
-                    let elem = self.varp().get(&k).unwrap();
+                inner.varp().keys().into_iter().try_for_each(|k| {
+                    let elem = inner.varp().get(&k).unwrap();
                     let n = elem.shape().unwrap().ndim();
                     let mut select = vec![SelectInfoElem::full(); n];
                     select[0] = slice[1].clone();
@@ -694,14 +754,33 @@ impl<B: Backend + 'static> AnnDataSetTrait for anndata::AnnDataSet<B> {
     }
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
-        self.get_x().chunked(chunk_size).into()
+        self.inner().get_x().chunked(chunk_size).into()
     }
 
     fn backend(&self) -> &str {
         B::NAME
     }
 
+    fn is_closed(&self) -> bool {
+        self.is_empty()
+    }
+
     fn show(&self) -> String {
-        format!("{}", self)
+        if self.is_empty() {
+            "Closed AnnDataSet object".to_string()
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn close(&self) -> Result<()> {
+        if let Some(inner) = self.extract() {
+            inner.close()?;
+        }
+        Ok(())
+    }
+
+    fn clone_ref(&self) -> Box<dyn AnnDataSetTrait> {
+        Box::new(self.clone())
     }
 }
