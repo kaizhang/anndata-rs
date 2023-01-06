@@ -473,21 +473,24 @@ fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Re
     Ok(())
 }
 
-fn read_str_attr(loc: &Location, name: &str) -> Result<String> {
-    let container = loc.attr(name)?;
-    match container.dtype()?.to_descriptor()? {
-        TypeDescriptor::VarLenAscii => {
-            let attr: VarLenAscii = container.read_scalar()?;
-            Ok(attr.parse().unwrap())
-        }
-        TypeDescriptor::VarLenUnicode => {
-            let attr: VarLenUnicode = container.read_scalar()?;
-            Ok(attr.parse().unwrap())
-        }
-        ty => {
-            panic!("Cannot read string from type '{}'", ty);
-        }
-    }
+fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
+    let attr = loc.attr(name)?;
+    let val = match T::DTYPE {
+        ScalarType::I8 => attr.read_scalar::<i8>()?.into_dyn(),
+        ScalarType::I16 => attr.read_scalar::<i16>()?.into_dyn(),
+        ScalarType::I32 => attr.read_scalar::<i32>()?.into_dyn(),
+        ScalarType::I64 => attr.read_scalar::<i64>()?.into_dyn(),
+        ScalarType::U8 => attr.read_scalar::<u8>()?.into_dyn(),
+        ScalarType::U16 => attr.read_scalar::<u16>()?.into_dyn(),
+        ScalarType::U32 => attr.read_scalar::<u32>()?.into_dyn(),
+        ScalarType::U64 => attr.read_scalar::<u64>()?.into_dyn(),
+        ScalarType::Usize => attr.read_scalar::<usize>()?.into_dyn(),
+        ScalarType::F32 => attr.read_scalar::<f32>()?.into_dyn(),
+        ScalarType::F64 => attr.read_scalar::<f64>()?.into_dyn(),
+        ScalarType::Bool => attr.read_scalar::<bool>()?.into_dyn(),
+        ScalarType::String => attr.read_scalar::<VarLenUnicode>()?.to_string().into_dyn(),
+    };
+    T::from_dyn(val)
 }
 
 fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
@@ -640,8 +643,8 @@ impl LocationOp for H5Group {
         write_str_attr(self, name, value)
     }
 
-    fn read_str_attr(&self, name: &str) -> Result<String> {
-        read_str_attr(self, name)
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        read_scalar_attr(self, name)
     }
 
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
@@ -677,8 +680,8 @@ impl LocationOp for H5Dataset {
         write_str_attr(self, name, value)
     }
 
-    fn read_str_attr(&self, name: &str) -> Result<String> {
-        read_str_attr(self, name)
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        read_scalar_attr(self, name)
     }
 
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {

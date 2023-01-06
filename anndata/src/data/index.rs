@@ -103,6 +103,12 @@ impl From<usize> for Index {
     }
 }
 
+impl From<Range<usize>> for Index {
+    fn from(range: Range<usize>) -> Self {
+        Index::Range(range)
+    }
+}
+
 impl FromIterator<String> for Index {
     fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
         let (items, index_map) = iter

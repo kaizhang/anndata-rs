@@ -388,14 +388,11 @@ impl WriteData for DataFrameIndex {
         }
         container.write_str_attr("_index", &self.index_name)?;
         let group = container.as_group()?;
+        let arr: Array1<String> = self.clone().into_iter().collect();
+        let data = group.create_array_data(&self.index_name, &arr, Default::default())?;
         match &self.index {
-            Index::List(list) => {
-                let arr: Array1<String> = list.items.iter().map(|x| x.clone()).collect();
-                group.create_array_data(&self.index_name, &arr, Default::default())?;
-            },
+            Index::List(_) => { data.write_str_attr("index_type", "list")?; },
             Index::Intervals(intervals) => {
-                let arr: Array1<String> = self.clone().into_iter().collect();
-                let data = group.create_array_data(&self.index_name, &arr, Default::default())?;
                 data.write_str_attr("index_type", "intervals")?;
                 let keys: Array1<String> = intervals.keys().cloned().collect();
                 data.write_array_attr("names", &keys)?;
@@ -403,7 +400,11 @@ impl WriteData for DataFrameIndex {
                 let values = Array2::from_shape_vec((self.len(), 4), vec)?;
                 data.write_array_attr("intervals", &values)?;
             },
-            _ => todo!()
+            Index::Range(range) => {
+                data.write_str_attr("index_type", "range")?;
+                data.write_scalar_attr("start", range.start)?;
+                data.write_scalar_attr("end", range.end)?;
+            },
         }
         Ok(container)
     }
@@ -413,22 +414,26 @@ impl ReadData for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let index_name = container.read_str_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
-        if let Ok(ty) = dataset.read_str_attr("index_type") {
-            match ty.as_str() {
-                "intervals" => {
-                    let keys: Array1<String> = dataset.read_array_attr("names")?;
-                    let values: Array2<usize> = dataset.read_array_attr("intervals")?;
-                    Ok(keys.into_iter().zip(
-                        values.rows().into_iter().map(|row| Interval {start: row[0], end: row[1], size: row[2], step: row[3]})
-                    ).collect())
-                }
-                x => bail!("Unknown index type: {}", x)
+        match dataset.read_str_attr("index_type").as_ref().map_or("list", |x| x.as_str()) {
+            "list" => {
+                let data = dataset.read_array()?;
+                let mut index: DataFrameIndex = data.to_vec().into();
+                index.index_name = index_name;
+                Ok(index)
+            },
+            "intervals" => {
+                let keys: Array1<String> = dataset.read_array_attr("names")?;
+                let values: Array2<usize> = dataset.read_array_attr("intervals")?;
+                Ok(keys.into_iter().zip(
+                    values.rows().into_iter().map(|row| Interval {start: row[0], end: row[1], size: row[2], step: row[3]})
+                ).collect())
             }
-        } else {
-            let data = dataset.read_array()?;
-            let mut index: DataFrameIndex = data.to_vec().into();
-            index.index_name = index_name;
-            Ok(index)
+            "range" => {
+                let start = dataset.read_scalar_attr("start")?;
+                let end = dataset.read_scalar_attr("end")?;
+                Ok((start..end).into())
+            }
+            x => bail!("Unknown index type: {}", x)
         }
     }
 }

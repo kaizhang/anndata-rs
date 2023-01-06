@@ -131,20 +131,21 @@ pub trait LocationOp {
     /// Write a scalar attribute at a given location. This function should be able to
     /// overwrite existing attributes.
     fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()>;
-
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
-        self.write_scalar_attr(name, value.to_string())
-    }
-
     /// Write a array-like attribute at a given location.
     fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension;
+    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+        self.write_scalar_attr(name, value.to_string())
+    }
 
-    fn read_str_attr(&self, name: &str) -> Result<String>;
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T>;
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+    fn read_str_attr(&self, name: &str) -> Result<String> {
+        self.read_scalar_attr(name)
+    }
 }
 
 pub trait DatasetOp {
@@ -306,10 +307,10 @@ impl<B: Backend> LocationOp for DataContainer<B> {
         }
     }
 
-    fn read_str_attr(&self, name: &str) -> Result<String> {
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         match self {
-            DataContainer::Group(g) => g.read_str_attr(name),
-            DataContainer::Dataset(d) => d.read_str_attr(name),
+            DataContainer::Group(g) => g.read_scalar_attr(name),
+            DataContainer::Dataset(d) => d.read_scalar_attr(name),
         }
     }
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
