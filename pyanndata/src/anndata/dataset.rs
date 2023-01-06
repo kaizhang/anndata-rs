@@ -45,6 +45,12 @@ use std::path::PathBuf;
 #[repr(transparent)]
 pub struct AnnDataSet(Box<dyn AnnDataSetTrait>);
 
+impl Clone for AnnDataSet {
+    fn clone(&self) -> Self {
+        AnnDataSet(self.0.clone_ref())
+    }
+}
+
 impl<B: Backend> From<anndata::AnnDataSet<B>> for AnnDataSet {
     fn from(adata: anndata::AnnDataSet<B>) -> Self {
         AnnDataSet(Box::new(Slot::new(adata)))
@@ -62,7 +68,7 @@ impl AnnDataSet {
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
             let index = self.0.obs_names();
-            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
             })).collect::<PyResult<Vec<_>>>()
         });
@@ -80,7 +86,7 @@ impl AnnDataSet {
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
             let index = self.0.var_names();
-            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
             })).collect::<PyResult<Vec<_>>>()
         });
@@ -170,7 +176,7 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> {
-        self.0.obs_names().names
+        self.0.obs_names().into_vec()
     }
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
@@ -187,7 +193,7 @@ impl AnnDataSet {
     /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> {
-        self.0.var_names().names
+        self.0.var_names().into_vec()
     }
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
@@ -685,11 +691,9 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             }
             {
                 // Set obs and var
-                let obs_names: Vec<String> = inner.obs_names().names;
-                adata.set_obs_names(obs_slice.iter().map(|i| obs_names[i].clone()).collect())?;
+                adata.set_obs_names(inner.obs_names().select(&slice[0]))?;
                 adata.set_obs(inner.read_obs()?.select_axis(0, &slice[0]))?;
-                let var_names: Vec<String> = inner.var_names().names;
-                adata.set_var_names(var_slice.iter().map(|i| var_names[i].clone()).collect())?;
+                adata.set_var_names(inner.var_names().select(&slice[1]))?;
                 adata.set_var(inner.read_var()?.select_axis(0, &slice[1]))?;
             }
             {

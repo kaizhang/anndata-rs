@@ -13,7 +13,7 @@ use hdf5::{
     types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
-use ndarray::{Array, ArrayView, Dimension, SliceInfo};
+use ndarray::{Array, ArrayView, Dimension, SliceInfo, ArrayBase};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
@@ -491,25 +491,31 @@ fn read_str_attr(loc: &Location, name: &str) -> Result<String> {
 }
 
 fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
-    let array: DynArray = match T::DTYPE {
-        ScalarType::I8 => loc.attr(name)?.read::<i8, D>()?.into(),
-        ScalarType::I16 => loc.attr(name)?.read::<i16, D>()?.into(),
-        ScalarType::I32 => loc.attr(name)?.read::<i32, D>()?.into(),
-        ScalarType::I64 => loc.attr(name)?.read::<i64, D>()?.into(),
-        ScalarType::U8 => loc.attr(name)?.read::<u8, D>()?.into(),
-        ScalarType::U16 => loc.attr(name)?.read::<u16, D>()?.into(),
-        ScalarType::U32 => loc.attr(name)?.read::<u32, D>()?.into(),
-        ScalarType::U64 => loc.attr(name)?.read::<u64, D>()?.into(),
-        ScalarType::Usize => loc.attr(name)?.read::<usize, D>()?.into(),
-        ScalarType::F32 => loc.attr(name)?.read::<f32, D>()?.into(),
-        ScalarType::F64 => loc.attr(name)?.read::<f64, D>()?.into(),
-        ScalarType::Bool => loc.attr(name)?.read::<bool, D>()?.into(),
-        ScalarType::String => {
-            let s = loc.attr(name)?.read::<VarLenUnicode, D>()?;
-            s.map(|s| s.to_string()).into()
-        }
-    };
-    Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
+    let attr = loc.attr(name)?;
+    if attr.size() == 0 {
+        let shape = D::zeros(D::NDIM.unwrap_or(0));
+        ArrayBase::from_shape_vec(shape, vec![]).map_err(|e| e.into())
+    } else {
+        let array: DynArray = match T::DTYPE {
+            ScalarType::I8 => attr.read::<i8, D>()?.into(),
+            ScalarType::I16 => attr.read::<i16, D>()?.into(),
+            ScalarType::I32 => attr.read::<i32, D>()?.into(),
+            ScalarType::I64 => attr.read::<i64, D>()?.into(),
+            ScalarType::U8 => attr.read::<u8, D>()?.into(),
+            ScalarType::U16 => attr.read::<u16, D>()?.into(),
+            ScalarType::U32 => attr.read::<u32, D>()?.into(),
+            ScalarType::U64 => attr.read::<u64, D>()?.into(),
+            ScalarType::Usize => attr.read::<usize, D>()?.into(),
+            ScalarType::F32 => attr.read::<f32, D>()?.into(),
+            ScalarType::F64 => attr.read::<f64, D>()?.into(),
+            ScalarType::Bool => attr.read::<bool, D>()?.into(),
+            ScalarType::String => {
+                let s = attr.read::<VarLenUnicode, D>()?;
+                s.map(|s| s.to_string()).into()
+            }
+        };
+        Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

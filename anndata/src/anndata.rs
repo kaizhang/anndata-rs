@@ -445,14 +445,14 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         self.obs
             .lock()
             .as_ref()
-            .map_or(DataFrameIndex::new(), |obs| obs.index.clone())
+            .map_or(DataFrameIndex::empty(), |obs| obs.index.clone())
     }
 
     fn var_names(&self) -> DataFrameIndex {
         self.var
             .lock()
             .as_ref()
-            .map_or(DataFrameIndex::new(), |var| var.index.clone())
+            .map_or(DataFrameIndex::empty(), |var| var.index.clone())
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
@@ -485,7 +485,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|i| {
                 inner
                     .index
-                    .get(i)
+                    .get_index(i)
                     .context(format!("'{}' does not exist in obs_names", i))
             })
             .collect()
@@ -498,7 +498,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .map(|i| {
                 inner
                     .index
-                    .get(i)
+                    .get_index(i)
                     .context(format!("'{}' does not exist in obs_names", i))
             })
             .collect()

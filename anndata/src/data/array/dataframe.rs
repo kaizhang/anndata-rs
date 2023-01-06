@@ -2,14 +2,14 @@ use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, LocationOp};
 use crate::data::array::slice::{SelectInfoElem, Shape};
 use crate::data::array::{CategoricalArray, DynArray};
 use crate::data::data_traits::*;
+use crate::data::index::{Index, Interval};
 use crate::data::scalar::DynScalar;
 
 use anyhow::{bail, Result};
-use ndarray::Array1;
+use ndarray::{Array1, Array2};
 use polars::datatypes::{CategoricalChunkedBuilder, DataType};
 use polars::prelude::IntoSeries;
 use polars::prelude::{DataFrame, Series};
-use std::collections::HashMap;
 
 use super::{BoundedSelectInfo, BoundedSelectInfoElem};
 
@@ -318,38 +318,50 @@ impl ReadArrayData for Series {
 #[derive(Debug, Clone)]
 pub struct DataFrameIndex {
     pub index_name: String,
-    pub names: Vec<String>,
-    pub index_map: HashMap<String, usize>,
+    index: Index,
+}
+
+impl std::cmp::PartialEq for DataFrameIndex {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
 }
 
 impl DataFrameIndex {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self {
             index_name: "index".to_string(),
-            names: Vec::new(),
-            index_map: HashMap::new(),
+            index: Index::empty(),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.names.len()
+        self.index.len()
     }
 
-    pub fn get(&self, k: &str) -> Option<usize> {
-        self.index_map.get(k).map(|x| *x)
+    pub fn get_index(&self, k: &str) -> Option<usize> {
+        self.index.get_index(k)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
+    pub fn into_vec(self) -> Vec<String> {
+        self.index.into_vec()
+    }
+
+    pub fn select(&self, select: &SelectInfoElem) -> Self {
+        let index = self.index.select(select);
+        Self {
+            index_name: self.index_name.clone(),
+            index,
+        }
     }
 }
 
 impl IntoIterator for DataFrameIndex {
     type Item = String;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = Box<dyn Iterator<Item = String>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.names.into_iter()
+        self.index.into_iter()
     }
 }
 
@@ -367,20 +379,32 @@ impl WriteData for DataFrameIndex {
         } else {
             location.create_group(name)?
         };
-        group.write_str_attr("_index", &self.index_name)?;
-        let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
-        location.create_array_data(&self.index_name, &data, Default::default())?;
-        Ok(DataContainer::Group(group))
+        self.overwrite(DataContainer::Group(group))
     }
+
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
         if let Ok(index_name) = container.read_str_attr("_index") {
             container.as_group()?.delete(&index_name)?;
         }
         container.write_str_attr("_index", &self.index_name)?;
-
-        let data: Array1<String> = self.names.iter().map(|x| x.clone()).collect();
         let group = container.as_group()?;
-        group.create_array_data(&self.index_name, &data, Default::default())?;
+        match &self.index {
+            Index::List(list) => {
+                let arr: Array1<String> = list.items.iter().map(|x| x.clone()).collect();
+                group.create_array_data(&self.index_name, &arr, Default::default())?;
+            },
+            Index::Intervals(intervals) => {
+                let arr: Array1<String> = self.clone().into_iter().collect();
+                let data = group.create_array_data(&self.index_name, &arr, Default::default())?;
+                data.write_str_attr("index_type", "intervals")?;
+                let keys: Array1<String> = intervals.keys().cloned().collect();
+                data.write_array_attr("names", &keys)?;
+                let vec: Vec<usize> = intervals.values().flat_map(|x| [x.start, x.end, x.size, x.step]).collect();
+                let values = Array2::from_shape_vec((self.len(), 4), vec)?;
+                data.write_array_attr("intervals", &values)?;
+            },
+            _ => todo!()
+        }
         Ok(container)
     }
 }
@@ -389,96 +413,49 @@ impl ReadData for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let index_name = container.read_str_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
-        let data = dataset.read_array()?;
-        let mut index: DataFrameIndex = data.to_vec().into();
-        index.index_name = index_name;
-        Ok(index)
-    }
-}
-
-impl HasShape for DataFrameIndex {
-    fn shape(&self) -> Shape {
-        self.len().into()
-    }
-}
-
-impl ArrayOp for DataFrameIndex {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        self.names.get(index[0]).map(|x| x.clone().into())
-    }
-
-    fn select<S>(&self, info: &[S]) -> Self
-    where
-        S: AsRef<SelectInfoElem>,
-    {
-        let mut index: DataFrameIndex =
-            BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
-                .iter()
-                .map(|x| self.names[x].clone())
-                .collect();
-        index.index_name = self.index_name.clone();
-        index
-    }
-}
-
-impl From<Vec<String>> for DataFrameIndex {
-    fn from(names: Vec<String>) -> Self {
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
-        Self {
-            index_name: "index".to_owned(),
-            names,
-            index_map,
+        if let Ok(ty) = dataset.read_str_attr("index_type") {
+            match ty.as_str() {
+                "intervals" => {
+                    let keys: Array1<String> = dataset.read_array_attr("names")?;
+                    let values: Array2<usize> = dataset.read_array_attr("intervals")?;
+                    Ok(keys.into_iter().zip(
+                        values.rows().into_iter().map(|row| Interval {start: row[0], end: row[1], size: row[2], step: row[3]})
+                    ).collect())
+                }
+                x => bail!("Unknown index type: {}", x)
+            }
+        } else {
+            let data = dataset.read_array()?;
+            let mut index: DataFrameIndex = data.to_vec().into();
+            index.index_name = index_name;
+            Ok(index)
         }
     }
 }
 
-impl From<usize> for DataFrameIndex {
-    fn from(size: usize) -> Self {
-        (0..size).map(|x| x.to_string()).collect()
-    }
-}
-
-impl FromIterator<String> for DataFrameIndex {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = String>,
-    {
-        let names: Vec<_> = iter.into_iter().collect();
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
+impl<D> From<D> for DataFrameIndex
+where
+    Index: From<D>,
+{
+    fn from(data: D) -> Self {
         Self {
             index_name: "index".to_owned(),
-            names,
-            index_map,
+            index: data.into(),
         }
     }
 }
 
-impl<'a> FromIterator<&'a str> for DataFrameIndex {
+impl<D> FromIterator<D> for DataFrameIndex
+where
+    Index: FromIterator<D>,
+{
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = &'a str>,
+        T: IntoIterator<Item = D>,
     {
-        let names: Vec<_> = iter.into_iter().map(|x| x.to_owned()).collect();
-        let index_map = names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(a, b)| (b, a))
-            .collect();
         Self {
             index_name: "index".to_owned(),
-            names,
-            index_map,
+            index: iter.into_iter().collect(),
         }
     }
 }

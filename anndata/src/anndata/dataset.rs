@@ -1,11 +1,10 @@
-use crate::container::Dim;
-use crate::container::base::VecVecIndex;
-use crate::traits::{AnnDataOp, ElemCollectionOp};
 use crate::{
+    traits::{AnnDataOp, ElemCollectionOp},
     anndata::AnnData,
     backend::Backend,
-    container::{Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
+    container::{Dim, Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
     data::*,
+    data::index::VecVecIndex,
 };
 
 use anyhow::{bail, ensure, Context, Result};
@@ -146,8 +145,7 @@ impl<B: Backend> AnnDataSet<B> {
         let mut annotation = AnnData::new(filename)?;
         annotation.n_obs = Dim::new(n_obs);
         annotation.n_vars = Dim::new(n_vars);
-        {
-            // Set UNS. UNS includes children anndata locations and shared elements.
+        { // Set UNS. UNS includes children anndata locations and shared elements.
             let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
                 .iter()
                 .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
@@ -170,15 +168,9 @@ impl<B: Backend> AnnDataSet<B> {
                 }
             }
         }
-        {
-            // Set OBS.
-            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names().names).collect();
-            if obs_names.is_empty() {
-                annotation
-                    .set_obs_names((0..n_obs).into_iter().map(|x| x.to_string()).collect())?;
-            } else {
-                annotation.set_obs_names(obs_names)?;
-            }
+        { // Set OBS.
+            let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names().into_iter()).collect();
+            annotation.set_obs_names(obs_names)?;
             let keys = Series::new(
                 add_key,
                 anndatas
@@ -189,12 +181,9 @@ impl<B: Backend> AnnDataSet<B> {
             );
             annotation.set_obs(DataFrame::new(vec![keys])?)?;
         }
-        {
-            // Set VAR.
+        { // Set VAR.
             let adata = anndatas.values().next().unwrap();
-            if !adata.var_names().is_empty() {
-                annotation.set_var_names(adata.var_names().into_iter().collect())?;
-            }
+            annotation.set_var_names(adata.var_names())?;
         }
         Ok(Self {
             annotation,
@@ -523,11 +512,11 @@ impl<B: Backend> StackedAnnData<B> {
 
         if let Some((_, first)) = adatas.first() {
             let lock = first.var.lock();
-            let var_names: Option<&Vec<String>> = lock.as_ref().map(|x| &x.index.names);
+            let var_names = lock.as_ref().map(|x| &x.index);
             if !adatas
                 .par_values()
                 .skip(1)
-                .all(|x| x.var.lock().as_ref().map(|x| &x.index.names).eq(&var_names))
+                .all(|x| x.var.lock().as_ref().map(|x| &x.index).eq(&var_names))
             {
                 bail!("var names mismatch");
             }

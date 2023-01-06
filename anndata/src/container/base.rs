@@ -1,16 +1,14 @@
 use crate::{
+    traits::ArrayElemOp,
     backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
-    data::array::concat_array_data,
-    data::{
-        array::slice::BoundedSlice,
-        *,
-    }, ArrayElemOp,
+    data::*,
+    data::{array::concat_array_data, index::VecVecIndex},
 };
 
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use ndarray::{Ix1, Slice};
+use ndarray::Ix1;
 use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
@@ -20,11 +18,7 @@ use polars::{
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use smallvec::SmallVec;
-use std::{
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::{ops::{Deref, DerefMut}, sync::Arc};
 
 /// Slot stores an optional object wrapped by Arc and Mutex.
 /// Encapsulating an object inside a slot allows us to drop the object from all references.
@@ -227,7 +221,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
         if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            self.index.select(&selection[0..1]).overwrite(
+            self.index.select(&selection[0]).overwrite(
                 self.select(selection)?.write(location, name)?
             )?;
             Ok(())
@@ -283,7 +277,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
     where
         S: AsRef<SelectInfoElem>,
     {
-        self.index = self.index.select(&selection[..1]);
+        self.index = self.index.select(selection[0].as_ref());
         replace_with::replace_with_or_abort(&mut self.container, |x| {
             self.index.overwrite(x).unwrap()
         });
@@ -1224,146 +1218,6 @@ where
 {
     fn len(&self) -> usize {
         self.arrays.iter().map(|x| x.len()).sum()
-    }
-}
-
-/// This struct is used to perform index lookup for nested Vectors (vectors of vectors).
-#[derive(Clone)]
-pub(crate) struct VecVecIndex(SmallVec<[usize; 96]>);
-
-impl VecVecIndex {
-    /// Find the outer and inner index for a given index corresponding to the
-    /// flattened view.
-    ///
-    /// # Example
-    ///
-    /// let vec_of_vec = vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]];
-    /// let flatten_view = vec![0, 1, 2, 3, 4, 5, 6];
-    /// let index = VecVecIndex::new(vec_of_vec);
-    /// assert_eq!(index.ix(0), (0, 0));
-    /// assert_eq!(index.ix(1), (0, 1));
-    /// assert_eq!(index.ix(2), (0, 2));
-    /// assert_eq!(index.ix(3), (1, 0));
-    /// assert_eq!(index.ix(4), (1, 1));
-    /// assert_eq!(index.ix(5), (2, 0));
-    /// assert_eq!(index.ix(6), (2, 1));
-    pub fn ix(&self, i: &usize) -> (usize, usize) {
-        let j = self.outer_ix(i);
-        (j, i - self.0[j])
-    }
-
-    /// The inverse of ix.
-    pub fn _inv_ix(&self, idx: (usize, usize)) -> usize {
-        self.0[idx.0] + idx.1
-    }
-
-    /// Find the outer index for a given index corresponding to the flattened view.
-    pub fn outer_ix(&self, i: &usize) -> usize {
-        match self.0.binary_search(i) {
-            Ok(i_) => i_,
-            Err(i_) => i_ - 1,
-        }
-    }
-
-    fn split_slice(&self, slice: &Slice) -> HashMap<usize, SelectInfoElem> {
-        let bounded = BoundedSlice::new(slice, self.len());
-        let (outer_start, inner_start) = self.ix(&bounded.start);
-        let (outer_end, inner_end) = self.ix(&bounded.end);
-        let mut res = HashMap::new();
-        if outer_start == outer_end {
-            res.insert(
-                outer_start,
-                Slice {
-                    start: inner_start as isize,
-                    end: Some(inner_end as isize),
-                    step: slice.step,
-                }
-                .into(),
-            );
-        } else {
-            res.insert(
-                outer_start,
-                Slice {
-                    start: inner_start as isize,
-                    end: None,
-                    step: slice.step,
-                }
-                .into(),
-            );
-            res.insert(
-                outer_end,
-                Slice {
-                    start: 0,
-                    end: Some(inner_end as isize),
-                    step: slice.step,
-                }
-                .into(),
-            );
-            for i in outer_start + 1..outer_end {
-                res.insert(
-                    i,
-                    Slice {
-                        start: 0,
-                        end: None,
-                        step: slice.step,
-                    }
-                    .into(),
-                );
-            }
-        };
-        res
-    }
-
-    fn split_indices(&self, indices: &[usize]) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
-        let (new_indices, orders): (HashMap<usize, SelectInfoElem>, Vec<_>) = indices
-            .into_iter()
-            .map(|x| self.ix(x))
-            .enumerate()
-            .sorted_by_key(|(_, (x, _))| *x)
-            .into_iter()
-            .group_by(|(_, (x, _))| *x)
-            .into_iter()
-            .map(|(outer, inner)| {
-                let (new_indices, order): (Vec<_>, Vec<_>) = inner.map(|(i, (_, x))| (x, i)).unzip();
-                ((outer, new_indices.into()), order)
-            }).unzip();
-        let order: Vec<_> = orders.into_iter().flatten().collect();
-        if order.as_slice().windows(2).all(|w| w[1] - w[0] == 1) {
-            (new_indices, None)
-        } else {
-            (new_indices, Some(order))
-        }
-    }
-
-    /// Sort and split the indices.
-    pub fn split_select(
-        &self,
-        select: &SelectInfoElem,
-    ) -> (HashMap<usize, SelectInfoElem>, Option<Vec<usize>>) {
-        match select {
-            SelectInfoElem::Slice(slice) => (self.split_slice(slice), None),
-            SelectInfoElem::Index(index) => self.split_indices(index.as_slice()),
-        }
-    }
-
-    /// The total number of elements
-    pub fn len(&self) -> usize {
-        *self.0.last().unwrap_or(&0)
-    }
-}
-
-impl FromIterator<usize> for VecVecIndex {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = usize>,
-    {
-        let index: SmallVec<_> = std::iter::once(0)
-            .chain(iter.into_iter().scan(0, |state, x| {
-                *state = *state + x;
-                Some(*state)
-            }))
-            .collect();
-        VecVecIndex(index)
     }
 }
 

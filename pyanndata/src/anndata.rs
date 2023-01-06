@@ -30,7 +30,7 @@ use anyhow::Result;
 #[pyo3(text_signature = "(filename, backed, backend /)")]
 pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: Option<&str>) -> Result<PyObject> {
     let adata = match backed {
-        Some(m) => AnnData::open(filename, m, backend)?.into_py(py),
+        Some(m) => AnnData::open(filename, m, backend).unwrap().into_py(py),
         None => PyModule::import(py, "anndata")?
             .getattr("read_h5ad")?
             .call1((filename,))?

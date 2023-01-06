@@ -170,8 +170,8 @@ pub fn select_strat(n: usize) -> BoxedStrategy<SelectInfoElem> {
 pub fn anndata_eq<B1: Backend, B2: Backend>(adata1: &AnnData<B1>, adata2: &AnnData<B2>) -> Result<bool> {
     let is_equal = adata1.n_obs() == adata2.n_obs() &&
         adata1.n_vars() == adata2.n_vars() &&
-        adata1.obs_names().names == adata2.obs_names().names &&
-        adata1.var_names().names == adata2.var_names().names &&
+        adata1.obs_names() == adata2.obs_names() &&
+        adata1.var_names() == adata2.var_names() &&
         adata1.read_obs()? == adata2.read_obs()? &&
         adata1.read_var()? == adata2.read_var()? &&
         adata1.x().get::<ArrayData>()? == adata2.x().get()? &&

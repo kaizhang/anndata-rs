@@ -96,7 +96,7 @@ impl AnnData {
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
             let index = self.0.obs_names();
-            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
             })).collect::<PyResult<Vec<_>>>()
         });
@@ -114,7 +114,7 @@ impl AnnData {
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).and_then(|names| {
             let index = self.0.var_names();
-            names.into_iter().map(|name| index.get(&name).ok_or_else(|| {
+            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
             })).collect::<PyResult<Vec<_>>>()
         });
@@ -221,7 +221,7 @@ impl AnnData {
     /// list[str]
     #[getter]
     pub fn obs_names(&self) -> Vec<String> {
-        self.0.obs_names().names
+        self.0.obs_names().into_vec()
     }
     #[setter(obs_names)]
     pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
@@ -238,7 +238,7 @@ impl AnnData {
     /// list[str]
     #[getter]
     pub fn var_names(&self) -> Vec<String> {
-        self.0.var_names().names
+        self.0.var_names().into_vec()
     }
     #[setter(var_names)]
     pub fn set_var_names(&self, names: &PyAny) -> Result<()> {

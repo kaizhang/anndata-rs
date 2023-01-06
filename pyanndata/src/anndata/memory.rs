@@ -189,11 +189,11 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             let df = py.import("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.names)].into_py_dict(py)),
+                Some(&[("index", index.into_vec())].into_py_dict(py)),
             )?;
             self.setattr("obs", df)?;
         } else {
-            self.setattr("obs_names", index.names)?;
+            self.setattr("obs_names", index.into_vec())?;
         }
         Ok(())
     }
@@ -203,11 +203,11 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
             let df = py.import("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.names)].into_py_dict(py)),
+                Some(&[("index", index.into_vec())].into_py_dict(py)),
             )?;
             self.setattr("var", df)?;
         } else {
-            self.setattr("var_names", index.names)?;
+            self.setattr("var_names", index.into_vec())?;
         }
         Ok(())
     }
