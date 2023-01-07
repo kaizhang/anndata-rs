@@ -1,6 +1,7 @@
 use anndata::*;
 
-use anndata::data::{SelectInfoElem, BoundedSelectInfoElem};
+use anndata::data::index::Interval;
+use anndata::data::{SelectInfoElem, BoundedSelectInfoElem, DataFrameIndex};
 use itertools::Itertools;
 use nalgebra::{Scalar, ClosedAdd};
 use ndarray_rand::rand_distr::uniform::SampleUniform;
@@ -45,23 +46,25 @@ where
 /// Strategy for generating a random AnnData
 pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, n_vars: usize) -> impl Strategy<Value = AnnData<B>> {
     let x = array_strat(&vec![n_obs, n_vars]);
+    let obs_names = index_strat(n_obs);
     let obsm = proptest::collection::vec(0 as usize ..100, 0..3).prop_flat_map(move |shapes|
         shapes.into_iter().map(|d| array_strat(&vec![n_obs, d])).collect::<Vec<_>>()
     );
     let obsp = (0 as usize ..3).prop_flat_map(move |d| 
         std::iter::repeat_with(|| array_strat(&vec![n_obs, n_obs])).take(d).collect::<Vec<_>>()
     );
+    let var_names = index_strat(n_vars);
     let varm = proptest::collection::vec(0 as usize ..100, 0..3).prop_flat_map(move |shapes|
         shapes.into_iter().map(|d| array_strat(&vec![n_vars, d])).collect::<Vec<_>>()
     );
     let varp = (0 as usize ..3).prop_flat_map(move |d| 
         std::iter::repeat_with(|| array_strat(&vec![n_vars, n_vars])).take(d).collect::<Vec<_>>()
     );
-    (x, obsm, obsp, varm, varp).prop_map(move |(x, obsm, obsp, varm, varp)| {
+    (x, obs_names, obsm, obsp, var_names, varm, varp).prop_map(move |(x, obs_names, obsm, obsp, var_names, varm, varp)| {
         let adata: AnnData<B> = AnnData::new(file.clone()).unwrap();
         adata.set_x(x).unwrap();
-        adata.set_obs_names((0..n_obs).map(|i| format!("obs_{}", i)).collect()).unwrap();
-        adata.set_var_names((0..n_vars).map(|i| format!("var_{}", i)).collect()).unwrap();
+        adata.set_obs_names(obs_names).unwrap();
+        adata.set_var_names(var_names).unwrap();
         obsm.into_iter().enumerate().for_each(|(i, arr)| {
             adata.obsm().add(&format!("varm_{}", i), arr).unwrap();
         });
@@ -76,6 +79,37 @@ pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, 
         });
         adata
     })
+}
+
+pub fn index_strat(n: usize) -> BoxedStrategy<DataFrameIndex> {
+    if n == 0 {
+        Just(DataFrameIndex::empty()).boxed()
+    } else {
+        let list = (0..n).map(|i| format!("i_{}", i)).collect();
+        let range = n.into();
+        let interval = (0..n).prop_flat_map(move |i|
+            (Just(i), (0..n - i)).prop_flat_map(move |(a, b)|
+                (Just(a), Just(b), 0..n-a-b).prop_flat_map(|(a, b, c)|
+                    [a,b,c].into_iter().filter(|x| *x != 0).map(|x|
+                        interval_strat(x)
+                    ).collect::<Vec<_>>().prop_map(|x| {
+                        x.into_iter().enumerate().map(|(i, x)| 
+                            (i.to_string(), x)
+                        ).collect::<DataFrameIndex>()
+                    })
+                )
+            )
+        );
+        prop_oneof![
+            Just(list),
+            Just(range),
+            interval
+        ].boxed()
+    }
+}
+
+fn interval_strat(n: usize) -> impl Strategy<Value = Interval> {
+    (1 as usize ..100, 1 as usize ..100).prop_map(move |(size, step)| Interval { start: 0, end: n*step, size, step })
 }
 
 pub fn array_slice_strat(shape: &Vec<usize>) -> impl Strategy<Value = (ArrayData, Vec<SelectInfoElem>)> {

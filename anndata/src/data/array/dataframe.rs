@@ -397,7 +397,7 @@ impl WriteData for DataFrameIndex {
                 let keys: Array1<String> = intervals.keys().cloned().collect();
                 data.write_array_attr("names", &keys)?;
                 let vec: Vec<usize> = intervals.values().flat_map(|x| [x.start, x.end, x.size, x.step]).collect();
-                let values = Array2::from_shape_vec((self.len(), 4), vec)?;
+                let values = Array2::from_shape_vec((intervals.len(), 4), vec)?;
                 data.write_array_attr("intervals", &values)?;
             },
             Index::Range(range) => {

@@ -12,11 +12,22 @@ use std::cmp::Eq;
 
 use super::BoundedSelectInfoElem;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Index {
     Intervals(NamedIntervals),
     List(List<String>),
     Range(Range<usize>),
+}
+
+impl std::cmp::PartialEq for Index {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Index::Intervals(a), Index::Intervals(b)) => a == b,
+            (Index::List(a), Index::List(b)) => a == b,
+            (Index::Range(a), Index::Range(b)) => a == b,
+            _ => self.iter().zip(other.iter()).all(|(a, b)| a == b),
+        }
+    }
 }
 
 impl Index {
@@ -87,6 +98,13 @@ impl Index {
             },
             Index::List(list) => list.items[start..end].iter().cloned().collect(),
             Index::Range(r) => Index::Range(r.start + start..r.start + end),
+        }
+    }
+
+    pub fn iter(&self) -> Box<dyn Iterator<Item = String> + '_> {
+        match self {
+            Index::List(list) => Box::new(list.items.iter().map(|x| x.clone())),
+            _ => self.clone().into_iter(),
         }
     }
 }

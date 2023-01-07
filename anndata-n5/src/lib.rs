@@ -519,6 +519,10 @@ impl LocationOp for Location {
         Ok(())
     }
 
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        todo!()
+    }
+
     fn read_str_attr(&self, name: &str) -> Result<String> {
         match self.root.get_attributes(&self.path.to_string_lossy())? {
             Value::Object(map) => match map.get(name) {
@@ -635,6 +639,10 @@ impl LocationOp for Group {
         self.deref().read_str_attr(name)
     }
 
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        self.deref().read_scalar_attr(name)
+    }
+
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         self.deref().read_array_attr(name)
     }
@@ -670,6 +678,10 @@ impl LocationOp for Dataset {
 
     fn read_str_attr(&self, name: &str) -> Result<String> {
         self.deref().read_str_attr(name)
+    }
+
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        self.deref().read_scalar_attr(name)
     }
 
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
