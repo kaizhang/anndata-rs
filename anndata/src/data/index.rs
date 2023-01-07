@@ -83,16 +83,16 @@ impl Index {
         match self {
             Index::Intervals(intervals) => {
                 let (o1, i1) = intervals.accum_length.ix(&start);
-                let (o2, i2) = intervals.accum_length.ix(&end);
+                let (o2, i2) = intervals.accum_length.ix(&(end-1));
                 if o1 == o2 {
                     let (k, interval) = intervals.intervals.get_index(o1).unwrap();
-                    std::iter::once((k.to_owned(), interval.slice(i1, i2))).collect()
+                    std::iter::once((k.to_owned(), interval.slice(i1, i2+1))).collect()
                 } else {
                     let (k1, interval1) = intervals.intervals.get_index(o1).unwrap();
                     let (k2, interval2) = intervals.intervals.get_index(o2).unwrap();
                     std::iter::once((k1.to_owned(), interval1.slice(i1, interval1.len())))
                         .chain(intervals.intervals.iter().skip(o1+1).take(o2-o1-1).map(|(k,v)| (k.to_owned(), v.clone())))
-                        .chain(std::iter::once((k2.to_owned(), interval2.slice(0, i2))))
+                        .chain(std::iter::once((k2.to_owned(), interval2.slice(0, i2+1))))
                         .collect()
                 }
             },
@@ -138,8 +138,8 @@ impl FromIterator<String> for Index {
     }
 }
 
-impl FromIterator<(String, Interval)> for Index {
-    fn from_iter<T: IntoIterator<Item = (String, Interval)>>(iter: T) -> Self {
+impl<S: Into<String>> FromIterator<(S, Interval)> for Index {
+    fn from_iter<T: IntoIterator<Item = (S, Interval)>>(iter: T) -> Self {
         Self::Intervals(NamedIntervals::from_iter(iter))
     }
 }
@@ -189,12 +189,12 @@ impl NamedIntervals {
     }
 }
 
-impl FromIterator<(String, Interval)> for NamedIntervals {
-    fn from_iter<T: IntoIterator<Item = (String, Interval)>>(iter: T) -> Self {
+impl<S: Into<String>> FromIterator<(S, Interval)> for NamedIntervals {
+    fn from_iter<T: IntoIterator<Item = (S, Interval)>>(iter: T) -> Self {
         let mut intervals = IndexMap::new();
         let accum_length = iter.into_iter().map(|(name, interval)| {
             let n = interval.len();
-            intervals.insert(name, interval);
+            intervals.insert(name.into(), interval);
             n
         }).collect();
         Self { intervals, accum_length }
@@ -215,7 +215,7 @@ impl Interval {
             let (d, m) = num::integer::div_rem(interval.0 - self.start, self.step);
             if m != 0 {
                 None
-            } else if interval.1 - interval.0 == self.size {
+            } else if interval.1 - interval.0 == self.size || interval.1 == self.end {
                 Some(d)
             } else {
                 None
@@ -231,7 +231,7 @@ impl Interval {
 
     fn slice(&self, start: usize, end: usize) -> Self {
         let start = self.start + self.step * start;
-        let end = self.start + self.step * (end - 1) + self.size;
+        let end = self.start + self.step * end;
         Self {
             start: start.min(self.end),
             end: end.min(self.end),
@@ -422,3 +422,89 @@ impl FromIterator<usize> for VecVecIndex {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::strategy::BoxedStrategy;
+    use proptest::prelude::*;
+
+    fn index_strat(n: usize) -> BoxedStrategy<Index> {
+        if n == 0 {
+            Just(Index::empty()).boxed()
+        } else {
+            let list = (0..n).map(|i| format!("i_{}", i)).collect();
+            let range = n.into();
+            let interval = (0..n).prop_flat_map(move |i|
+                (Just(i), (0..n - i)).prop_flat_map(move |(a, b)| {
+                    let c = n - a - b;
+                    [a,b,c].into_iter().filter(|x| *x != 0).map(|x|
+                        interval_strat(x)
+                    ).collect::<Vec<_>>().prop_map(move |x|
+                        x.into_iter().enumerate().map(|(i, x)| 
+                            (i.to_string(), x)
+                        ).collect::<Index>()
+                    )
+                })
+            );
+            prop_oneof![
+                Just(list),
+                Just(range),
+                interval
+            ].boxed()
+        }
+    }
+
+    fn interval_strat(n: usize) -> impl Strategy<Value = Interval> {
+        (1 as usize ..100, 1 as usize ..100).prop_map(move |(size, step)|
+            Interval { start: 0, end: n*step, size, step }
+        )
+    }
+
+    #[test]
+    fn test_example() {
+        let index: Index = [
+            ("0", Interval { start: 0, end: 2, size: 1, step: 1 }),
+            ("1", Interval { start: 0, end: 972, size: 1, step: 27 }),
+            ("2", Interval { start: 0, end: 1134, size: 53, step: 18 }),
+        ].into_iter().collect();
+
+        assert_eq!(index.len(), 101);
+        assert_eq!(index, index.select(&(0..101).into()));
+        assert_eq!(
+            [
+                ("2", Interval {start: 900, end: 1062, step: 18, size: 53})
+            ].into_iter().collect::<Index>(),
+            index.select(&(88..97).into()),
+        );
+    }
+
+    fn select_strat(n: usize) -> BoxedStrategy<SelectInfoElem> {
+        if n == 0 {
+            Just(Vec::new().into()).boxed()
+        } else {
+            let indices = proptest::collection::vec(0..n, 0..2*n).prop_map(|i| i.into());
+            let slice = (0..n).prop_flat_map(move |start| (Just(start), (start+1)..=n).prop_map(|(start, stop)| (start..stop).into()));
+            prop_oneof![
+                indices,
+                slice,
+            ].boxed()
+        }
+    }
+
+    #[test]
+    fn test_index() {
+        let index = (0 as usize ..500).prop_flat_map(|n| (Just(n), index_strat(n), select_strat(n)));
+        proptest!(ProptestConfig::with_cases(256), |((n, i, slice) in index)| {
+            prop_assert_eq!(i.len(), n);
+            prop_assert_eq!(i.len(), i.clone().into_vec().len());
+
+            prop_assert!(i.iter().enumerate().all(|(idx, x)| i.get_index(&x).unwrap() == idx));
+
+            let out_len = BoundedSelectInfoElem::new(&slice, n).len();
+            let i_slice = i.select(&slice);
+            prop_assert_eq!(i_slice.len(), out_len);
+            prop_assert_eq!(i_slice.len(), i_slice.into_vec().len());
+        });
+    }
+}

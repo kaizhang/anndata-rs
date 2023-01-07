@@ -14,7 +14,6 @@ use nalgebra::base::DMatrix;
 use ndarray::{ArrayD, Axis, Array, Array1, Array2, Array3, concatenate, Dimension, RemoveAxis};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
-use rand::Rng;
 use tempfile::tempdir;
 use std::path::{PathBuf, Path};
 use rand::seq::IteratorRandom;
@@ -88,17 +87,16 @@ pub fn index_strat(n: usize) -> BoxedStrategy<DataFrameIndex> {
         let list = (0..n).map(|i| format!("i_{}", i)).collect();
         let range = n.into();
         let interval = (0..n).prop_flat_map(move |i|
-            (Just(i), (0..n - i)).prop_flat_map(move |(a, b)|
-                (Just(a), Just(b), 0..n-a-b).prop_flat_map(|(a, b, c)|
-                    [a,b,c].into_iter().filter(|x| *x != 0).map(|x|
-                        interval_strat(x)
-                    ).collect::<Vec<_>>().prop_map(|x| {
-                        x.into_iter().enumerate().map(|(i, x)| 
-                            (i.to_string(), x)
-                        ).collect::<DataFrameIndex>()
-                    })
+            (Just(i), (0..n - i)).prop_flat_map(move |(a, b)| {
+                let c = n - a - b;
+                [a,b,c].into_iter().filter(|x| *x != 0).map(|x|
+                    interval_strat(x)
+                ).collect::<Vec<_>>().prop_map(move |x|
+                    x.into_iter().enumerate().map(|(i, x)| 
+                        (i.to_string(), x)
+                    ).collect::<DataFrameIndex>()
                 )
-            )
+            })
         );
         prop_oneof![
             Just(list),
@@ -109,7 +107,9 @@ pub fn index_strat(n: usize) -> BoxedStrategy<DataFrameIndex> {
 }
 
 fn interval_strat(n: usize) -> impl Strategy<Value = Interval> {
-    (1 as usize ..100, 1 as usize ..100).prop_map(move |(size, step)| Interval { start: 0, end: n*step, size, step })
+    (1 as usize ..100, 1 as usize ..100).prop_map(move |(size, step)|
+        Interval { start: 0, end: n*step, size, step }
+    )
 }
 
 pub fn array_slice_strat(shape: &Vec<usize>) -> impl Strategy<Value = (ArrayData, Vec<SelectInfoElem>)> {

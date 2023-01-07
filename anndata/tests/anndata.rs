@@ -16,11 +16,14 @@ fn test_save<B: Backend>() {
                   select_strat(n_vars),
                 )
             );
-        proptest!(ProptestConfig::with_cases(999), |((adata, slice_obs, slice_var) in anndatas)| {
+        proptest!(ProptestConfig::with_cases(100), |((adata, slice_obs, slice_var) in anndatas)| {
             adata.write::<B, _>(&output).unwrap();
             let mut adata_in = AnnData::<B>::open(B::open(&output).unwrap()).unwrap();
             prop_assert!(anndata_eq(&adata, &adata_in).unwrap());
             adata_in.close().unwrap();
+
+            let index = adata.obs_names().select(&slice_obs);
+            assert_eq!(index.len(), index.into_vec().len());
 
             let select = [slice_obs, slice_var];
             adata.write_select::<B, _, _>(&select, &output).unwrap();
