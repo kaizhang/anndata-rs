@@ -35,6 +35,10 @@ impl Index {
         Index::List(List::empty())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Index::Intervals(map) => map.len(),

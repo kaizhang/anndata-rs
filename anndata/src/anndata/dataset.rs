@@ -170,7 +170,9 @@ impl<B: Backend> AnnDataSet<B> {
         }
         { // Set OBS.
             let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names().into_iter()).collect();
-            annotation.set_obs_names(obs_names)?;
+            if !obs_names.is_empty() {
+                annotation.set_obs_names(obs_names)?;
+            }
             let keys = Series::new(
                 add_key,
                 anndatas
@@ -183,7 +185,10 @@ impl<B: Backend> AnnDataSet<B> {
         }
         { // Set VAR.
             let adata = anndatas.values().next().unwrap();
-            annotation.set_var_names(adata.var_names())?;
+            let var_names = adata.var_names();
+            if !var_names.is_empty() {
+                annotation.set_var_names(var_names)?;
+            }
         }
         Ok(Self {
             annotation,

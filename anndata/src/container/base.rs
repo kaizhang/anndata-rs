@@ -130,7 +130,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = index.overwrite(df.write(location, name)?)?;
+        let container = df.overwrite(index.write(location, name)?)?;
         let column_names = df.get_column_names_owned().into_iter().collect();
         Ok(Self {
             element: None,
@@ -204,7 +204,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        self.index.overwrite(df.write(location, name)?)?;
+        df.overwrite(self.index.write(location, name)?)?;
         Ok(())
     }
 
@@ -221,8 +221,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
         if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            self.index.select(&selection[0]).overwrite(
-                self.select(selection)?.write(location, name)?
+            self.select(selection)?.overwrite(
+                self.index.select(&selection[0]).write(location, name)?
             )?;
             Ok(())
         }
@@ -1072,7 +1072,7 @@ impl<B: Backend> StackedArrayElem<B> {
         ensure!(
             elems
                 .iter()
-                .map(|x| x.inner().dtype())
+                .map(|x| x.lock().as_ref().map(|x| x.dtype()))
                 .all_equal(),
             "all elements must have the same dtype"
         );
@@ -1091,11 +1091,7 @@ impl<B: Backend> StackedArrayElem<B> {
             s[0] = index.len();
             s
         });
-        Ok(Self(Arc::new(InnerStackedArrayElem {
-            shape,
-            elems: elems,
-            index,
-        })))
+        Ok(Self(Arc::new(InnerStackedArrayElem { shape, elems, index })))
     }
 
     pub fn chunked<T>(&self, chunk_size: usize) -> StackedChunkedArrayElem<B, T>

@@ -41,22 +41,27 @@ impl WriteData for DataFrame {
         self.iter()
             .try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
 
-        // Create an index as python anndata package enforce it.
-        //DataFrameIndex::from(self.height()).write(&container)?;
-        Ok(DataContainer::Group(group))
+        let container = DataContainer::Group(group);
+
+        // Create an index as the python anndata package enforce it. This is not used by this library
+        DataFrameIndex::from(self.height()).overwrite(container)
     }
 
-    fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
+    fn overwrite<B: Backend>(&self, mut container: DataContainer<B>) -> Result<DataContainer<B>> {
         if let Ok(index_name) = container.read_str_attr("_index") {
             for obj in container.as_group()?.list()? {
                 if obj != index_name {
                     container.as_group()?.delete(&obj)?;
                 }
             }
+            if container.as_group()?.open_dataset(&index_name)?.shape()[0] != self.height() {
+                container = DataFrameIndex::from(self.height()).overwrite(container)?;
+            }
         } else {
             for obj in container.as_group()?.list()? {
                 container.as_group()?.delete(&obj)?;
             }
+            container = DataFrameIndex::from(self.height()).overwrite(container)?;
         }
 
         let columns: Array1<String> = self
@@ -67,6 +72,8 @@ impl WriteData for DataFrame {
         container.write_array_attr("column-order", &columns)?;
         self.iter()
             .try_for_each(|x| x.write(container.as_group()?, x.name()).map(|_| ()))?;
+        container.write_str_attr("encoding-type", "dataframe")?;
+        container.write_str_attr("encoding-version", "0.2.0")?;
 
         Ok(container)
     }
@@ -335,6 +342,10 @@ impl DataFrameIndex {
             index_name: "index".to_string(),
             index: Index::empty(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
     }
 
     pub fn len(&self) -> usize {
