@@ -5,7 +5,7 @@ mod array;
 
 pub use dataframe::{PyDataFrame, PySeries};
 pub(crate) use instance::*;
-pub(crate) use slice::{to_select_info, to_select_elem};
+pub use slice::{to_select_info, to_select_elem};
 
 use polars::prelude::DataFrame;
 use std::{collections::HashMap, ops::Deref};

@@ -12,10 +12,16 @@ where
     T: AnnDataOp,
 {
     let adata = adata_gen();
+    
     let arr = Array2::<i32>::zeros((0, 0));
-    let arr2 = Array2::<i32>::zeros((10, 20));
     adata.set_x(&arr).unwrap();
+
+    // Adding matrices with wrong shapes should fail
+    let arr2 = Array2::<i32>::zeros((10, 20));
     assert!(adata.obsm().add("test", &arr2).is_err());
+
+    // Automatical data type casting
+    adata.x().get::<Array2<f64>>().unwrap().unwrap();
 }
 
 fn test_io<F, T>(adata_gen: F)
