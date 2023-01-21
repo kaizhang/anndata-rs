@@ -54,7 +54,8 @@ impl WriteData for DataFrame {
                     container.as_group()?.delete(&obj)?;
                 }
             }
-            if container.as_group()?.open_dataset(&index_name)?.shape()[0] != self.height() {
+            let n = self.height();
+            if n != 0 && n != container.as_group()?.open_dataset(&index_name)?.shape()[0] {
                 container = DataFrameIndex::from(self.height()).overwrite(container)?;
             }
         } else {
