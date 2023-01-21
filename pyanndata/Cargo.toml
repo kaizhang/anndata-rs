@@ -16,13 +16,13 @@ anndata = { path = "../anndata" }
 anndata-hdf5 = { path = "../anndata-hdf5" }
 anyhow = "1.0"
 downcast-rs = "1.2"
-numpy = "0.17.2"
+numpy = "0.18.0"
 ndarray = "0.15"
-nalgebra-sparse = "0.8"
+nalgebra-sparse = "0.9"
 hdf5 = "0.8"
-polars = { version = "0.25", features = ["ndarray"] }
-polars-core = "0.25"
-polars-arrow = "0.25"
+polars = { version = "0.26", features = ["ndarray"] }
+polars-core = "0.26"
+polars-arrow = "0.26"
 thiserror = "1.0"
 rand = "0.8"
 flate2 = "1.0"
@@ -31,7 +31,7 @@ parking_lot = "0.12"
 rayon = "1.5"
 
 [dependencies.pyo3]
-version = "0.17.3"
+version = "0.18.0"
 features = ["extension-module", "multiple-pymethods", "anyhow"]
 
 [lib]

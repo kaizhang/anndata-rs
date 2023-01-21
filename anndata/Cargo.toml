@@ -16,9 +16,9 @@ flate2 = "1.0"
 indexmap = { version = "1.8", features = ["rayon"] }
 itertools = "0.10"
 ndarray = { version = "0.15" }
-nalgebra-sparse = "0.8"
+nalgebra-sparse = "0.9"
 num = "0.4"
-polars = { version = "0.25", features = ["lazy", "decompress", "ndarray", "dtype-full"] }
+polars = { version = "0.26", features = ["lazy", "decompress", "ndarray", "dtype-full"] }
 parking_lot = "0.12"
 replace_with = "0.1"
 smallvec = "1.10"
@@ -33,7 +33,7 @@ criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_sup
 proptest = "1"
 rand = "0.8.5"
 ndarray-rand = "0.14"
-nalgebra = { version = "0.31", features = ["rand"] }
+nalgebra = { version = "0.32", features = ["rand"] }
 
 [[bench]]
 name = "main"
