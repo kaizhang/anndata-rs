@@ -50,6 +50,33 @@ macro_rules! impl_into_dyn_csr {
     };
 }
 
+impl From<CsrMatrix<f64>> for DynCsrMatrix {
+    fn from(data: CsrMatrix<f64>) -> Self {
+        DynCsrMatrix::F64(data)
+    }
+}
+
+impl TryFrom<DynCsrMatrix> for CsrMatrix<f64> {
+    type Error = anyhow::Error;
+    fn try_from(data: DynCsrMatrix) -> Result<Self> {
+        match data {
+            DynCsrMatrix::F64(data) => Ok(data),
+            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I64(_) => bail!("Cannot convert i64 to f64"),
+            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::U32(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::U64(_) => bail!("Cannot convert u64 to f64"),
+            DynCsrMatrix::Usize(_) => bail!("Cannot convert usize to f64"),
+            DynCsrMatrix::F32(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
+            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
+        }
+    }
+}
+
 impl_into_dyn_csr!(i8, I8);
 impl_into_dyn_csr!(i16, I16);
 impl_into_dyn_csr!(i32, I32);
@@ -60,7 +87,6 @@ impl_into_dyn_csr!(u32, U32);
 impl_into_dyn_csr!(u64, U64);
 impl_into_dyn_csr!(usize, Usize);
 impl_into_dyn_csr!(f32, F32);
-impl_into_dyn_csr!(f64, F64);
 impl_into_dyn_csr!(bool, Bool);
 impl_into_dyn_csr!(String, String);
 
@@ -524,6 +550,22 @@ impl<T: BackendData> WriteArrayData for CsrMatrix<T> {}
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
+
+fn cast_csr<T, U>(csr: CsrMatrix<T>) -> Result<CsrMatrix<U>>
+where
+    T: TryInto<U>,
+    <T as TryInto<U>>::Error: std::error::Error + Sync + Send + 'static,
+{
+    let (pattern, values) = csr.into_pattern_and_values();
+    Ok(CsrMatrix::try_from_pattern_and_values(pattern, cast_vec(values)?).unwrap())
+}
+
+fn cast_vec<T, U>(v: Vec<T>) -> Result<Vec<U>, <T as TryInto<U>>::Error>
+where
+    T: TryInto<U>,
+{
+    v.into_iter().map(|x| x.try_into()).collect()
+}
 
 fn read_array_as_usize<B: Backend>(container: &B::Dataset) -> Result<Vec<usize>> {
     match container.dtype()? {

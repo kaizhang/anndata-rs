@@ -1,4 +1,4 @@
-use crate::{data::array::DataFrameIndex, AnnData, AnnDataOp, ArrayData, Backend};
+use crate::{data::array::DataFrameIndex, AnnDataOp, ArrayData};
 
 use anyhow::Result;
 use flate2::read::MultiGzDecoder;
