@@ -10,7 +10,7 @@ use anyhow::{bail, Result, Ok};
 use hdf5::{
     dataset::Dataset,
     types::IntSize::*,
-    types::{FloatSize, TypeDescriptor, VarLenAscii, VarLenUnicode},
+    types::{FloatSize, TypeDescriptor, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
 use ndarray::{Array, ArrayView, Dimension, SliceInfo, ArrayBase};

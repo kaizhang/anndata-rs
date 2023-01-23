@@ -41,7 +41,7 @@ use std::path::PathBuf;
     read_dataset
 */
 #[pyclass]
-#[pyo3(text_signature = "(adatas, filename, add_key, backend, /)")]
+#[pyo3(text_signature = "(adatas, *, filename, add_key, backend, /)")]
 #[repr(transparent)]
 pub struct AnnDataSet(Box<dyn AnnDataSetTrait>);
 
@@ -109,13 +109,7 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[args(
-        adatas,
-        "*",
-        filename,
-        add_key = "\"sample\"",
-        backend = "None",
-    )]
+    #[pyo3(signature = (adatas, *filename, add_key="sample", backend=None))]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
@@ -341,8 +335,10 @@ impl AnnDataSet {
     }
 
     /// Convert AnnDataSet to AnnData object.
-    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
-    #[args(copy_x = "true")]
+    #[pyo3(
+        signature = (obs_indices, var_indices, copy_x=true, file=None, backend=None),
+        text_signature = "(obs_indices, var_indices, copy_x=True, file=None, backed=None)",
+    )]
     pub fn to_adata(
         &self,
         py: Python<'_>,
@@ -366,9 +362,11 @@ impl AnnDataSet {
     /// ----------
     /// chunk_size : int
     ///     Row size of a single chunk. Default: 500.
-    #[args(chunk_size = "500")]
-    #[pyo3(text_signature = "($self, chunk_size, /)")]
-    #[pyo3(name = "chunked_X")]
+    #[pyo3(
+        signature = (chunk_size=500, /),
+        text_signature = "(chunk_size=500, /)",
+        name = "chunked_X",
+    )]
     pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
         self.0.chunked_x(chunk_size)
     }

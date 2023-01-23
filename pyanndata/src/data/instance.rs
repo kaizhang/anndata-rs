@@ -81,8 +81,11 @@ pub fn is_list_of_strings<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<boo
 }
 
 pub fn is_none_slice<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    Ok(is_ellipsis(py, obj)?
-        || (is_slice(obj)? && obj.eq(py.eval("slice(None, None, None)", None, None)?)?))
+    Ok(
+        obj.is_none() ||
+        is_ellipsis(py, obj)? ||
+        (is_slice(obj)? && obj.eq(py.eval("slice(None, None, None)", None, None)?)?)
+    )
 }
 
 fn is_slice<'py>(obj: &'py PyAny) -> PyResult<bool> {

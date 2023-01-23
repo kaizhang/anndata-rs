@@ -1,15 +1,15 @@
 mod ndarray;
 pub mod slice;
 pub mod dataframe;
-mod sparse;
 mod utils;
+mod sparse;
 mod chunks;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::DynCsrMatrix;
 pub use dataframe::DataFrameIndex;
-pub use utils::concat_array_data;
+pub use utils::{concat_array_data, from_csr_rows};
 pub use chunks::ArrayChunk;
 
 use crate::backend::*;

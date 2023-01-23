@@ -1,7 +1,9 @@
+use crate::data::from_csr_rows;
 use crate::{data::array::DataFrameIndex, AnnDataOp, ArrayData};
 
 use anyhow::Result;
 use flate2::read::MultiGzDecoder;
+use itertools::Itertools;
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use std::path::Path;
 use std::{error::Error, fmt, io};
@@ -14,6 +16,7 @@ pub struct MMReader {
     reader: Box<dyn BufRead>,
     obs_names: Option<DataFrameIndex>,
     var_names: Option<DataFrameIndex>,
+    sorted: bool,
 }
 
 impl MMReader {
@@ -22,6 +25,7 @@ impl MMReader {
             reader: open_file(path)?,
             obs_names: None,
             var_names: None,
+            sorted: false,
         })
     }
 
@@ -45,8 +49,26 @@ impl MMReader {
         Ok(self)
     }
 
+    pub fn is_sorted(mut self) -> Self {
+        self.sorted = true;
+        self
+    }
+
     pub fn finish<O: AnnDataOp>(mut self, output: &O) -> Result<()> {
-        output.set_x(read_matrix_market_from_bufread(&mut self.reader)?)?;
+        if self.sorted {
+            let (_, cols, iter) = read_sorted_mm_body_from_bufread::<_, f64>(&mut self.reader);
+            output.set_x_from_iter(
+                iter
+                    .group_by(|x| x.0)
+                    .into_iter()
+                    .map(|x| x.1.map(|(_, j, v)| (j, v)).collect::<Vec<_>>())
+                    .chunks(2000)
+                    .into_iter()
+                    .map(|x| from_csr_rows(x.into_iter().collect::<Vec<_>>(), cols))
+            )?;
+        } else {
+            output.set_x(read_matrix_market_from_bufread(&mut self.reader)?)?;
+        }
         if let Some(obs_names) = self.obs_names {
             output.set_obs_names(obs_names)?;
         }
@@ -223,10 +245,10 @@ where
             panic!("BadMatrixMarketFile");
         }
         (row, col, val)
-    })
-    .take(entries);
+    }).take(entries);
     (rows, cols, iter)
 }
+
 
 fn read_matrix_market_from_bufread<R>(reader: &mut R) -> Result<ArrayData, IoError>
 where

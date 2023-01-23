@@ -7,10 +7,11 @@ use crate::data::{
     BoundedSelectInfo, BoundedSelectInfoElem,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::Ix1;
+use num::FromPrimitive;
 
 use super::slice::BoundedSlice;
 
@@ -64,7 +65,7 @@ impl TryFrom<DynCsrMatrix> for CsrMatrix<f64> {
             DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
             DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
             DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I64(_) => bail!("Cannot convert i64 to f64"),
+            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
             DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
             DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
             DynCsrMatrix::U32(data) => Ok(cast_csr(data)?),
@@ -531,6 +532,7 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
             .into())
     }
 
+    // TODO: efficient implementation for slice
     fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
     where
         B: Backend,
@@ -539,7 +541,29 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
         if info.as_ref().len() != 2 {
             panic!("index must have length 2");
         }
-        Ok(Self::read(container)?.select(info))
+
+        let data = if info[0].as_ref().is_slice() {
+            let group = container.as_group()?;
+            let mut indptr: Vec<usize> = group 
+                .open_dataset("indptr")?
+                .read_array_slice(&[info[0].as_ref()])?
+                .to_vec();
+            let lo = indptr[0];
+            let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
+            let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
+            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
+            indptr.iter_mut().for_each(|x| *x -= lo);
+            CsrMatrix::try_from_csr_data(
+                indptr.len() - 1,
+                Self::get_shape(container)?[1],
+                indptr,
+                indices,
+                data,
+            ).unwrap().select_axis(1, info[1].as_ref())
+        } else {
+            Self::read(container)?.select(info)
+        };
+        Ok(data)
     }
 }
 
@@ -557,14 +581,21 @@ where
     <T as TryInto<U>>::Error: std::error::Error + Sync + Send + 'static,
 {
     let (pattern, values) = csr.into_pattern_and_values();
-    Ok(CsrMatrix::try_from_pattern_and_values(pattern, cast_vec(values)?).unwrap())
+    let out = CsrMatrix::try_from_pattern_and_values(
+        pattern,
+        values.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?,
+    ).unwrap();
+    Ok(out)
 }
 
-fn cast_vec<T, U>(v: Vec<T>) -> Result<Vec<U>, <T as TryInto<U>>::Error>
-where
-    T: TryInto<U>,
+fn from_i64_csr<U: FromPrimitive>(csr: CsrMatrix<i64>) -> Result<CsrMatrix<U>>
 {
-    v.into_iter().map(|x| x.try_into()).collect()
+    let (pattern, values) = csr.into_pattern_and_values();
+    let out = CsrMatrix::try_from_pattern_and_values(
+        pattern,
+        values.into_iter().map(|x| U::from_i64(x).context("cannot convert from i64")).collect::<Result<_>>()?,
+    ).unwrap();
+    Ok(out)
 }
 
 fn read_array_as_usize<B: Backend>(container: &B::Dataset) -> Result<Vec<usize>> {

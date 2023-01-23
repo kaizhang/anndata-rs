@@ -160,6 +160,29 @@ pub fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatri
     CsrMatrix::try_from_pattern_and_values(pattern, data).unwrap()
 }
 
+pub fn from_csr_rows<I, In, T>(iter: I, num_cols: usize) -> CsrMatrix<T>
+where
+    I: IntoIterator<IntoIter = In>,
+    In: ExactSizeIterator<Item = Vec<(usize, T)>>,
+{
+    let rows = iter.into_iter();
+    let num_rows = rows.len();
+    let mut data = Vec::new();
+    let mut indices = Vec::new();
+    let mut indptr = Vec::with_capacity(num_rows + 1);
+    let mut nnz = 0;
+    for row in rows {
+        indptr.push(nnz);
+        for (col, val) in row {
+            data.push(val);
+            indices.push(col);
+            nnz += 1;
+        }
+    }
+    indptr.push(nnz);
+    CsrMatrix::try_from_csr_data(num_rows, num_cols, indptr, indices, data).unwrap()
+}
+
 pub fn cs_major_index<I, T>(
     major_indices: I,
     offsets: &[usize],

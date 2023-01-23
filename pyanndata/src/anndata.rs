@@ -51,7 +51,10 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
 /// obs_names
 /// var_names
 #[pyfunction]
-#[pyo3(text_signature = "(mtx_file, *, obs_names, var_names, file, backend, /)")]
+#[pyo3(
+    signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false),
+    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false)",
+)]
 pub fn read_mtx(
     py: Python<'_>,
     mtx_file: PathBuf,
@@ -59,6 +62,7 @@ pub fn read_mtx(
     var_names: Option<PathBuf>,
     file: Option<PathBuf>,
     backend: Option<&str>,
+    sorted: bool,
 ) -> Result<PyObject> {
     let mut reader = anndata::reader::MMReader::from_path(mtx_file)?;
     if let Some(obs_names) = obs_names {
@@ -66,6 +70,9 @@ pub fn read_mtx(
     }
     if let Some(var_names) = var_names {
         reader = reader.var_names(var_names)?;
+    }
+    if sorted {
+        reader = reader.is_sorted();
     }
     if let Some(file) =  file {
         match backend.unwrap_or(H5::NAME) {
