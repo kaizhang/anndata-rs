@@ -26,8 +26,11 @@ use anyhow::Result;
 ///     If `'r+'`, the file is opened in read/write mode.
 ///     If `None`, the AnnData object is read into memory.
 /// backend: Literal['hdf5'] | None
-#[pyfunction(backed = "\"r+\"", backend = "None")]
-#[pyo3(text_signature = "(filename, backed, backend /)")]
+#[pyfunction]
+#[pyo3(
+    signature = (filename, backed="r+", backend=None),
+    text_signature = "(filename, backed='r+', backend=None)",
+)]
 pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: Option<&str>) -> Result<PyObject> {
     let adata = match backed {
         Some(m) => AnnData::open(filename, m, backend).unwrap().into_py(py),
@@ -108,8 +111,11 @@ pub fn read_mtx(
 /// Returns
 /// -------
 /// AnnDataSet
-#[pyfunction(update_data_locations = "None", mode = "\"r+\"")]
-#[pyo3(text_signature = "(filename, update_data_locations, mode, backend, /)")]
+#[pyfunction]
+#[pyo3(
+    signature = (filename, *, update_data_locations=None, mode="r+", backend=None),
+    text_signature = "(filename, *, update_data_locations=None, mode='r+', backend=None)",
+)]
 pub fn read_dataset(
     filename: PathBuf,
     update_data_locations: Option<HashMap<String, String>>,

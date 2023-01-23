@@ -137,17 +137,7 @@ impl<B: Backend + 'static> From<anndata::AnnData<B>> for AnnData {
 #[pymethods]
 impl AnnData {
     #[new]
-    #[args(
-        "*",
-        filename,
-        X = "None",
-        obs = "None",
-        var = "None",
-        obsm = "None",
-        varm = "None",
-        uns = "None",
-        backend = "None",
-    )]
+    #[pyo3(signature = (*, filename, X=None, obs=None, var=None, obsm=None, varm=None, uns=None, backend=None))]
     pub fn new(
         filename: PathBuf,
         X: Option<PyArrayData>,
@@ -383,8 +373,10 @@ impl AnnData {
     /// Returns
     /// -------
     /// PyChunkedMatrix
-    #[args(chunk_size = "500")]
-    #[pyo3(text_signature = "($self, chunk_size, /)")]
+    #[pyo3(
+        signature = (chunk_size=500),
+        text_signature = "(chunk_size=500)",
+    )]
     #[pyo3(name = "chunked_X")]
     pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
         self.0.chunked_x(chunk_size)

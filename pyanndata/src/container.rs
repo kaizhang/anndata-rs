@@ -98,8 +98,10 @@ impl PyArrayElem {
     /// Returns
     /// -------
     /// A array
-    #[args(replace = true, seed = 2022)]
-    #[pyo3(text_signature = "($self, size, replace, seed)")]
+    #[pyo3(
+        signature = (size, replace=true, seed=2022),
+        text_signature = "($self, size, replace=True, seed=2022)",
+    )]
     fn chunk(
         &self,
         size: usize,
