@@ -516,9 +516,9 @@ impl<T: BackendData> ReadData for CsrMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-        let data = group.open_dataset("data")?.read_array()?.to_vec();
-        let indices: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indices")?)?;
-        let indptr: Vec<usize> = read_array_as_usize::<B>(&group.open_dataset("indptr")?)?;
+        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
+        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
+        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
         Ok(CsrMatrix::try_from_csr_data(shape[0], shape[1], indptr, indices, data).unwrap())
     }
 }
@@ -542,11 +542,20 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
             panic!("index must have length 2");
         }
 
-        let data = if info[0].as_ref().is_slice() {
+        if info.iter().all(|s| s.as_ref().is_full()) {
+            return Self::read(container);
+        }
+
+        let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
             let group = container.as_group()?;
+            let indptr_slice = if let Some(end) = s.end {
+                SelectInfoElem::from(s.start .. end + 1)
+            } else {
+                SelectInfoElem::from(s.start ..)
+            };
             let mut indptr: Vec<usize> = group 
                 .open_dataset("indptr")?
-                .read_array_slice(&[info[0].as_ref()])?
+                .read_array_slice(&[indptr_slice])?
                 .to_vec();
             let lo = indptr[0];
             let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
@@ -596,45 +605,6 @@ fn from_i64_csr<U: FromPrimitive>(csr: CsrMatrix<i64>) -> Result<CsrMatrix<U>>
         values.into_iter().map(|x| U::from_i64(x).context("cannot convert from i64")).collect::<Result<_>>()?,
     ).unwrap();
     Ok(out)
-}
-
-fn read_array_as_usize<B: Backend>(container: &B::Dataset) -> Result<Vec<usize>> {
-    match container.dtype()? {
-        ScalarType::U8 => Ok(container
-            .read_array::<u8, Ix1>()?
-            .map(|x| *x as usize)
-            .to_vec()),
-        ScalarType::U16 => Ok(container
-            .read_array::<u16, Ix1>()?
-            .map(|x| *x as usize)
-            .to_vec()),
-        ScalarType::U32 => Ok(container
-            .read_array::<u32, Ix1>()?
-            .map(|x| *x as usize)
-            .to_vec()),
-        ScalarType::U64 => Ok(container
-            .read_array::<u64, Ix1>()?
-            .map(|x| *x as usize)
-            .to_vec()),
-        ScalarType::Usize => Ok(container.read_array::<usize, Ix1>()?.to_vec()),
-        ScalarType::I8 => Ok(container
-            .read_array::<i8, Ix1>()?
-            .map(|x| usize::try_from(*x).unwrap())
-            .to_vec()),
-        ScalarType::I16 => Ok(container
-            .read_array::<i16, Ix1>()?
-            .map(|x| usize::try_from(*x).unwrap())
-            .to_vec()),
-        ScalarType::I32 => Ok(container
-            .read_array::<i32, Ix1>()?
-            .map(|x| usize::try_from(*x).unwrap())
-            .to_vec()),
-        ScalarType::I64 => Ok(container
-            .read_array::<i64, Ix1>()?
-            .map(|x| usize::try_from(*x).unwrap())
-            .to_vec()),
-        ty => bail!("cannot cast array type {} to usize", ty),
-    }
 }
 
 #[cfg(test)]

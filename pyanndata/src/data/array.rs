@@ -138,7 +138,7 @@ impl IntoPython for DynCsrMatrix {
         fn helper<T: numpy::Element>(csr: CsrMatrix<T>, py: Python<'_>) -> PyResult<PyObject> {
             let n = csr.nrows();
             let m = csr.ncols();
-            let (intptr, indices, data) = csr.disassemble();
+            let (indptr, indices, data) = csr.disassemble();
             let scipy = PyModule::import(py, "scipy.sparse")?;
             Ok(scipy
                 .getattr("csr_matrix")?
@@ -146,7 +146,7 @@ impl IntoPython for DynCsrMatrix {
                     (
                         data.into_pyarray(py),
                         indices.into_pyarray(py),
-                        intptr.into_pyarray(py),
+                        indptr.into_pyarray(py),
                     ),
                     (n, m),
                 ))?

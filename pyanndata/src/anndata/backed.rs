@@ -68,12 +68,12 @@ impl Clone for AnnData {
 }
 
 impl AnnData {
-    pub fn take_inner<B: Backend + 'static>(&self) -> Option<anndata::AnnData<B>> {
+    pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnData<B>> {
         self.0.downcast_ref::<Slot<anndata::AnnData<B>>>()
             .expect("downcast to anndata failed").extract()
     }
 
-    pub fn inner_ref<B: Backend + 'static>(&self) -> anndata::container::Inner<'_, anndata::AnnData<B>> {
+    pub fn inner_ref<B: Backend>(&self) -> anndata::container::Inner<'_, anndata::AnnData<B>> {
         self.0.downcast_ref::<Slot<anndata::AnnData<B>>>().expect("downcast to anndata failed").inner()
     }
 
@@ -128,7 +128,7 @@ impl AnnData {
     }
 }
 
-impl<B: Backend + 'static> From<anndata::AnnData<B>> for AnnData {
+impl<B: Backend> From<anndata::AnnData<B>> for AnnData {
     fn from(adata: anndata::AnnData<B>) -> Self {
         AnnData(Box::new(Slot::new(adata)))
     }

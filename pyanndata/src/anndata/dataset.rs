@@ -29,6 +29,8 @@ use std::path::PathBuf;
         File name of the output file containing the AnnDataSet object.
     add_key: str
         The column name in obs to store the keys
+    backend: str
+        The backend to use for the AnnDataSet object.
 
     Note
     ----
@@ -41,7 +43,7 @@ use std::path::PathBuf;
     read_dataset
 */
 #[pyclass]
-#[pyo3(text_signature = "(adatas, *, filename, add_key, backend, /)")]
+#[pyo3(text_signature = "(adatas, *, filename, add_key, backend)")]
 #[repr(transparent)]
 pub struct AnnDataSet(Box<dyn AnnDataSetTrait>);
 
@@ -61,6 +63,10 @@ impl AnnDataSet {
     pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnDataSet<B>> {
         self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>()
             .expect("downcast to AnnDataSet failed").extract()
+    }
+
+    pub fn inner_ref<B: Backend>(&self) -> anndata::container::Inner<'_, anndata::AnnDataSet<B>> {
+        self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>().expect("downcast to AnnDataSet failed").inner()
     }
 
     fn select_obs(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
@@ -109,7 +115,7 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[pyo3(signature = (adatas, *filename, add_key="sample", backend=None))]
+    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=None))]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
