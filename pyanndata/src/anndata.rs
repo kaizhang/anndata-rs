@@ -49,14 +49,21 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
 ///
 /// mtx_file
 ///     File name of the input matrix market file.
+/// obs_names
+///     File that stores the observation names.
+/// var_names
+///     File that stores the variable names.
 /// file
 ///     File name of the output ".h5ad" file.
-/// obs_names
-/// var_names
+/// backend
+///     Backend to use for writing the output file.
+/// sorted
+///     If true, the input matrix is assumed to be sorted by rows.
+///     Sorted input matrix can be read faster.
 #[pyfunction]
 #[pyo3(
     signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false),
-    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false)",
+    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=False)",
 )]
 pub fn read_mtx(
     py: Python<'_>,

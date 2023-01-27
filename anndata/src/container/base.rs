@@ -757,28 +757,23 @@ impl<B: Backend> StackedDataFrame<B> {
     }
 
     pub fn data(&self) -> Result<DataFrame> {
-        let mut merged = DataFrame::empty();
-        self.elems.iter().try_for_each(|el| {
-            if let Some(el) = el.lock().as_mut() {
-                merged.vstack_mut(el.data()?)?;
-            }
-            Ok::<(), anyhow::Error>(())
-        })?;
-        merged.rechunk();
-        Ok(merged)
-    }
-
-    pub fn par_data(&self) -> Result<DataFrame> {
-        let dfs = self
-            .elems
-            .par_iter()
-            .flat_map(|el| {
-                el.lock()
-                    .as_mut()
-                    .map(|el| el.data().unwrap().clone().lazy())
-            })
-            .collect::<Vec<_>>();
-        Ok(concat(&dfs, true, true)?.collect()?)
+        let df = if self.column_names.is_empty() || self.elems.is_empty() {
+            DataFrame::empty()
+        } else {
+            let mut elems = self.elems.iter();
+            let mut columns = elems.next().unwrap().inner().data()?
+                .columns(self.column_names.iter())?.into_iter().cloned().collect::<Vec<_>>();
+            elems.try_for_each(|el| {
+                let mut inner = el.inner();
+                let col = inner.data()?.columns(self.column_names.iter())?;
+                columns.iter_mut().zip(col.into_iter()).try_for_each(|(a, b)| {
+                    a.append(b)?;
+                    Ok::<_, anyhow::Error>(())
+                })
+            })?;
+            DataFrame::new(columns)?
+        };
+        Ok(df)
     }
 
     pub fn select<S>(&self, selection: &[S]) -> Result<DataFrame>
@@ -812,6 +807,7 @@ impl<B: Backend> StackedDataFrame<B> {
         }
     }
 
+    // TODO: this is not efficient, we should use the index to select the columns
     pub fn column(&self, name: &str) -> Result<Series> {
         if self.column_names.contains(name) {
             Ok(self.data()?.column(name)?.clone())

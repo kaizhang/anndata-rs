@@ -116,9 +116,21 @@ def test_chunk(tmp_path):
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     # Setup
-    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
-    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
-    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    adata1 = AnnData(
+        X=x1,
+        obs = dict(ident=list(map(lambda x: str(x), range(x1.shape[0])))),
+        filename=h5ad(tmp_path)
+    )
+    adata2 = AnnData(
+        X=x2,
+        obs = dict(ident=list(map(lambda x: str(x), range(x2.shape[0])))),
+        filename=h5ad(tmp_path),
+    )
+    adata3 = AnnData(
+        X=x3,
+        obs = dict(ident=list(map(lambda x: str(x), range(x3.shape[0])))),
+        filename=h5ad(tmp_path),
+    )
     merged = np.concatenate([x1, x2, x3], axis=0)
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],

@@ -170,7 +170,7 @@ impl<B: Backend> AnnDataSet<B> {
         }
         { // Set OBS.
             let obs_names: DataFrameIndex = anndatas.values().flat_map(|x| x.obs_names().into_iter()).collect();
-            if !obs_names.is_empty() {
+            if !obs_names.is_empty() && obs_names.len() == n_obs {
                 annotation.set_obs_names(obs_names)?;
             }
             let keys = Series::new(
