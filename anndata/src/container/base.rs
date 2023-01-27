@@ -694,11 +694,20 @@ impl<B: Backend> ArrayElem<B> {
 }
 
 /// Horizontal concatenated dataframe elements.
-#[derive(Clone)]
 pub struct StackedDataFrame<B: Backend> {
     column_names: IndexSet<String>,
     elems: Arc<Vec<DataFrameElem<B>>>,
     index: VecVecIndex,
+}
+
+impl<B: Backend> Clone for StackedDataFrame<B> {
+    fn clone(&self) -> Self {
+        Self {
+            column_names: self.column_names.clone(),
+            elems: self.elems.clone(),
+            index: self.index.clone(),
+        }
+    }
 }
 
 impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
@@ -712,6 +721,10 @@ impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
 }
 
 impl<B: Backend> StackedDataFrame<B> {
+    pub fn is_empty(&self) -> bool {
+        self.elems.iter().all(|x| x.is_empty())
+    }
+
     pub fn width(&self) -> usize {
         self.column_names.len()
     }

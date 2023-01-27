@@ -515,10 +515,18 @@ impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
 }
 
 /// Stacked axis arrays, providing Read-only access to the data.
-#[derive(Clone)]
 pub struct StackedAxisArrays<B: Backend> {
     axis: Axis,
     data: Arc<HashMap<String, StackedArrayElem<B>>>,
+}
+
+impl<B: Backend> Clone for StackedAxisArrays<B> {
+    fn clone(&self) -> Self {
+        Self {
+            axis: self.axis,
+            data: self.data.clone(),
+        }
+    }
 }
 
 impl<B: Backend> Deref for StackedAxisArrays<B> {

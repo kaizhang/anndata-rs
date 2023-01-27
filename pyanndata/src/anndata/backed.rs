@@ -775,3 +775,72 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Box::new(self.clone())
     }
 }
+
+
+#[pyclass]
+#[repr(transparent)]
+pub struct StackedAnnData(Box<dyn StackedAnnDataTrait>);
+
+impl<B: Backend> From<Slot<anndata::StackedAnnData<B>>> for StackedAnnData {
+    fn from(x: Slot<anndata::StackedAnnData<B>>) -> Self {
+        Self(Box::new(x))
+    }
+}
+
+#[pymethods]
+impl StackedAnnData {
+    /// :class:`.PyDataFrame`.
+    #[getter(obs)]
+    fn get_obs(&self) -> Option<PyDataFrameElem> {
+        self.0.get_obs()
+    }
+
+    /// :class:`.PyAxisArrays`.
+    #[getter(obsm)]
+    fn get_obsm(&self) -> Option<PyAxisArrays> {
+        self.0.get_obsm()
+    }
+
+    fn __repr__(&self) -> String {
+        self.0.show()
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+trait StackedAnnDataTrait: Send + Downcast {
+    fn get_obs(&self) -> Option<PyDataFrameElem>;
+    fn get_obsm(&self) -> Option<PyAxisArrays>;
+    fn show(&self) -> String;
+}
+impl_downcast!(StackedAnnDataTrait);
+
+impl<B: Backend> StackedAnnDataTrait for Slot<anndata::StackedAnnData<B>> {
+    fn get_obs(&self) -> Option<PyDataFrameElem> {
+        let inner = self.inner();
+        let obs = inner.get_obs();
+        if obs.is_empty() {
+            None
+        } else {
+            Some(obs.clone().into())
+        }
+    }
+    fn get_obsm(&self) -> Option<PyAxisArrays> {
+        let inner = self.inner();
+        let obsm = inner.get_obsm();
+        if obsm.is_empty() {
+            None
+        } else {
+            Some(obsm.clone().into())
+        }
+    }
+    fn show(&self) -> String {
+        if self.is_empty() {
+            "Closed AnnData object".to_string()
+        } else {
+            format!("{}", self.inner().deref())
+        }
+    }
+}

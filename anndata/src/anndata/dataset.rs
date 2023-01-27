@@ -2,7 +2,7 @@ use crate::{
     traits::{AnnDataOp, ElemCollectionOp},
     anndata::AnnData,
     backend::Backend,
-    container::{Dim, Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
+    container::{Slot, Dim, Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
     data::*,
     data::index::VecVecIndex,
 };
@@ -12,12 +12,11 @@ use indexmap::map::IndexMap;
 use itertools::Itertools;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-use std::collections::HashSet;
-use std::{collections::HashMap, path::Path};
+use std::{collections::{HashSet, HashMap}, path::Path};
 
 pub struct AnnDataSet<B: Backend> {
     annotation: AnnData<B>,
-    anndatas: StackedAnnData<B>,
+    anndatas: Slot<StackedAnnData<B>>,
 }
 
 impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
@@ -29,12 +28,12 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
             self.n_vars(),
             self.annotation.filename().display(),
         )?;
-        if self.anndatas.len() > 0 {
+        if self.anndatas.inner().len() > 0 {
             write!(
                 f,
                 "\ncontains {} AnnData objects with keys: '{}'",
-                self.anndatas.len(),
-                self.anndatas.keys().join("', '")
+                self.anndatas.inner().len(),
+                self.anndatas.inner().keys().join("', '")
             )?;
         }
         if let Some(obs) = self
@@ -119,12 +118,8 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
 }
 
 impl<B: Backend> AnnDataSet<B> {
-    pub fn adatas(&self) -> &StackedAnnData<B> {
+    pub fn adatas(&self) -> &Slot<StackedAnnData<B>> {
         &self.anndatas
-    }
-
-    pub fn get_x(&self) -> &StackedArrayElem<B> {
-        self.anndatas.get_x()
     }
 
     pub fn get_anno(&self) -> &AnnData<B> {
@@ -191,7 +186,7 @@ impl<B: Backend> AnnDataSet<B> {
         }
         Ok(Self {
             annotation,
-            anndatas,
+            anndatas: Slot::new(anndatas),
         })
     }
 
@@ -238,7 +233,7 @@ impl<B: Backend> AnnDataSet<B> {
         }
         Ok(Self {
             annotation,
-            anndatas: StackedAnnData::new(anndatas.into_iter())?,
+            anndatas: Slot::new(StackedAnnData::new(anndatas.into_iter())?),
         })
     }
 
@@ -262,7 +257,7 @@ impl<B: Backend> AnnDataSet<B> {
         std::fs::create_dir_all(&anndata_dir)?;
 
         let (files, obs_idx_order) =
-            self.anndatas
+            self.anndatas.inner()
                 .write_select::<O, _, _>(&selection, &anndata_dir, ".h5ad")?;
 
         if let Some(order) = obs_idx_order.as_ref() {
@@ -301,7 +296,7 @@ impl<B: Backend> AnnDataSet<B> {
         let adata = AnnData::open(O::open_rw(&out)?)?;
         if copy_x {
             adata
-                .set_x_from_iter::<_, ArrayData>(self.anndatas.get_x().chunked(500).map(|x| x.0))?;
+                .set_x_from_iter::<_, ArrayData>(self.anndatas.inner().x.chunked(500).map(|x| x.0))?;
         }
         Ok(adata)
     }
@@ -315,7 +310,7 @@ impl<B: Backend> AnnDataSet<B> {
         self.annotation.write_select::<O, _, _>(&select, &out)?;
         let adata = AnnData::open(O::open_rw(&out)?)?;
         if copy_x {
-            let x: ArrayData = self.anndatas.get_x().select(select.as_ref())?.unwrap();
+            let x: ArrayData = self.anndatas.inner().x.select(select.as_ref())?.unwrap();
             adata.set_x(x)?;
         }
         Ok(adata)
@@ -325,9 +320,9 @@ impl<B: Backend> AnnDataSet<B> {
     pub fn into_adata(self, copy_x: bool) -> Result<AnnData<B>> {
         if copy_x {
             self.annotation
-                .set_x_from_iter::<_, ArrayData>(self.anndatas.get_x().chunked(500).map(|x| x.0))?;
+                .set_x_from_iter::<_, ArrayData>(self.anndatas.inner().x.chunked(500).map(|x| x.0))?;
         }
-        for ann in self.anndatas.elems.into_values() {
+        for ann in self.anndatas.extract().unwrap().elems.into_values() {
             ann.close()?;
         }
         Ok(self.annotation)
@@ -335,7 +330,7 @@ impl<B: Backend> AnnDataSet<B> {
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
-        for ann in self.anndatas.elems.into_values() {
+        for ann in self.anndatas.extract().unwrap().elems.into_values() {
             ann.close()?;
         }
         Ok(())
@@ -377,7 +372,7 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     type ElemCollectionRef<'a> = &'a ElemCollection<B>;
 
     fn x(&self) -> Self::X {
-        self.anndatas.x.clone()
+        self.anndatas.inner().x.clone()
     }
 
     fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, _iter: I) -> Result<()> {
@@ -393,10 +388,10 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     }
 
     fn n_obs(&self) -> usize {
-        self.anndatas.n_obs
+        self.anndatas.inner().n_obs
     }
     fn n_vars(&self) -> usize {
-        self.anndatas.n_vars
+        self.anndatas.inner().n_vars
     }
 
     fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
@@ -555,10 +550,23 @@ impl<B: Backend> StackedAnnData<B> {
         })
     }
 
+    pub fn n_obs(&self) -> usize {
+        self.n_obs
+    }
+
+    pub fn n_vars(&self) -> usize {
+        self.n_vars
+    }
+
     pub fn get_x(&self) -> &StackedArrayElem<B> {
         &self.x
     }
-    pub fn obsm(&self) -> &StackedAxisArrays<B> {
+
+    pub fn get_obs(&self) -> &StackedDataFrame<B> {
+        &self.obs
+    }
+
+    pub fn get_obsm(&self) -> &StackedAxisArrays<B> {
         &self.obsm
     }
 

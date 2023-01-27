@@ -16,6 +16,8 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use super::backed::StackedAnnData;
+
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
     and unstructured annotations `uns`. Additionally it provides lazy access to
@@ -340,6 +342,16 @@ impl AnnDataSet {
             .subset(&[i, j], out.unwrap(), backend)
     }
 
+    /// View into the component AnnData objects.
+    ///
+    /// Returns
+    /// -------
+    /// StackedAnnData
+    #[getter(adatas)]
+    pub fn adatas(&self) -> StackedAnnData {
+        self.0.get_adatas()
+    }
+
     /// Convert AnnDataSet to AnnData object.
     #[pyo3(
         signature = (obs_indices, var_indices, copy_x=true, file=None, backend=None),
@@ -450,6 +462,8 @@ trait AnnDataSetTrait: Send + Downcast {
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
 
+    fn get_adatas(&self) -> StackedAnnData;
+
     fn subset(
         &self,
         slice: &[SelectInfoElem],
@@ -516,7 +530,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
-        Some(self.inner().get_x().clone().into())
+        Some(self.inner().x().into())
     }
     fn get_obs(&self) -> Option<PyDataFrameElem> {
         let inner = self.inner();
@@ -646,6 +660,10 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         Ok(())
     }
 
+    fn get_adatas(&self) -> StackedAnnData {
+        self.inner().adatas().clone().into()
+    }
+
     fn subset(
         &self,
         slice: &[SelectInfoElem],
@@ -762,7 +780,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     }
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
-        self.inner().get_x().chunked(chunk_size).into()
+        self.inner().x().chunked(chunk_size).into()
     }
 
     fn backend(&self) -> &str {
