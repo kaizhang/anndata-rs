@@ -5,6 +5,18 @@ use proptest::prelude::*;
 use anndata::*;
 use anndata_hdf5::H5;
 
+fn test_basic<B: Backend>() {
+    with_tmp_dir(|dir| {
+        let ann1 = AnnData::<B>::new(dir.join("test1.h5ad")).unwrap();
+        let ann2 = AnnData::<B>::new(dir.join("test2.h5ad")).unwrap();
+        AnnDataSet::<B>::new(
+            [("ann1", ann1), ("ann2", ann2)],
+            dir.join("dataset.h5ads"),
+            "sample",
+        ).unwrap();
+    })
+}
+
 fn test_save<B: Backend>() {
     with_tmp_dir(|dir| {
         let input = dir.join("input.h5ad");
@@ -33,6 +45,11 @@ fn test_save<B: Backend>() {
             adata_in.close().unwrap();
         });
     });
+}
+
+#[test]
+fn test_basic_h5() {
+    test_basic::<H5>()
 }
 
 #[test]

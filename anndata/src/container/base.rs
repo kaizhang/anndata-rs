@@ -1079,18 +1079,18 @@ impl<B: Backend> StackedArrayElem<B> {
 
         let shapes: Vec<_> = elems
             .iter()
-            .map(|x| x.inner().shape().clone())
+            .map(|x| x.lock().as_ref().map(|x| x.shape().clone()))
             .collect();
         ensure!(
-            shapes.iter().map(|x| &x.as_ref()[1..]).all_equal(),
+            shapes.iter().map(|x| x.as_ref().map(|s| &s.as_ref()[1..])).all_equal(),
             "all elements must have the same shape except for the first axis"
         );
-        let index: VecVecIndex = shapes.iter().map(|x| x.as_ref()[0]).collect();
-        let shape = shapes.get(0).map(|x| {
-            let mut s = x.clone();
-            s[0] = index.len();
-            s
-        });
+        let index: VecVecIndex = shapes.iter().flatten().map(|x| x.as_ref()[0]).collect();
+        let shape = shapes.get(0).and_then(|x| x.as_ref().map(|s| {
+            let mut ss = s.clone();
+            ss[0] = index.len();
+            ss
+        }));
         Ok(Self(Arc::new(InnerStackedArrayElem { shape, elems, index })))
     }
 

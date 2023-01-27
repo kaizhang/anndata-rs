@@ -15,21 +15,6 @@ Core AnnData classes
 
     AnnData
     AnnDataSet
-    StackedAnnData
-
-Element classes
----------------
-
-.. autosummary::
-    :toctree: _autosummary
-
-    PyElemCollection
-    PyAxisArrays
-    PyMatrixElem
-    PyDataFrameElem
-    PyStackedAxisArrays
-    PyStackedMatrixElem
-    PyStackedDataFrame
 
 IO
 ---
@@ -40,4 +25,3 @@ IO
     read
     read_mtx
     read_dataset
-    create_dataset
