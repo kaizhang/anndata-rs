@@ -116,28 +116,35 @@ def test_chunk(tmp_path):
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     # Setup
+    n = x1.shape[0]
+    obs_names = list(map(lambda x: str(x), range(n)))
     adata1 = AnnData(
         X=x1,
-        obs = dict(ident=list(map(lambda x: str(x), range(x1.shape[0])))),
+        var = dict(ident=list(map(lambda x: str(x), range(x1.shape[1])))),
         filename=h5ad(tmp_path)
     )
+    adata1.obs_names = obs_names
+    obs_names = list(map(lambda x: str(x), range(n, n + x2.shape[0])))
     adata2 = AnnData(
         X=x2,
-        obs = dict(ident=list(map(lambda x: str(x), range(x2.shape[0])))),
+        var = dict(ident=list(map(lambda x: str(x), range(x1.shape[1])))),
         filename=h5ad(tmp_path),
     )
+    adata2.obs_names = obs_names
+    n += x2.shape[0]
+    obs_names = list(map(lambda x: str(x), range(n, n + x3.shape[0])))
     adata3 = AnnData(
         X=x3,
-        obs = dict(ident=list(map(lambda x: str(x), range(x3.shape[0])))),
+        var = dict(ident=list(map(lambda x: str(x), range(x1.shape[1])))),
         filename=h5ad(tmp_path),
     )
+    adata3.obs_names = obs_names
     merged = np.concatenate([x1, x2, x3], axis=0)
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
         filename=h5ad(tmp_path),
         add_key="batch",
     )
-    dataset.obs_names = dataset.obs['batch'].to_numpy() + "-" + np.array(dataset.obs_names)
     obs_names = np.array(dataset.obs_names)
     indices = idx1 + idx2 + idx3
     s = set(indices)
@@ -149,6 +156,12 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
 
     ## fancy indexing
     dataset_subset, reorder = dataset.subset(indices, out = h5ad(tmp_path))
+    assert reorder is None
+    np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
+    np.testing.assert_array_equal(obs_names[indices].tolist(), dataset_subset.obs_names)
+
+    ## fancy indexing by names
+    dataset_subset, reorder = dataset.subset([str(i) for i in indices], out = h5ad(tmp_path))
     assert reorder is None
     np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs_names[indices].tolist(), dataset_subset.obs_names)

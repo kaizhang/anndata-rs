@@ -247,6 +247,30 @@ impl AsRef<SelectInfoElem> for SelectInfoElem {
 }
 
 impl SelectInfoElem {
+    /// Will panic if the index is out of bounds.
+    pub fn bound_check(&self, bound: usize) -> Result<()> {
+        match self {
+            SelectInfoElem::Index(index) => index.iter().try_for_each(|i|
+                if *i >= bound {
+                    bail!("index out of bounds: {} >= {}", i, bound)
+                } else {
+                    Ok(())
+                }
+            ),
+            SelectInfoElem::Slice(slice) => {
+                if let Some(end) = slice.end {
+                    if end > bound as isize {
+                        bail!("slice end out of bounds: {} >= {}", end, bound)
+                    } else {
+                        Ok(())
+                    }
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
     pub fn is_index(&self) -> bool {
         matches!(self, SelectInfoElem::Index(_))
     }

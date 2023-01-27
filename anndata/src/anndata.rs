@@ -13,7 +13,7 @@ use crate::{
     traits::AnnDataOp,
 };
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use itertools::Itertools;
 use polars::prelude::DataFrame;
 use std::path::{Path, PathBuf};
@@ -246,6 +246,10 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[SelectInfoElem]>,
         P: AsRef<Path>,
     {
+        selection.as_ref()[0].bound_check(self.n_obs())
+            .map_err(|e| anyhow!("AnnData obs {}", e))?;
+        selection.as_ref()[1].bound_check(self.n_vars())
+            .map_err(|e| anyhow!("AnnData var {}", e))?;
         let slice: SmallVec<[_; 3]> = selection.as_ref().iter().collect();
         let file = O::create(filename)?;
         let _obs_lock = self.n_obs.lock();

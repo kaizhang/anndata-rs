@@ -7,14 +7,13 @@ use crate::{
     data::index::VecVecIndex,
 };
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
-use parking_lot::Mutex;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::collections::HashSet;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path};
 
 pub struct AnnDataSet<B: Backend> {
     annotation: AnnData<B>,
@@ -253,6 +252,11 @@ impl<B: Backend> AnnDataSet<B> {
         selection: S,
         dir: P,
     ) -> Result<Option<Vec<usize>>> {
+        selection.as_ref()[0].bound_check(self.n_obs())
+            .map_err(|e| anyhow!("AnnDataSet obs {}", e))?;
+        selection.as_ref()[1].bound_check(self.n_vars())
+            .map_err(|e| anyhow!("AnnDataSet var {}", e))?;
+
         let file = dir.as_ref().join("_dataset.h5ads");
         let anndata_dir = dir.as_ref().join("anndatas");
         std::fs::create_dir_all(&anndata_dir)?;
@@ -483,7 +487,7 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
 }
 
 pub struct StackedAnnData<B: Backend> {
-    index: Arc<Mutex<VecVecIndex>>,
+    index: VecVecIndex,
     elems: IndexMap<String, AnnData<B>>,
     n_obs: usize,
     n_vars: usize,
@@ -541,7 +545,7 @@ impl<B: Backend> StackedAnnData<B> {
         };
 
         Ok(Self {
-            index: Arc::new(Mutex::new(x.get_index().clone())),
+            index: adatas.values().map(|x| x.n_obs()).collect(),
             n_obs: adatas.values().map(|x| x.n_obs()).sum(),
             n_vars: adatas.values().next().unwrap().n_vars(),
             elems: adatas,
@@ -587,11 +591,10 @@ impl<B: Backend> StackedAnnData<B> {
         S: AsRef<[SelectInfoElem]>,
         P: AsRef<Path> + std::marker::Sync,
     {
-        let index = self.index.lock();
         let slice = selection.as_ref();
         ensure!(slice.len() == 2, "selection must be 2D");
 
-        let (slices, mapping) = index.split_select(&slice[0]);
+        let (slices, mapping) = self.index.split_select(&slice[0]);
 
         let files: Result<_> = self
             .elems

@@ -94,11 +94,11 @@ impl AnnData {
     fn select_obs(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).and_then(|names| {
+        ).map(|names| {
             let index = self.0.obs_names();
-            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
-            })).collect::<PyResult<Vec<_>>>()
+            names.into_iter().map(|name| index.get_index(&name)
+                .expect(&format!("Unknown obs name: {}", name))
+            ).collect::<Vec<_>>()
         });
 
         if let Ok(indices) = from_iter {
@@ -112,11 +112,11 @@ impl AnnData {
     fn select_var(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).and_then(|names| {
+        ).map(|names| {
             let index = self.0.var_names();
-            names.into_iter().map(|name| index.get_index(&name).ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Unknown key: {}", name))
-            })).collect::<PyResult<Vec<_>>>()
+            names.into_iter().map(|name| index.get_index(&name)
+                .expect(&format!("Unknown var name: {}", name))
+            ).collect::<Vec<_>>()
         });
 
         if let Ok(indices) = from_iter {
