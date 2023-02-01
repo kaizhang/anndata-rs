@@ -28,12 +28,13 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
             self.n_vars(),
             self.annotation.filename().display(),
         )?;
-        if self.anndatas.inner().len() > 0 {
+        let adatas = self.anndatas.inner();
+        if adatas.len() > 0 {
             write!(
                 f,
                 "\ncontains {} AnnData objects with keys: '{}'",
-                self.anndatas.inner().len(),
-                self.anndatas.inner().keys().join("', '")
+                adatas.len(),
+                adatas.keys().join("', '")
             )?;
         }
         if let Some(obs) = self

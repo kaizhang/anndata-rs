@@ -130,6 +130,18 @@ def test_type(tmp_path):
 )
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_create_anndataset(x1, x2, x3, tmp_path):
+    # empty dataset
+    adata1 = AnnData(filename=h5ad(tmp_path))
+    adata2 = AnnData(filename=h5ad(tmp_path))
+    adata3 = AnnData(filename=h5ad(tmp_path))
+    dataset = AnnDataSet(
+        adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
+        filename=h5ad(tmp_path),
+        add_key="batch",
+    )
+    assert dataset.n_obs == 0
+    assert dataset.n_vars == 0
+ 
     # dense array
     adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
     adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
