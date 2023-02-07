@@ -51,6 +51,34 @@ macro_rules! impl_into_dyn_csr {
     };
 }
 
+impl From<CsrMatrix<u32>> for DynCsrMatrix {
+    fn from(data: CsrMatrix<u32>) -> Self {
+        DynCsrMatrix::U32(data)
+    }
+}
+
+impl TryFrom<DynCsrMatrix> for CsrMatrix<u32> {
+    type Error = anyhow::Error;
+    fn try_from(data: DynCsrMatrix) -> Result<Self> {
+        match data {
+            DynCsrMatrix::U32(data) => Ok(data),
+            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
+            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::U64(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::Usize(data) => Ok(cast_csr(data)?),
+            DynCsrMatrix::F32(_) => bail!("Cannot convert f32 to u32"),
+            DynCsrMatrix::F64(_) => bail!("Cannot convert f64 to u32"),
+            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
+            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
+        }
+    }
+}
+
+
 impl From<CsrMatrix<f64>> for DynCsrMatrix {
     fn from(data: CsrMatrix<f64>) -> Self {
         DynCsrMatrix::F64(data)
@@ -84,7 +112,6 @@ impl_into_dyn_csr!(i32, I32);
 impl_into_dyn_csr!(i64, I64);
 impl_into_dyn_csr!(u8, U8);
 impl_into_dyn_csr!(u16, U16);
-impl_into_dyn_csr!(u32, U32);
 impl_into_dyn_csr!(u64, U64);
 impl_into_dyn_csr!(usize, Usize);
 impl_into_dyn_csr!(f32, F32);
