@@ -346,7 +346,10 @@ impl AnnData {
     /// Returns
     /// -------
     /// Optional[AnnData]
-    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
+    #[pyo3(
+        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
+        text_signature = "(obs_indices=None, var_indices=None, out=None, backend=None)",
+    )]
     pub fn subset(
         &self,
         obs_indices: Option<&PyAny>,

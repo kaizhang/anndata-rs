@@ -321,7 +321,10 @@ impl AnnDataSet {
     ///     A new AnnDataSet object will be returned.
     ///     If the order of input `obs_indices` has been changed, it will
     ///     return the indices that would sort the `obs_indices` array.
-    #[pyo3(text_signature = "($self, obs_indices, var_indices, out, backend)")]
+    #[pyo3(
+        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
+        text_signature = "(obs_indices=None, var_indices=None, out=None, backend=None)"
+    )]
     pub fn subset(
         &self,
         obs_indices: Option<&PyAny>,
@@ -354,8 +357,8 @@ impl AnnDataSet {
 
     /// Convert AnnDataSet to AnnData object.
     #[pyo3(
-        signature = (obs_indices, var_indices, copy_x=true, file=None, backend=None),
-        text_signature = "(obs_indices, var_indices, copy_x=True, file=None, backed=None)",
+        signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=None),
+        text_signature = "(obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
     )]
     pub fn to_adata(
         &self,
