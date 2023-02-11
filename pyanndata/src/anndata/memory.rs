@@ -281,24 +281,28 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         AxisArrays {
             arrays: self.getattr("obsm").unwrap(),
             adata: self,
+            is_obs: true,
         }
     }
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
         AxisArrays {
             arrays: self.getattr("obsp").unwrap(),
             adata: self,
+            is_obs: true,
         }
     }
     fn varm(&self) -> Self::AxisArraysRef<'_> {
         AxisArrays {
             arrays: self.getattr("varm").unwrap(),
             adata: self,
+            is_obs: false,
         }
     }
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         AxisArrays {
             arrays: self.getattr("varp").unwrap(),
             adata: self,
+            is_obs: false,
         }
     }
 
@@ -427,6 +431,7 @@ impl ElemCollectionOp for ElemCollection<'_> {
 pub struct AxisArrays<'a> {
     arrays: &'a PyAny,
     adata: &'a PyAnnData<'a>,
+    is_obs: bool,
 }
 
 impl<'py> AxisArraysOp for AxisArrays<'py> {
@@ -448,7 +453,11 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
     {
         let py = self.arrays.py();
         let shape = data.shape();
-        self.adata.set_n_obs(shape[0])?;
+        if self.is_obs {
+            self.adata.set_n_obs(shape[0])?;
+        } else {
+            self.adata.set_n_vars(shape[0])?;
+        }
         let d = PyArrayData::from(data.into()).into_py(py);
         let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
             d.call_method0(py, "to_pandas")?
@@ -467,7 +476,11 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
         let py = self.arrays.py();
         let array = ArrayChunk::concat(data)?;
         let shape = array.shape();
-        self.adata.set_n_obs(shape[0])?;
+        if self.is_obs {
+            self.adata.set_n_obs(shape[0])?;
+        } else {
+            self.adata.set_n_vars(shape[0])?;
+        }
         self.arrays
             .call_method1("__setitem__", (key, PyArrayData::from(array.into()).into_py(py)))?;
         Ok(())
