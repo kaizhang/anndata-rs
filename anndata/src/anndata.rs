@@ -89,6 +89,22 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
     }
 }
 
+fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
+    AxisArrays::new(group, Axis::Row, n_obs, None)
+}
+
+fn new_obsp<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
+    AxisArrays::new(group, Axis::Pairwise, n_obs, None)
+}
+
+fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
+    AxisArrays::new(group, Axis::Row, n_vars, None)
+}
+
+fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
+    AxisArrays::new(group, Axis::Pairwise, n_vars, None)
+}
+
 impl<B: Backend> AnnData<B> {
     pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
@@ -134,22 +150,22 @@ impl<B: Backend> AnnData<B> {
         };
 
         let obsm = match file.open_group("obsm").or(file.create_group("obsm")) {
-            Ok(group) => AxisArrays::new(group, Axis::Row, &n_obs)?,
+            Ok(group) => new_obsm(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
         let obsp = match file.open_group("obsp").or(file.create_group("obsp")) {
-            Ok(group) => AxisArrays::new(group, Axis::RowColumn, &n_obs)?,
+            Ok(group) => new_obsp(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
         let varm = match file.open_group("varm").or(file.create_group("varm")) {
-            Ok(group) => AxisArrays::new(group, Axis::Row, &n_vars)?,
+            Ok(group) => new_varm(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
         let varp = match file.open_group("varp").or(file.create_group("varp")) {
-            Ok(group) => AxisArrays::new(group, Axis::RowColumn, &n_vars)?,
+            Ok(group) => new_varp(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
@@ -181,10 +197,10 @@ impl<B: Backend> AnnData<B> {
             x: Slot::empty(),
             obs: Slot::empty(),
             var: Slot::empty(),
-            obsm: AxisArrays::new(file.create_group("obsm")?, Axis::Row, &n_obs)?,
-            obsp: AxisArrays::new(file.create_group("obsp")?, Axis::RowColumn, &n_obs)?,
-            varm: AxisArrays::new(file.create_group("varm")?, Axis::Row, &n_vars)?,
-            varp: AxisArrays::new(file.create_group("varp")?, Axis::RowColumn, &n_vars)?,
+            obsm: new_obsm(file.create_group("obsm")?, &n_obs)?,
+            obsp: new_obsp(file.create_group("obsp")?, &n_obs)?,
+            varm: new_varm(file.create_group("varm")?, &n_vars)?,
+            varp: new_varp(file.create_group("varp")?, &n_vars)?,
             uns: ElemCollection::new(file.create_group("uns")?)?,
             file,
             n_obs,
@@ -278,22 +294,22 @@ impl<B: Backend> AnnData<B> {
         self.obsm()
             .lock()
             .as_mut()
-            .map(|x| x.export_select(slice[0], &file, "obsm"))
+            .map(|x| x.export_select(&[slice[0]], &file, "obsm"))
             .transpose()?;
         self.obsp()
             .lock()
             .as_mut()
-            .map(|x| x.export_select(slice[0], &file, "obsp"))
+            .map(|x| x.export_select(&[slice[0]], &file, "obsp"))
             .transpose()?;
         self.varm()
             .lock()
             .as_mut()
-            .map(|x| x.export_select(slice[1], &file, "varm"))
+            .map(|x| x.export_select(&[slice[1]], &file, "varm"))
             .transpose()?;
         self.varp()
             .lock()
             .as_mut()
-            .map(|x| x.export_select(slice[1], &file, "varp"))
+            .map(|x| x.export_select(&[slice[1]], &file, "varp"))
             .transpose()?;
         file.close()?;
         Ok(())
@@ -347,12 +363,12 @@ impl<B: Backend> AnnData<B> {
         self.obsm
             .lock()
             .as_mut()
-            .map(|obsm| obsm.subset(obs_ix))
+            .map(|obsm| obsm.subset(&[obs_ix]))
             .transpose()?;
         self.obsp
             .lock()
             .as_mut()
-            .map(|obsp| obsp.subset(obs_ix))
+            .map(|obsp| obsp.subset(&[obs_ix]))
             .transpose()?;
 
         self.var
@@ -363,12 +379,12 @@ impl<B: Backend> AnnData<B> {
         self.varm
             .lock()
             .as_mut()
-            .map(|varm| varm.subset(var_ix))
+            .map(|varm| varm.subset(&[var_ix]))
             .transpose()?;
         self.varp
             .lock()
             .as_mut()
-            .map(|varp| varp.subset(var_ix))
+            .map(|varp| varp.subset(&[var_ix]))
             .transpose()?;
 
         if !obs_lock.is_empty() {
@@ -577,7 +593,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn obsm(&self) -> Self::AxisArraysRef<'_> {
         if self.obsm.is_empty() {
             let arrays = self.file.create_group("obsm")
-                .and_then(|g| AxisArrays::new(g, Axis::Row, &self.n_obs));
+                .and_then(|g| new_obsm(g, &self.n_obs));
             if let Ok(obsm) = arrays {
                 self.obsm().swap(&obsm);
             }
@@ -587,7 +603,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
         if self.obsp.is_empty() {
             let arrays = self.file.create_group("obsp")
-                .and_then(|g| AxisArrays::new(g, Axis::RowColumn, &self.n_obs));
+                .and_then(|g| new_obsp(g, &self.n_obs));
             if let Ok(obsp) = arrays {
                 self.obsp().swap(&obsp);
             }
@@ -597,7 +613,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn varm(&self) -> Self::AxisArraysRef<'_> {
         if self.varm.is_empty() {
             let arrays = self.file.create_group("varm")
-                .and_then(|g| AxisArrays::new(g, Axis::Row, &self.n_vars));
+                .and_then(|g| new_varm(g, &self.n_vars));
             if let Ok(varm) = arrays {
                 self.varm().swap(&varm);
             }
@@ -607,7 +623,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         if self.varp.is_empty() {
             let arrays = self.file.create_group("varp")
-                .and_then(|g| AxisArrays::new(g, Axis::RowColumn, &self.n_vars));
+                .and_then(|g| new_varp(g, &self.n_vars));
             if let Ok(varp) = arrays {
                 self.varp().swap(&varp);
             }

@@ -1,12 +1,13 @@
 use crate::{
     backend::{iter_containers, Backend, GroupOp, LocationOp},
     container::base::*,
-    data::*, ElemCollectionOp, AxisArraysOp,
+    data::*,
+    AxisArraysOp, ElemCollectionOp,
 };
 
 use anyhow::{bail, ensure, Result};
 use itertools::Itertools;
-use parking_lot::{MutexGuard, Mutex};
+use parking_lot::{Mutex, MutexGuard};
 use smallvec::{smallvec, SmallVec};
 use std::{
     collections::{HashMap, HashSet},
@@ -168,8 +169,9 @@ impl<B: Backend> ElemCollection<B> {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Axis {
-    Row,
-    RowColumn,
+    Row,       // Can perform row-wise operations.
+    RowColumn, // Can perform row-wise and/or column-wise operations.
+    Pairwise,  // Operations are carried out on both rows and columns at the same time.
 }
 
 /// Nullable dimension. None means that the dimension is not set.
@@ -228,7 +230,11 @@ impl DimLock<'_> {
 
     pub fn try_set(&mut self, n: usize) -> Result<()> {
         if self.0.is_some() && self.0.unwrap() != n {
-            bail!("dimension cannot be changed from {} to {}", self.0.unwrap(), n);
+            bail!(
+                "dimension cannot be changed from {} to {}",
+                self.0.unwrap(),
+                n
+            );
         } else {
             *self.0 = Some(n);
         }
@@ -243,7 +249,8 @@ impl DimLock<'_> {
 pub struct InnerAxisArrays<B: Backend> {
     pub axis: Axis,
     pub(crate) container: B::Group,
-    pub(crate) size: Dim,
+    pub(crate) dim1: Dim,
+    pub(crate) dim2: Option<Dim>,
     data: HashMap<String, ArrayElem<B>>,
 }
 
@@ -271,7 +278,8 @@ impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ty = match self.axis {
             Axis::Row => "row",
-            Axis::RowColumn => "square",
+            Axis::RowColumn => "row/column",
+            Axis::Pairwise => "pairwise",
         };
         let keys = self
             .keys()
@@ -284,7 +292,7 @@ impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
 
 impl<B: Backend> InnerAxisArrays<B> {
     pub fn size(&self) -> usize {
-        self.size.get()
+        self.dim1.get()
     }
 
     pub fn add_data<D: WriteArrayData + HasShape + Into<ArrayData>>(
@@ -294,10 +302,23 @@ impl<B: Backend> InnerAxisArrays<B> {
     ) -> Result<()> {
         // Check if the data is compatible with the current size
         let shape = data.shape();
-        if let Axis::RowColumn = self.axis {
-            ensure!(shape[0] == shape[1], "expecting a square array, but receive a {:?} array", shape);
+        match self.axis {
+            Axis::Row => {
+                self.dim1.try_set(shape[0])?;
+            }
+            Axis::RowColumn => {
+                self.dim1.try_set(shape[0])?;
+                self.dim2.as_ref().unwrap().try_set(shape[1])?;
+            }
+            Axis::Pairwise => {
+                ensure!(
+                    shape[0] == shape[1],
+                    "expecting a square array, but receive a {:?} array",
+                    shape
+                );
+                self.dim1.try_set(shape[0])?;
+            }
         }
-        self.size.try_set(shape[0])?;
 
         match self.get_mut(key) {
             None => {
@@ -321,15 +342,41 @@ impl<B: Backend> InnerAxisArrays<B> {
         let elem = ArrayElem::try_from(ArrayChunk::write_by_chunk(data, &self.container, key)?)?;
 
         let shape = { elem.inner().shape().clone() };
-        if self.axis == Axis::RowColumn && shape[0] != shape[1] {
-            elem.clear()?;
-            bail!("expecting a square array, but receive a {:?} array", shape)
-        } else if let Err(e) = self.size.try_set(shape[0]) {
-            elem.clear()?;
-            bail!(e)
-        } else {
-            self.insert(key.to_string(), elem);
-            Ok(())
+        match self.axis {
+            Axis::Row => {
+                if let Err(e) = self.dim1.try_set(shape[0]) {
+                    elem.clear()?;
+                    bail!(e)
+                } else {
+                    self.insert(key.to_string(), elem);
+                    Ok(())
+                }
+            }
+            Axis::RowColumn => {
+                if let Err(e) = self
+                    .dim1
+                    .try_set(shape[0])
+                    .and(self.dim2.as_ref().unwrap().try_set(shape[1]))
+                {
+                    elem.clear()?;
+                    bail!(e)
+                } else {
+                    self.insert(key.to_string(), elem);
+                    Ok(())
+                }
+            }
+            Axis::Pairwise => {
+                if shape[0] != shape[1] {
+                    elem.clear()?;
+                    bail!("expecting a square array, but receive a {:?} array", shape)
+                } else if let Err(e) = self.dim1.try_set(shape[0]) {
+                    elem.clear()?;
+                    bail!(e)
+                } else {
+                    self.insert(key.to_string(), elem);
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -352,7 +399,7 @@ impl<B: Backend> InnerAxisArrays<B> {
 
     pub fn export_select<O, G>(
         &self,
-        selection: &SelectInfoElem,
+        selection: &[&SelectInfoElem],
         location: &G,
         name: &str,
     ) -> Result<()>
@@ -360,16 +407,32 @@ impl<B: Backend> InnerAxisArrays<B> {
         O: Backend,
         G: GroupOp<Backend = O>,
     {
-        if selection.is_full() {
+        if selection.into_iter().all(|x| x.as_ref().is_full()) {
             self.export::<O, _>(location, name)
         } else {
             let group = location.create_group(name)?;
             match self.axis {
-                Axis::Row => self
-                    .iter()
-                    .try_for_each(|(k, x)| x.inner().export_axis::<O, _>(0, selection, &group, k)),
+                Axis::Row => {
+                    if selection.len() != 1 {
+                        bail!("selection dimension must be 1 for row AxisArrays");
+                    }
+                    self.iter().try_for_each(|(k, x)| {
+                        x.inner().export_axis::<O, _>(0, selection[0], &group, k)
+                    })
+                }
                 Axis::RowColumn => {
-                    let s = vec![selection, selection];
+                    if selection.len() != 2 {
+                        bail!("selection dimension must be 2 for row/column AxisArrays");
+                    }
+                    self.iter().try_for_each(|(k, x)| {
+                        x.inner().export_select::<O, _>(selection, &group, k)
+                    })
+                }
+                Axis::Pairwise => {
+                    if selection.len() != 1 {
+                        bail!("selection dimension must be 1 for pairwise AxisArrays");
+                    }
+                    let s = vec![selection[0], selection[0]];
                     self.iter().try_for_each(|(k, x)| {
                         x.inner().export_select::<O, _>(s.as_ref(), &group, k)
                     })
@@ -378,25 +441,46 @@ impl<B: Backend> InnerAxisArrays<B> {
         }
     }
 
-    pub(crate) fn subset<S: AsRef<SelectInfoElem>>(&mut self, selection: S) -> Result<()> {
+    pub(crate) fn subset(&mut self, selection: &[&SelectInfoElem]) -> Result<()> {
         match self.axis {
             Axis::Row => {
+                if selection.len() != 1 {
+                    bail!("selection dimension must be 1 for row AxisArrays");
+                }
                 self.values()
-                    .try_for_each(|x| x.inner().subset_axis(0, &selection))?;
+                    .try_for_each(|x| x.inner().subset_axis(0, selection[0]))?;
+                if let Some(mut lock) = self.dim1.try_lock() {
+                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                }
             }
             Axis::RowColumn => {
+                if selection.len() != 2 {
+                    bail!("selection dimension must be 2 for row/column AxisArrays");
+                }
+                self.values()
+                    .try_for_each(|x| x.inner().subset(selection))?;
+                if let Some(mut lock) = self.dim1.try_lock() {
+                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                }
+                if let Some(mut lock) = self.dim2.as_ref().unwrap().try_lock() {
+                    lock.set(BoundedSelectInfoElem::new(selection[1], lock.get()).len());
+                }
+            }
+            Axis::Pairwise => {
+                if selection.len() != 1 {
+                    bail!("selection dimension must be 1 for pairwise AxisArrays");
+                }
                 self.values().try_for_each(|x| {
                     let full = SelectInfoElem::full();
                     let mut slice: SmallVec<[_; 3]> = smallvec![&full; x.inner().shape().ndim()];
-                    slice[0] = selection.as_ref();
-                    slice[1] = selection.as_ref();
+                    slice[0] = selection[0];
+                    slice[1] = selection[0];
                     x.inner().subset(slice.as_slice())
                 })?;
+                if let Some(mut lock) = self.dim1.try_lock() {
+                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                }
             }
-        }
-
-        if let Some(mut lock) = self.size.try_lock() {
-            lock.set(BoundedSelectInfoElem::new(selection.as_ref(), lock.get()).len());
         }
         Ok(())
     }
@@ -436,35 +520,41 @@ impl<B: Backend> AxisArrays<B> {
         Self(Slot::empty())
     }
 
-    pub fn new(group: B::Group, axis: Axis, size: &Dim) -> Result<Self> {
+    pub fn new(group: B::Group, axis: Axis, dim1: &Dim, dim2: Option<&Dim>) -> Result<Self> {
         let data: HashMap<_, _> = iter_containers::<B>(&group)
             .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
-        let sizes = data.iter().map(|(_, v)| {
-            let v_lock = v.inner();
-            let shape = v_lock.shape();
-            match &axis {
-                Axis::Row => Ok(shape[0]),
-                Axis::RowColumn => {
-                    ensure!(shape[0] == shape[1], "Square arrays must be square");
-                    Ok(shape[0])
-                },
-            }
-        }).collect::<Result<Vec<_>>>()?;
-        if sizes.iter().all_equal() {
-            if let Some(n) = sizes.get(0) {
-                size.try_set(*n)?;
-            }
-            let arrays = InnerAxisArrays {
-                container: group,
-                size: size.clone(),
-                axis,
-                data,
-            };
-            Ok(Self(Slot::new(arrays)))
-        } else {
-            bail!("Arrays must be the same size")
+
+        // Get shapes of arrays
+        let shapes = data
+            .iter()
+            .map(|(_, v)| v.inner().shape().clone())
+            .collect::<Vec<_>>();
+
+        // Check if shapes of arrays conform to axis
+        ensure!(shapes.iter().map(|x| x[0]).all_equal(), "the size of the 1st dimension of arrays must be equal");
+        if let Axis::Pairwise = axis {
+            ensure!(shapes.iter().all(|x| x[0] == x[1]), "the size of the 1st and 2nd dimension of arrays must be equal");
         }
+        if let Axis::RowColumn = axis {
+            ensure!(shapes.iter().map(|x| x[1]).all_equal(), "the size of the 2nd dimension of arrays must be equal");
+        }
+
+        if let Some(s) = shapes.get(0) {
+            dim1.try_set(s[0])?;
+            if let Axis::RowColumn = axis {
+                dim2.unwrap().try_set(s[1])?;
+            }
+        }
+
+        let arrays = InnerAxisArrays {
+            container: group,
+            dim1: dim1.clone(),
+            dim2: dim2.cloned(),
+            axis,
+            data,
+        };
+        Ok(Self(Slot::new(arrays)))
     }
 
     pub fn clear(&self) -> Result<()> {
@@ -496,8 +586,7 @@ impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
         &self,
         key: &str,
         data: D,
-    ) -> Result<()>
-    {
+    ) -> Result<()> {
         self.inner().add_data(key, data)
     }
 
@@ -541,7 +630,8 @@ impl<B: Backend> std::fmt::Display for StackedAxisArrays<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ty = match self.axis {
             Axis::Row => "row",
-            Axis::RowColumn => "square",
+            Axis::RowColumn => "row/column",
+            Axis::Pairwise => "pairwise",
         };
         let keys = self
             .data
@@ -568,8 +658,7 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
         &self,
         key: &str,
         data: D,
-    ) -> Result<()>
-    {
+    ) -> Result<()> {
         todo!()
     }
 
