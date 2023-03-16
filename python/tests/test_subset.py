@@ -38,6 +38,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     )
     adata.obsp = dict(x=obsp, y=csr_matrix(obsp))
     adata.varp = dict(x=varp, y=csr_matrix(varp))
+    adata.layers["raw"] = x
 
     adata_subset = adata.subset(indices, indices2, out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[np.ix_(indices, indices2)])
@@ -50,21 +51,25 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[indices2, :])
     np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
     np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
+    np.testing.assert_array_equal(adata_subset.layers["raw"], x[np.ix_(indices, indices2)])
 
     adata_subset = adata.subset([str(x) for x in indices], out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
     np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
     np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
     np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
+    np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
     adata_subset = adata.subset(pl.Series([str(x) for x in indices]), out = h5ad(tmp_path))
     np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
+    np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
     adata.subset(indices)
     np.testing.assert_array_equal(adata.X[:], x[indices, :])
     np.testing.assert_array_equal(adata.obs["txt"], np.array(list(obs[i] for i in indices)))
     np.testing.assert_array_equal(adata.obsm["x"], obsm[indices, :])
     np.testing.assert_array_equal(adata.obsm["y"].todense(), obsm[indices, :])
+    np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
 def test_chunk(tmp_path):
     X = random(5000, 50, 0.1, format="csr", dtype=np.int64)

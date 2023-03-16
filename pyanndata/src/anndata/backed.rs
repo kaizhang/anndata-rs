@@ -330,6 +330,15 @@ impl AnnData {
         self.0.set_varp(varp)
     }
 
+    #[getter(layers)]
+    pub fn get_layers(&self) -> Option<PyAxisArrays> {
+        self.0.get_layers()
+    }
+    #[setter(layers)]
+    pub fn set_layers(&self, layers: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        self.0.set_layers(layers)
+    }
+
     /// Subsetting the AnnData object.
     ///
     /// Parameters
@@ -490,6 +499,7 @@ trait AnnDataTrait: Send + Downcast {
     fn get_obsp(&self) -> Option<PyAxisArrays>;
     fn get_varm(&self) -> Option<PyAxisArrays>;
     fn get_varp(&self) -> Option<PyAxisArrays>;
+    fn get_layers(&self) -> Option<PyAxisArrays>;
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()>;
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()>;
@@ -499,6 +509,7 @@ trait AnnDataTrait: Send + Downcast {
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
+    fn set_layers(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
 
     fn subset(
         &self,
@@ -634,6 +645,16 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
 
+    fn get_layers(&self) -> Option<PyAxisArrays> {
+        let inner = self.inner();
+        let layers = inner.layers();
+        if layers.is_empty() {
+            None
+        } else {
+            Some(layers.clone().into())
+        }
+    }
+
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
         let inner = self.inner();
         if let Some(d) = data {
@@ -703,6 +724,15 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
             inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
             inner.del_varp()?;
+        }
+        Ok(())
+    }
+    fn set_layers(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
+        let inner = self.inner();
+        if let Some(v) = varp {
+            inner.set_layers(v.into_iter().map(|(k, v)| (k, v.into())))?;
+        } else {
+            inner.del_layers()?;
         }
         Ok(())
     }

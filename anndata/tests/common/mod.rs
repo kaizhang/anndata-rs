@@ -59,7 +59,10 @@ pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, 
     let varp = (0 as usize ..3).prop_flat_map(move |d| 
         std::iter::repeat_with(|| array_strat(&vec![n_vars, n_vars])).take(d).collect::<Vec<_>>()
     );
-    (x, obs_names, obsm, obsp, var_names, varm, varp).prop_map(move |(x, obs_names, obsm, obsp, var_names, varm, varp)| {
+    let layers = (0 as usize ..3).prop_flat_map(move |d| 
+        std::iter::repeat_with(|| array_strat(&vec![n_obs, n_vars])).take(d).collect::<Vec<_>>()
+    );
+    (x, obs_names, obsm, obsp, var_names, varm, varp, layers).prop_map(move |(x, obs_names, obsm, obsp, var_names, varm, varp, layers)| {
         let adata: AnnData<B> = AnnData::new(file.clone()).unwrap();
         adata.set_x(x).unwrap();
         adata.set_obs_names(obs_names).unwrap();
@@ -75,6 +78,9 @@ pub fn anndata_strat<B: Backend, P: AsRef<Path> + Clone>(file: P, n_obs: usize, 
         });
         varp.into_iter().enumerate().for_each(|(i, arr)| {
             adata.varp().add(&format!("varp_{}", i), arr).unwrap();
+        });
+        layers.into_iter().enumerate().for_each(|(i, arr)| {
+            adata.layers().add(&format!("layer_{}", i), arr).unwrap();
         });
         adata
     })
@@ -223,6 +229,9 @@ pub fn anndata_eq<B1: Backend, B2: Backend>(adata1: &AnnData<B1>, adata2: &AnnDa
         }) &&
         adata1.uns().keys().iter().all(|k| {
             adata1.uns().get_item::<Data>(k).unwrap() == adata2.uns().get_item(k).unwrap()
+        });
+        adata1.layers().keys().iter().all(|k| {
+            adata1.layers().get_item::<ArrayData>(k).unwrap() == adata2.layers().get_item(k).unwrap()
         });
     Ok(is_equal)
 }

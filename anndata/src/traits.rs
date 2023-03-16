@@ -62,6 +62,7 @@ pub trait AnnDataOp {
     fn obsp(&self) -> Self::AxisArraysRef<'_>;
     fn varm(&self) -> Self::AxisArraysRef<'_>;
     fn varp(&self) -> Self::AxisArraysRef<'_>;
+    fn layers(&self) -> Self::AxisArraysRef<'_>;
 
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
         self.del_uns()?;
@@ -88,12 +89,18 @@ pub trait AnnDataOp {
         let varp = self.varp();
         data.try_for_each(|(k, v)| varp.add(&k, v))
     }
+    fn set_layers<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+        self.del_layers()?;
+        let layers = self.layers();
+        data.try_for_each(|(k, v)| layers.add(&k, v))
+    }
 
     fn del_uns(&self) -> Result<()>;
     fn del_obsm(&self) -> Result<()>;
     fn del_obsp(&self) -> Result<()>;
     fn del_varm(&self) -> Result<()>;
     fn del_varp(&self) -> Result<()>;
+    fn del_layers(&self) -> Result<()>;
 }
 
 pub trait ElemCollectionOp {

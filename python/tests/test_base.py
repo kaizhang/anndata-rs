@@ -34,6 +34,9 @@ def test_basic(x, tmp_path):
     adata.X = csr_matrix(x)
     np.testing.assert_array_equal(x, adata.X[:].todense())
 
+    adata.layers["X1"] = x
+    adata.layers["X2"] = csr_matrix(x)
+
     df = pl.DataFrame({
         "a": [1, 2, 3, 4, 5],
         "b": ["one", "two", "three", "four", "five"],
@@ -47,8 +50,8 @@ def test_basic(x, tmp_path):
     })
     output = h5ad(tmp_path)
     adata.write(output)
-    read(output, backed=None)
-    read(output)
+    read(output).close()
+    np.testing.assert_equal(x, read(output, backed=None).layers["X1"]) 
 
     """
     def mk_iter(a):

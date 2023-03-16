@@ -33,6 +33,7 @@ pub struct AnnData<B: Backend> {
     varm: AxisArrays<B>,
     varp: AxisArrays<B>,
     uns: ElemCollection<B>,
+    layers: AxisArrays<B>,
 }
 
 impl<B: Backend> std::fmt::Debug for AnnData<B> {
@@ -85,6 +86,11 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
                 write!(f, "\n    varp: '{}'", keys)?;
             }
         }
+        if let Some(keys) = self.layers.lock().as_ref().map(|x| x.keys().join("', '")) {
+            if !keys.is_empty() {
+                write!(f, "\n    layers: '{}'", keys)?;
+            }
+        }
         Ok(())
     }
 }
@@ -103,6 +109,10 @@ fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> 
 
 fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Pairwise, n_vars, None)
+}
+
+fn new_layers<B: Backend>(group: B::Group, n_obs: &Dim, n_vars: &Dim) -> Result<AxisArrays<B>> {
+    AxisArrays::new(group, Axis::RowColumn, n_obs, Some(n_vars))
 }
 
 impl<B: Backend> AnnData<B> {
@@ -174,6 +184,11 @@ impl<B: Backend> AnnData<B> {
             _ => ElemCollection::empty(),
         };
 
+        let layers = match file.open_group("layers").or(file.create_group("layers")) {
+            Ok(group) => new_layers(group, &n_obs, &n_vars)?,
+            _ => AxisArrays::empty(),
+        };
+
         Ok(Self {
             file,
             n_obs,
@@ -186,6 +201,7 @@ impl<B: Backend> AnnData<B> {
             varm,
             varp,
             uns,
+            layers,
         })
     }
 
@@ -202,6 +218,7 @@ impl<B: Backend> AnnData<B> {
             varm: new_varm(file.create_group("varm")?, &n_vars)?,
             varp: new_varp(file.create_group("varp")?, &n_vars)?,
             uns: ElemCollection::new(file.create_group("uns")?)?,
+            layers: new_layers(file.create_group("layers")?, &n_obs, &n_vars)?,
             file,
             n_obs,
             n_vars,
@@ -251,6 +268,11 @@ impl<B: Backend> AnnData<B> {
             .lock()
             .as_mut()
             .map(|x| x.export::<O, _>(&file, "uns"))
+            .transpose()?;
+        self.layers()
+            .lock()
+            .as_mut()
+            .map(|x| x.export::<O, _>(&file, "layers"))
             .transpose()?;
         file.close()?;
         Ok(())
@@ -310,6 +332,11 @@ impl<B: Backend> AnnData<B> {
             .lock()
             .as_mut()
             .map(|x| x.export_select(&[slice[1]], &file, "varp"))
+            .transpose()?;
+        self.layers()
+            .lock()
+            .as_mut()
+            .map(|x| x.export_select(slice.as_slice(), &file, "layers"))
             .transpose()?;
         file.close()?;
         Ok(())
@@ -385,6 +412,12 @@ impl<B: Backend> AnnData<B> {
             .lock()
             .as_mut()
             .map(|varp| varp.subset(&[var_ix]))
+            .transpose()?;
+
+        self.layers
+            .lock()
+            .as_mut()
+            .map(|layers| layers.subset(&[obs_ix, var_ix]))
             .transpose()?;
 
         if !obs_lock.is_empty() {
@@ -585,7 +618,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if self.uns.is_empty() {
             let elems = self.file.create_group("uns").and_then(|g| ElemCollection::new(g));
             if let Ok(uns) = elems {
-                self.uns().swap(&uns);
+                self.uns.swap(&uns);
             }
         }
         &self.uns
@@ -595,7 +628,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             let arrays = self.file.create_group("obsm")
                 .and_then(|g| new_obsm(g, &self.n_obs));
             if let Ok(obsm) = arrays {
-                self.obsm().swap(&obsm);
+                self.obsm.swap(&obsm);
             }
         }
         &self.obsm
@@ -605,7 +638,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             let arrays = self.file.create_group("obsp")
                 .and_then(|g| new_obsp(g, &self.n_obs));
             if let Ok(obsp) = arrays {
-                self.obsp().swap(&obsp);
+                self.obsp.swap(&obsp);
             }
         }
         &self.obsp
@@ -615,7 +648,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             let arrays = self.file.create_group("varm")
                 .and_then(|g| new_varm(g, &self.n_vars));
             if let Ok(varm) = arrays {
-                self.varm().swap(&varm);
+                self.varm.swap(&varm);
             }
         }
         &self.varm
@@ -625,10 +658,20 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             let arrays = self.file.create_group("varp")
                 .and_then(|g| new_varp(g, &self.n_vars));
             if let Ok(varp) = arrays {
-                self.varp().swap(&varp);
+                self.varp.swap(&varp);
             }
         }
         &self.varp
+    }
+    fn layers(&self) -> Self::AxisArraysRef<'_> {
+        if self.layers.is_empty() {
+            let arrays = self.file.create_group("layers")
+                .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
+            if let Ok(layers) = arrays {
+                self.layers.swap(&layers);
+            }
+        }
+        &self.layers
     }
 
     fn del_uns(&self) -> Result<()> {
@@ -645,5 +688,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn del_varp(&self) -> Result<()> {
         self.varp.clear()
+    }
+    fn del_layers(&self) -> Result<()> {
+        self.layers.clear()
     }
 }

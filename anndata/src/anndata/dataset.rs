@@ -448,6 +448,9 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         self.annotation.varp()
     }
+    fn layers(&self) -> Self::AxisArraysRef<'_> {
+        self.annotation.layers()
+    }
 
     fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
         self.annotation.set_uns(data)
@@ -479,6 +482,9 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     }
     fn del_varp(&self) -> Result<()> {
         self.annotation.del_varp()
+    }
+    fn del_layers(&self) -> Result<()> {
+        self.annotation.del_layers()
     }
 }
 
