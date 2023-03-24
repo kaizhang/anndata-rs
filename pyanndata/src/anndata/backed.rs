@@ -69,15 +69,15 @@ impl Clone for AnnData {
 
 impl AnnData {
     pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnData<B>> {
-        self.0.downcast_ref::<Slot<anndata::AnnData<B>>>()
-            .expect("downcast to anndata failed").extract()
+        self.0.downcast_ref::<InnerAnnData<B>>()
+            .expect("downcast to anndata failed").adata.extract()
     }
 
     pub fn inner_ref<B: Backend>(&self) -> anndata::container::Inner<'_, anndata::AnnData<B>> {
-        self.0.downcast_ref::<Slot<anndata::AnnData<B>>>().expect("downcast to anndata failed").inner()
+        self.0.downcast_ref::<InnerAnnData<B>>().expect("downcast to anndata failed").adata.inner()
     }
 
-    pub fn open(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
+    pub fn new_from(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
         match backend.unwrap_or(H5::NAME) {
             H5::NAME => {
                 let file = match mode {
@@ -130,7 +130,11 @@ impl AnnData {
 
 impl<B: Backend> From<anndata::AnnData<B>> for AnnData {
     fn from(adata: anndata::AnnData<B>) -> Self {
-        AnnData(Box::new(Slot::new(adata)))
+        let inner = InnerAnnData {
+            filename: adata.filename(),
+            adata: Slot::new(adata),
+        };
+        AnnData(Box::new(inner))
     }
 }
 
@@ -435,6 +439,15 @@ impl AnnData {
         self.0.close()
     }
 
+    /// Reopen a closed AnnData object.
+    #[pyo3(
+        signature = (mode="r"),
+        text_signature = "($self, mode='r')",
+    )]
+    pub fn open(&self, mode: &str) -> Result<()> {
+        self.0.open(mode)
+    }
+
     /// Write .h5ad-formatted hdf5 file.
     ///
     /// Parameters
@@ -529,23 +542,40 @@ trait AnnDataTrait: Send + Downcast {
     fn is_closed(&self) -> bool;
     fn show(&self) -> String;
 
+    /// Reopen a closed AnnData object.
+    fn open(&self, mode: &str) -> Result<()>;
     fn close(&self) -> Result<()>;
     fn clone_ref(&self) -> Box<dyn AnnDataTrait>;
 }
 impl_downcast!(AnnDataTrait);
 
-impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
+/// An AnnData object with abstract backend.
+struct InnerAnnData<B: Backend> {
+    filename: PathBuf,
+    adata: Slot<anndata::AnnData<B>>,
+}
+
+impl<B: Backend> Clone for InnerAnnData<B> {
+    fn clone(&self) -> Self {
+        Self {
+            filename: self.filename.clone(),
+            adata: self.adata.clone(),
+        }
+    }
+}
+
+impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn shape(&self) -> (usize, usize) {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         (inner.n_obs(), inner.n_vars())
     }
 
     fn obs_names(&self) -> DataFrameIndex {
-        self.inner().obs_names()
+        self.adata.inner().obs_names()
     }
 
     fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
-        self.inner().obs_ix(
+        self.adata.inner().obs_ix(
             index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
         )
     }
@@ -553,15 +583,15 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_obs_names(&self, names: &PyAny) -> Result<()> {
         let obs_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        self.inner().set_obs_names(obs_names?)
+        self.adata.inner().set_obs_names(obs_names?)
     }
 
     fn var_names(&self) -> DataFrameIndex {
-        self.inner().var_names()
+        self.adata.inner().var_names()
     }
 
     fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
-        self.inner().var_ix(
+        self.adata.inner().var_ix(
             index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
         )
     }
@@ -569,11 +599,11 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     fn set_var_names(&self, names: &PyAny) -> Result<()> {
         let var_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
-        self.inner().set_var_names(var_names?)
+        self.adata.inner().set_var_names(var_names?)
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let x = inner.get_x();
         if x.is_empty() {
             None
@@ -582,7 +612,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_obs(&self) -> Option<PyDataFrameElem> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let obs = inner.get_obs();
         if obs.is_empty() {
             None
@@ -591,7 +621,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_var(&self) -> Option<PyDataFrameElem> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let var = inner.get_var();
         if var.is_empty() {
             None
@@ -600,7 +630,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_uns(&self) -> Option<PyElemCollection> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let uns = inner.uns();
         if uns.is_empty() {
             None
@@ -609,7 +639,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_obsm(&self) -> Option<PyAxisArrays> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let obsm = inner.obsm();
         if obsm.is_empty() {
             None
@@ -618,7 +648,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_obsp(&self) -> Option<PyAxisArrays> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let obsp = inner.obsp();
         if obsp.is_empty() {
             None
@@ -627,7 +657,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_varm(&self) -> Option<PyAxisArrays> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let varm = inner.varm();
         if varm.is_empty() {
             None
@@ -636,7 +666,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         }
     }
     fn get_varp(&self) -> Option<PyAxisArrays> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let varp = inner.varp();
         if varp.is_empty() {
             None
@@ -646,7 +676,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
 
     fn get_layers(&self) -> Option<PyAxisArrays> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         let layers = inner.layers();
         if layers.is_empty() {
             None
@@ -656,7 +686,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(d) = data {
             inner.set_x::<ArrayData>(d.into())?;
         } else {
@@ -665,7 +695,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(o) = obs {
             inner.set_obs(o.into())?;
         } else {
@@ -674,7 +704,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(v) = var {
             inner.set_var(v.into())?;
         } else {
@@ -683,7 +713,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(u) = uns {
             inner.set_uns(u.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -692,7 +722,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(o) = obsm {
             inner.set_obsm(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -701,7 +731,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(o) = obsp {
             inner.set_obsp(o.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -710,7 +740,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(v) = varm {
             inner.set_varm(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -719,7 +749,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(v) = varp {
             inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -728,7 +758,7 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         Ok(())
     }
     fn set_layers(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
-        let inner = self.inner();
+        let inner = self.adata.inner();
         if let Some(v) = varp {
             inner.set_layers(v.into_iter().map(|(k, v)| (k, v.into())))?;
         } else {
@@ -746,39 +776,39 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
         if let Some(out) = out {
             match backend.unwrap_or(H5::NAME) {
                 H5::NAME => {
-                    self.inner().write_select::<H5, _, _>(slice, &out)?;
-                    Ok(Some(AnnData::open(out, "r+", backend)?))
+                    self.adata.inner().write_select::<H5, _, _>(slice, &out)?;
+                    Ok(Some(AnnData::new_from(out, "r+", backend)?))
                 }
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
-            self.inner().subset(slice)?;
+            self.adata.inner().subset(slice)?;
             Ok(None)
         }
     }
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
-        self.inner().get_x().chunked(chunk_size).into()
+        self.adata.inner().get_x().chunked(chunk_size).into()
     }
 
     fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
         match backend.unwrap_or(H5::NAME) {
-            H5::NAME => self.inner().write::<H5, _>(filename),
+            H5::NAME => self.adata.inner().write::<H5, _>(filename),
             x => bail!("Unsupported backend: {}", x),
         }
     }
 
     fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData> {
         AnnDataTrait::write(self, filename.clone(), backend)?;
-        AnnData::open(filename, "r+", backend)
+        AnnData::new_from(filename, "r+", backend)
     }
 
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>> {
-        Ok(PyAnnData::from_anndata(py, self.inner().deref())?)
+        Ok(PyAnnData::from_anndata(py, self.adata.inner().deref())?)
     }
 
     fn filename(&self) -> PathBuf {
-        self.inner().filename()
+        self.filename.clone()
     }
 
     fn backend(&self) -> &str {
@@ -786,19 +816,31 @@ impl<B: Backend> AnnDataTrait for Slot<anndata::AnnData<B>> {
     }
 
     fn is_closed(&self) -> bool {
-        self.is_empty()
+        self.adata.is_empty()
     }
 
     fn show(&self) -> String {
         if self.is_closed() {
             "Closed AnnData object".to_string()
         } else {
-            format!("{}", self.inner().deref())
+            format!("{}", self.adata.inner().deref())
         }
     }
 
+    fn open(&self, mode: &str) -> Result<()> {
+        if self.is_closed() {
+            let file = match mode {
+                "r" => B::open(self.filename())?,
+                "r+" => B::open_rw(self.filename())?,
+                _ => bail!("Unknown mode: {}", mode),
+            };
+            self.adata.insert(anndata::AnnData::<B>::open(file)?);
+        }
+        Ok(())
+    }
+
     fn close(&self) -> Result<()> {
-        if let Some(inner) = self.extract() {
+        if let Some(inner) = self.adata.extract() {
             inner.close()?;
         }
         Ok(())
