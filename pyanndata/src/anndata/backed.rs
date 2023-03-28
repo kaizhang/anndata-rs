@@ -361,7 +361,7 @@ impl AnnData {
     /// Optional[AnnData]
     #[pyo3(
         signature = (obs_indices=None, var_indices=None, out=None, backend=None),
-        text_signature = "(obs_indices=None, var_indices=None, out=None, backend=None)",
+        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)",
     )]
     pub fn subset(
         &self,
@@ -391,7 +391,7 @@ impl AnnData {
     /// PyChunkedMatrix
     #[pyo3(
         signature = (chunk_size=500),
-        text_signature = "(chunk_size=500)",
+        text_signature = "($self, chunk_size=500)",
     )]
     #[pyo3(name = "chunked_X")]
     pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {

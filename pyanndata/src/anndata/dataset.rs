@@ -323,7 +323,7 @@ impl AnnDataSet {
     ///     return the indices that would sort the `obs_indices` array.
     #[pyo3(
         signature = (obs_indices=None, var_indices=None, out=None, backend=None),
-        text_signature = "(obs_indices=None, var_indices=None, out=None, backend=None)"
+        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)"
     )]
     pub fn subset(
         &self,
@@ -358,7 +358,7 @@ impl AnnDataSet {
     /// Convert AnnDataSet to AnnData object.
     #[pyo3(
         signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=None),
-        text_signature = "(obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
+        text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
     )]
     pub fn to_adata(
         &self,
@@ -385,7 +385,7 @@ impl AnnDataSet {
     ///     Row size of a single chunk. Default: 500.
     #[pyo3(
         signature = (chunk_size=500, /),
-        text_signature = "(chunk_size=500, /)",
+        text_signature = "($self, chunk_size=500, /)",
         name = "chunked_X",
     )]
     pub fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
