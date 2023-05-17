@@ -13,7 +13,7 @@ use hdf5::{
     types::{FloatSize, TypeDescriptor, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
-use ndarray::{Array, ArrayView, Dimension, SliceInfo, ArrayBase};
+use ndarray::{Array, ArrayView, RemoveAxis, SliceInfo, ArrayBase};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
@@ -292,13 +292,13 @@ impl DatasetOp for H5Dataset {
     where
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: Dimension,
+        D: RemoveAxis,
     {
         fn read_arr<T, S, D>(dataset: &H5Dataset, selection: &[S]) -> Result<Array<T, D>>
         where
             T: H5Type + BackendData,
             S: AsRef<SelectInfoElem>,
-            D: Dimension,
+            D: RemoveAxis,
         {
             if selection.iter().any(|x| x.as_ref().is_index()) {
                 // fancy indexing is too slow, just read all
@@ -365,7 +365,7 @@ impl DatasetOp for H5Dataset {
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: Dimension,
+        D: RemoveAxis,
     {
         fn write_array_impl<'a, T, D, S>(
             container: &H5Dataset,
@@ -374,7 +374,7 @@ impl DatasetOp for H5Dataset {
         ) -> Result<()>
         where
             T: H5Type + Clone,
-            D: Dimension,
+            D: RemoveAxis,
             S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
@@ -417,7 +417,7 @@ fn write_array_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Resu
 where
     A: Into<ArrayView<'a, D, Dim>>,
     D: BackendData,
-    Dim: Dimension,
+    Dim: RemoveAxis,
 {
     del_attr(loc, name);
     match BackendData::into_dyn_arr(value.into()) {
@@ -493,7 +493,7 @@ fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
     T::from_dyn(val)
 }
 
-fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
+fn read_array_attr<T: BackendData, D: RemoveAxis>(loc: &Location, name: &str) -> Result<Array<T, D>> {
     let attr = loc.attr(name)?;
     if attr.size() == 0 {
         let shape = D::zeros(D::NDIM.unwrap_or(0));
@@ -630,7 +630,7 @@ impl LocationOp for H5Group {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         write_array_attr(self, name, value)
     }
@@ -647,7 +647,7 @@ impl LocationOp for H5Group {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }
@@ -667,7 +667,7 @@ impl LocationOp for H5Dataset {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         write_array_attr(self, name, value)
     }
@@ -684,7 +684,7 @@ impl LocationOp for H5Dataset {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }

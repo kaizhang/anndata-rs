@@ -14,7 +14,7 @@ use n5::{
     N5Reader, N5Writer, ReadableDataBlock, ReflectedType, SliceDataBlock,
     ndarray::N5NdarrayReader,
 };
-use ndarray::{Array, Array2, ArrayView, Dimension, IxDyn, IxDynImpl, Slice};
+use ndarray::{Array, Array2, ArrayView, RemoveAxis, IxDyn, IxDynImpl, Slice};
 use serde_json::{value::Value, Number};
 use smallvec::smallvec;
 use std::{
@@ -356,7 +356,7 @@ impl DatasetOp for Dataset {
     fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
         S: AsRef<SelectInfoElem>,
-        D: Dimension,
+        D: RemoveAxis,
     {
         macro_rules! impl_read {
             ($ty:ty) => {{
@@ -405,7 +405,7 @@ impl DatasetOp for Dataset {
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: Dimension,
+        D: RemoveAxis,
     {
         // TODO: check array dimension matches the selectioin
 
@@ -470,7 +470,7 @@ impl LocationOp for Location {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         let path = self.path.to_string_lossy();
         match BackendData::into_dyn_arr(value.into()) {
@@ -533,7 +533,7 @@ impl LocationOp for Location {
         }
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         let val = self.root.get_attributes(&self.path.to_string_lossy())?.as_object().unwrap().get(name).unwrap().clone();
         let array: DynArray = match T::DTYPE {
             ScalarType::U8 => serde_json::from_value::<Array<u8, IxDyn>>(val)?.into(),
@@ -622,7 +622,7 @@ impl LocationOp for Group {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         self.deref().write_array_attr(name, value)
     }
@@ -643,7 +643,7 @@ impl LocationOp for Group {
         self.deref().read_scalar_attr(name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         self.deref().read_array_attr(name)
     }
 }
@@ -663,7 +663,7 @@ impl LocationOp for Dataset {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         self.deref().write_array_attr(name, value)
     }
@@ -684,7 +684,7 @@ impl LocationOp for Dataset {
         self.deref().read_scalar_attr(name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         self.deref().read_array_attr(name)
     }
 }
@@ -743,7 +743,7 @@ mod tests {
     where
         A: Into<ArrayView<'a, T, D>>,
         T: PartialEq + BackendData + std::fmt::Debug,
-        D: Dimension,
+        D: RemoveAxis,
     {
         let arr = data.into();
         let dataset = root.create_array_data("array", &arr, Default::default())?;
@@ -763,7 +763,7 @@ mod tests {
     where
         A: Into<ArrayView<'a, T, D>>,
         T: PartialEq + BackendData + std::fmt::Debug,
-        D: Dimension,
+        D: RemoveAxis,
     {
         let arr = data.into();
         let dataset = root.create_scalar_data("scalar", &1u8)?;

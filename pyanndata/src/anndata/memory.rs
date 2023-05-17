@@ -490,7 +490,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             D: ArrayChunk + Into<ArrayData>,
     {
         let py = self.arrays.py();
-        let array = ArrayChunk::concat(data)?;
+        let array = ArrayOp::vstack(data)?;
         let shape = array.shape();
         if self.axis == 0 {
             self.adata.set_n_obs(shape[0])?;

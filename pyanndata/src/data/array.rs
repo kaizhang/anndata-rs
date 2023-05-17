@@ -1,9 +1,9 @@
 use crate::data::{FromPython, IntoPython};
 
 use ndarray::ArrayD;
-use nalgebra_sparse::CsrMatrix;
+use nalgebra_sparse::{CsrMatrix, CscMatrix};
 use pyo3::prelude::*;
-use anndata::data::{DynArray, DynCsrMatrix};
+use anndata::data::{DynArray, DynCsrMatrix, DynCscMatrix};
 use numpy::{PyReadonlyArrayDyn, IntoPyArray};
 
 macro_rules! proc_py_numeric {
@@ -111,6 +111,51 @@ impl FromPython<'_> for DynCsrMatrix {
     }
 }
 
+impl FromPython<'_> for DynCscMatrix {
+    fn from_python(ob: &PyAny) -> PyResult<Self> {
+        fn extract_csc_indicies(indicies: &PyAny) -> PyResult<Vec<usize>> {
+            let res = match indicies
+                .getattr("dtype")?
+                .getattr("name")?
+                .extract::<&str>()?
+            {
+                "int32" => indicies
+                    .extract::<PyReadonlyArrayDyn<i32>>()?
+                    .as_array()
+                    .iter()
+                    .map(|x| (*x).try_into().unwrap())
+                    .collect(),
+                "int64" => indicies
+                    .extract::<PyReadonlyArrayDyn<i64>>()?
+                    .as_array()
+                    .iter()
+                    .map(|x| (*x).try_into().unwrap())
+                    .collect(),
+                other => panic!("CSC indicies type '{}' is not supported", other),
+            };
+            Ok(res)
+        }
+
+        let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
+        let indices = extract_csc_indicies(ob.getattr("indices")?)?;
+        let indptr = extract_csc_indicies(ob.getattr("indptr")?)?;
+        let ty = ob.getattr("data")?.getattr("dtype")?.getattr("name")?.extract::<&str>()?;
+
+        let csc = proc_py_numeric!(
+            ty,
+            CscMatrix::try_from_csc_data(
+                shape[0],
+                shape[1],
+                indptr,
+                indices,
+                ob.getattr("data")?.extract::<PyReadonlyArrayDyn<_>>()?.to_vec().unwrap()
+            ).unwrap(),
+            CscMatrix
+        );
+         Ok(csc)
+    }
+}
+
 impl IntoPython for DynArray {
     fn into_python(self, py: Python<'_>) -> PyResult<PyObject> {
         let res = match self {
@@ -167,6 +212,44 @@ impl IntoPython for DynCsrMatrix {
             DynCsrMatrix::F64(csr) => helper(csr, py),
             DynCsrMatrix::Bool(csr) => helper(csr, py),
             DynCsrMatrix::String(_) => todo!(),
+        }
+    }
+}
+
+impl IntoPython for DynCscMatrix {
+    fn into_python(self, py: Python<'_>) -> PyResult<PyObject> {
+        fn helper<T: numpy::Element>(csc: CscMatrix<T>, py: Python<'_>) -> PyResult<PyObject> {
+            let n = csc.nrows();
+            let m = csc.ncols();
+            let (indptr, indices, data) = csc.disassemble();
+            let scipy = PyModule::import(py, "scipy.sparse")?;
+            Ok(scipy
+                .getattr("csc_matrix")?
+                .call1((
+                    (
+                        data.into_pyarray(py),
+                        indices.into_pyarray(py),
+                        indptr.into_pyarray(py),
+                    ),
+                    (n, m),
+                ))?
+                .to_object(py))
+        }
+
+        match self {
+            DynCscMatrix::I8(csc) => helper(csc, py),
+            DynCscMatrix::I16(csc) => helper(csc, py),
+            DynCscMatrix::I32(csc) => helper(csc, py),
+            DynCscMatrix::I64(csc) => helper(csc, py),
+            DynCscMatrix::U8(csc) => helper(csc, py),
+            DynCscMatrix::U16(csc) => helper(csc, py),
+            DynCscMatrix::U32(csc) => helper(csc, py),
+            DynCscMatrix::U64(csc) => helper(csc, py),
+            DynCscMatrix::Usize(csc) => helper(csc, py),
+            DynCscMatrix::F32(csc) => helper(csc, py),
+            DynCscMatrix::F64(csc) => helper(csc, py),
+            DynCscMatrix::Bool(csc) => helper(csc, py),
+            DynCscMatrix::String(_) => todo!(),
         }
     }
 }

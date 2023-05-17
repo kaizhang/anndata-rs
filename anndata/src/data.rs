@@ -11,9 +11,10 @@ pub use scalar::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 
-use ::ndarray::{Array, Dimension};
+use ::ndarray::{Array, RemoveAxis};
 use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::csc::CscMatrix;
 use polars::frame::DataFrame;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,7 +44,7 @@ macro_rules! impl_into_data {
                 Data::Scalar(DynScalar::$to_type(data))
             }
         }
-        impl<D: Dimension> From<Array<$from_type, D>> for Data {
+        impl<D: RemoveAxis> From<Array<$from_type, D>> for Data {
             fn from(data: Array<$from_type, D>) -> Self {
                 Data::ArrayData(ArrayData::Array(DynArray::$to_type(data.into_dyn())))
             }
@@ -51,6 +52,11 @@ macro_rules! impl_into_data {
         impl From<CsrMatrix<$from_type>> for Data {
             fn from(data: CsrMatrix<$from_type>) -> Self {
                 Data::ArrayData(ArrayData::CsrMatrix(DynCsrMatrix::$to_type(data)))
+            }
+        }
+        impl From<CscMatrix<$from_type>> for Data {
+            fn from(data: CscMatrix<$from_type>) -> Self {
+                Data::ArrayData(ArrayData::CscMatrix(DynCscMatrix::$to_type(data)))
             }
         }
     };
@@ -96,7 +102,7 @@ macro_rules! impl_try_from_for_scalar {
                 }
             }
 
-            impl<D: Dimension> TryFrom<Data> for Array<$to, D> {
+            impl<D: RemoveAxis> TryFrom<Data> for Array<$to, D> {
                 type Error = anyhow::Error;
                 fn try_from(v: Data) -> Result<Self> {
                     match v {
@@ -166,7 +172,9 @@ impl ReadData for Data {
             DataType::CsrMatrix(_) => {
                 DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into())
             }
-            DataType::CscMatrix(_) => todo!(),
+            DataType::CscMatrix(_) => {
+                DynCscMatrix::read(container).map(|x| ArrayData::from(x).into())
+            },
             DataType::DataFrame => DataFrame::read(container).map(|x| ArrayData::from(x).into()),
             DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
             DataType::Mapping => Mapping::read(container).map(|x| x.into()),

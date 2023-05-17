@@ -15,16 +15,3 @@ pub use container::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 
     StackedAxisArrays, StackedDataFrame, StackedArrayElem,
 };
-
-/*
-/// Implementation's prelude. Common types used everywhere.
-mod imp_prelude {
-    pub use crate::dimension::DimensionExt;
-    pub use crate::prelude::*;
-    pub use crate::ArcArray;
-    pub use crate::{
-        CowRepr, Data, DataMut, DataOwned, DataShared, Ix, Ixs, RawData, RawDataMut, RawViewRepr,
-        RemoveAxis, ViewRepr,
-    };
-}
-*/

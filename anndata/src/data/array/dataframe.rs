@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use std::ops::Deref;
 
 use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, LocationOp};
@@ -120,6 +121,15 @@ impl ArrayOp for DataFrame {
             .unwrap()
             .take_iter(select.as_ref()[0].to_vec().into_iter())
             .unwrap()
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        Ok(
+            iter.reduce(|mut a, b| {
+                a.vstack_mut(&b).unwrap();
+                a
+            }).unwrap_or(Self::empty())
+        )
     }
 }
 
@@ -308,6 +318,10 @@ impl ArrayOp for Series {
     {
         let i = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len());
         self.take_iter(&mut i.to_vec().into_iter()).unwrap()
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        todo!("vstack not implemented for Series")
     }
 }
 

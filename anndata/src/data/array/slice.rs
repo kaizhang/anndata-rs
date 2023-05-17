@@ -1,3 +1,5 @@
+#![allow(dead_code, unused)]
+
 use ndarray::{Array1, Array2, Slice, SliceInfo, SliceInfoElem, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;

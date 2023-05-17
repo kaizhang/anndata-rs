@@ -9,6 +9,15 @@ pub fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool
     )
 }
 
+pub fn isinstance_of_csc<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+    obj.is_instance(
+        py.import("scipy.sparse.csc")?
+            .getattr("csc_matrix")?
+            .downcast::<PyType>()
+            .unwrap(),
+    )
+}
+
 pub fn isinstance_of_arr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     obj.is_instance(
         py.import("numpy")?
