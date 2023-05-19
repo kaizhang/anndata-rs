@@ -7,8 +7,9 @@ use crate::data::{
 
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
+use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
-use super::utils::{vstack_arr, vstack_csr, vstack_csc};
+use super::utils::{vstack_arr, vstack_csr, hstack_csc};
 use super::{DynCsrMatrix, DynCscMatrix, DynArray};
 
 pub trait ArrayChunk: ArrayOp {
@@ -282,14 +283,14 @@ impl ArrayChunk for DynCscMatrix {
 }
 
 
-impl<T: BackendData> ArrayChunk for CscMatrix<T> {
+impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
     fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         // TODO! more efficent way should be implement
         // Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
-        Ok(iter.map(|csc| csc.transpose_as_csr())
-               .reduce(|acc, x| vstack_csr(acc, x))
+        Ok(iter.map(|csc| csc.transpose())
+               .reduce(|acc, x| hstack_csc(acc, x))
                .unwrap()
-               .transpose_as_csc())
+               .transpose())
     }
 
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -337,7 +338,7 @@ impl<T: BackendData> ArrayChunk for CscMatrix<T> {
         data.finish()?;
         indptr.push(nnz);
         group.create_array_data("indptr", &indptr, Default::default())?;
-        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.write_array_attr("shape", &[num_rows.unwrap_or(0), num_cols])?;
         Ok(DataContainer::Group(group))
     }
 }
