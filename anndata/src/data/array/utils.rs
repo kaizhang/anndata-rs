@@ -186,7 +186,7 @@ pub fn hstack_csc<T: Clone>(this: CscMatrix<T>, other: CscMatrix<T>) -> CscMatri
     indptr2.iter().skip(1).for_each(|&i| indptr.push(i + nnz));
 
     let pattern = unsafe {
-        SparsityPattern::from_offset_and_indices_unchecked(num_rows, num_cols, indptr, indices)
+        SparsityPattern::from_offset_and_indices_unchecked(num_cols, num_rows, indptr, indices)
     };
     CscMatrix::try_from_pattern_and_values(pattern, data).unwrap()
 }
