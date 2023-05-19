@@ -167,21 +167,12 @@ pub fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatri
 }
 
 
-/// Row concatenation of sparse row matrices.
+/// Row concatenation of sparse column matrices.
+/// TODO! 
+/// - need to do sanity check 
+/// - a more efficient implement is needed
 pub fn vstack_csc<T: Clone>(this: CscMatrix<T>, other: CscMatrix<T>) -> CscMatrix<T> {
-    let num_cols = this.ncols();
-    let num_rows = this.nrows() + other.nrows();
-    let nnz = this.nnz();
-    let (mut indptr, mut indices, mut data) = this.disassemble();
-    let (indptr2, indices2, data2) = other.csc_data();
-    indices.extend_from_slice(indices2);
-    data.extend_from_slice(data2);
-    indptr2.iter().skip(1).for_each(|&i| indptr.push(i + nnz));
-
-    let pattern = unsafe {
-        SparsityPattern::from_offset_and_indices_unchecked(num_rows, num_cols, indptr, indices)
-    };
-    CscMatrix::try_from_pattern_and_values(pattern, data).unwrap()
+    vstack_csr(this.transpose_as_csr(), other.transpose_as_csr()).transpose_as_csc()
 }
 
 
