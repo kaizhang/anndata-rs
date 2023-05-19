@@ -284,7 +284,12 @@ impl ArrayChunk for DynCscMatrix {
 
 impl<T: BackendData> ArrayChunk for CscMatrix<T> {
     fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
+        // TODO! more efficent way should be implement
+        // Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
+        Ok(iter.map(|csc| csc.transpose_as_csr())
+               .reduce(|acc, x| vstack_csr(acc, x))
+               .unwrap()
+               .transpose_as_csc())
     }
 
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -305,17 +310,17 @@ impl<T: BackendData> ArrayChunk for CscMatrix<T> {
             &group, "indices", 1000.into(),
         )?;
         let mut indptr: Vec<i64> = Vec::new();
-        let mut num_rows = 0;
-        let mut num_cols: Option<usize> = None;
+        let mut num_cols = 0;
+        let mut num_rows: Option<usize> = None;
         let mut nnz = 0;
 
         iter.try_for_each(|csc| {
-            let c = csc.ncols();
-            if num_cols.is_none() {
-                num_cols = Some(c);
+            let r = csc.nrows();
+            if num_rows.is_none() {
+                num_rows = Some(r);
             }
-            if num_cols.unwrap() == c {
-                num_rows += csc.nrows();
+            if num_rows.unwrap() == r {
+                num_cols += csc.ncols();
                 let (indptr_, indices_, data_) = csc.csc_data();
                 indptr_[..indptr_.len() - 1]
                     .iter()
@@ -324,7 +329,7 @@ impl<T: BackendData> ArrayChunk for CscMatrix<T> {
                 data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
                 indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
             } else {
-                bail!("All matrices must have the same number of columns");
+                bail!("All matrices must have the same number of rows");
             }
         })?;
 
