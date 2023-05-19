@@ -1,3 +1,5 @@
+#![allow(dead_code, unused)]
+
 use crate::{
     traits::ArrayElemOp,
     backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},

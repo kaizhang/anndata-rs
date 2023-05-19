@@ -352,11 +352,14 @@ impl<B: Backend> DataContainer<B> {
             "categorical" => DataType::Categorical,
             "string-array" => DataType::Array(ScalarType::String),
             "array" => DataType::Array(self.as_dataset()?.dtype()?),
-            "csc_matrix" => todo!(),
+            "csc_matrix" => {
+                let ty = self.as_group()?.open_dataset("data")?.dtype()?;
+                DataType::CscMatrix(ty)
+            },
             "csr_matrix" => {
                 let ty = self.as_group()?.open_dataset("data")?.dtype()?;
                 DataType::CsrMatrix(ty)
-            }
+            },
             "dataframe" => DataType::DataFrame,
             "mapping" | "dict" => DataType::Mapping,
             ty => bail!("Unsupported type '{}'", ty),

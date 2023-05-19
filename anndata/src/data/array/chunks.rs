@@ -7,10 +7,9 @@ use crate::data::{
 
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
-use nalgebra_sparse::CsrMatrix;
-
-use super::utils::{vstack_arr, vstack_csr};
-use super::{DynCsrMatrix, DynArray};
+use nalgebra_sparse::{CsrMatrix, CscMatrix};
+use super::utils::{vstack_arr, vstack_csr, vstack_csc};
+use super::{DynCsrMatrix, DynCscMatrix, DynArray};
 
 pub trait ArrayChunk: ArrayOp {
     fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized;
@@ -28,6 +27,7 @@ impl ArrayChunk for ArrayData {
         match iter.peek().unwrap() {
             ArrayData::Array(_) => DynArray::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
             ArrayData::CsrMatrix(_) => DynCsrMatrix::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::CscMatrix(_) => DynCscMatrix::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
             ArrayData::DataFrame(_) => todo!(),
         }
     }
@@ -42,6 +42,7 @@ impl ArrayChunk for ArrayData {
         match iter.peek().unwrap() {
             ArrayData::Array(_) => DynArray::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::CsrMatrix(_) => DynCsrMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            ArrayData::CscMatrix(_) => DynCscMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::DataFrame(_) => todo!(),
         }
     }
@@ -230,3 +231,115 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         Ok(DataContainer::Group(group))
     }
 }
+
+
+
+
+
+impl ArrayChunk for DynCscMatrix {
+    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynCscMatrix::U8(_) => Ok(DynCscMatrix::U8(CscMatrix::<u8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U16(_) => Ok(DynCscMatrix::U16(CscMatrix::<u16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U32(_) => Ok(DynCscMatrix::U32(CscMatrix::<u32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U64(_) => Ok(DynCscMatrix::U64(CscMatrix::<u64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::Usize(_) => Ok(DynCscMatrix::Usize(CscMatrix::<usize>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I8(_) => Ok(DynCscMatrix::I8(CscMatrix::<i8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I16(_) => Ok(DynCscMatrix::I16(CscMatrix::<i16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I32(_) => Ok(DynCscMatrix::I32(CscMatrix::<i32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I64(_) => Ok(DynCscMatrix::I64(CscMatrix::<i64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::F32(_) => Ok(DynCscMatrix::F32(CscMatrix::<f32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::F64(_) => Ok(DynCscMatrix::F64(CscMatrix::<f64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::Bool(_) => Ok(DynCscMatrix::Bool(CscMatrix::<bool>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::String(_) => Ok(DynCscMatrix::String(CscMatrix::<String>::concat(iter.map(|x| x.try_into().unwrap()))?)),
+        }
+    }
+
+    fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynCscMatrix::U8(_) => CscMatrix::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::U16(_) => CscMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::U32(_) => CscMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::U64(_) => CscMatrix::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::Usize(_) => CscMatrix::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::I8(_) => CscMatrix::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::I16(_) => CscMatrix::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::I32(_) => CscMatrix::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::I64(_) => CscMatrix::<i64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::F32(_) => CscMatrix::<f32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::F64(_) => CscMatrix::<f64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::Bool(_) => CscMatrix::<bool>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCscMatrix::String(_) => CscMatrix::<String>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+        }
+    }
+}
+
+
+impl<T: BackendData> ArrayChunk for CscMatrix<T> {
+    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
+    }
+
+    fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let group = location.create_group(name)?;
+        group.write_str_attr("encoding-type", "csc_matrix")?;
+        group.write_str_attr("encoding-version", "0.1.0")?;
+        group.write_str_attr("h5sparse_format", "csc")?;
+
+        let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
+            &group, "data", 1000.into(),
+        )?;
+        let mut indices: ExtendableDataset<B, i64> = ExtendableDataset::with_capacity(
+            &group, "indices", 1000.into(),
+        )?;
+        let mut indptr: Vec<i64> = Vec::new();
+        let mut num_rows = 0;
+        let mut num_cols: Option<usize> = None;
+        let mut nnz = 0;
+
+        iter.try_for_each(|csc| {
+            let c = csc.ncols();
+            if num_cols.is_none() {
+                num_cols = Some(c);
+            }
+            if num_cols.unwrap() == c {
+                num_rows += csc.nrows();
+                let (indptr_, indices_, data_) = csc.csc_data();
+                indptr_[..indptr_.len() - 1]
+                    .iter()
+                    .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
+                nnz += *indptr_.last().unwrap_or(&0) as i64;
+                data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
+                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
+            } else {
+                bail!("All matrices must have the same number of columns");
+            }
+        })?;
+
+        indices.finish()?;
+        data.finish()?;
+        indptr.push(nnz);
+        group.create_array_data("indptr", &indptr, Default::default())?;
+        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        Ok(DataContainer::Group(group))
+    }
+}
+
+
+
+
+
+
+

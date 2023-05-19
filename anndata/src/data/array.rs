@@ -19,6 +19,8 @@ use polars::prelude::DataFrame;
 use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::csc::CscMatrix;
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayData {
@@ -50,6 +52,7 @@ impl From<DynCsrMatrix> for ArrayData {
     fn from(data: DynCsrMatrix) -> Self {
         ArrayData::CsrMatrix(data)
     }
+}
 impl From<DynCscMatrix> for ArrayData {
     fn from(data: DynCscMatrix) -> Self {
         ArrayData::CscMatrix(data)
@@ -154,6 +157,7 @@ impl WriteData for ArrayData {
         match self {
             ArrayData::Array(data) => data.data_type(),
             ArrayData::CsrMatrix(data) => data.data_type(),
+            ArrayData::CscMatrix(data) => data.data_type(),
             ArrayData::DataFrame(data) => data.data_type(),
         }
     }
@@ -165,6 +169,7 @@ impl WriteData for ArrayData {
         match self {
             ArrayData::Array(data) => data.write(location, name),
             ArrayData::CsrMatrix(data) => data.write(location, name),
+            ArrayData::CscMatrix(data) => data.write(location, name),
             ArrayData::DataFrame(data) => data.write(location, name),
         }
     }
@@ -248,4 +253,5 @@ impl ReadArrayData for ArrayData {
     }
 }
 impl WriteArrayData for ArrayData {}
+
 impl WriteArrayData for &ArrayData {}
