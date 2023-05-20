@@ -1197,7 +1197,7 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
             return Self::read(container);
         }
 
-        let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
+        let data = if let SelectInfoElem::Slice(s) = info[1].as_ref()  {
             let group = container.as_group()?;
             let indptr_slice = if let Some(end) = s.end {
                 SelectInfoElem::from(s.start .. end + 1)
@@ -1219,7 +1219,7 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
                 indptr,
                 indices,
                 data,
-            ).unwrap().select_axis(1, info[1].as_ref())
+            ).unwrap().select_axis(0, info[0].as_ref()) // selct axis 1, then select axis 0 elements
         } else {
             Self::read(container)?.select(info)
         };
