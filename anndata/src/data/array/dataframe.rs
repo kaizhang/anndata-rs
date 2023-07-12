@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use std::ops::Deref;
 
 use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, LocationOp};

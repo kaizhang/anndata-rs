@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use crate::{
     backend::{iter_containers, Backend, GroupOp, LocationOp},
     container::base::*,

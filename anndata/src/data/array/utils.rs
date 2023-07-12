@@ -1,10 +1,14 @@
+#![allow(dead_code, unused)]
+
 use crate::backend::{Backend, BackendData, DatasetOp, GroupOp, WriteConfig};
-use crate::data::{ArrayData, DynArray, DynCsrMatrix};
+use crate::data::{ArrayData, DynArray, DynCsrMatrix, DynCscMatrix};
 use crate::data::{SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
 use itertools::Itertools;
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::csc::CscMatrix;
+use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::{Array, Axis, RemoveAxis};
 use ndarray::{ArrayView, Dimension};
@@ -133,6 +137,9 @@ fn vstack_array_data(this: ArrayData, other: ArrayData) -> Result<ArrayData> {
         (ArrayData::CsrMatrix(this), ArrayData::CsrMatrix(other)) => {
             impl_vstack_array!(this, DynCsrMatrix, other, DynCsrMatrix, vstack_csr)
         }
+        (ArrayData::CscMatrix(this), ArrayData::CscMatrix(other)) => {
+            impl_vstack_array!(this, DynCscMatrix, other, DynCscMatrix, vstack_csc)
+        }
         _ => bail!("Cannot concatenate arrays of different types"),
     };
     Ok(array)
@@ -144,6 +151,7 @@ pub fn vstack_arr<T: Clone, D: RemoveAxis>(mut this: Array<T, D>, other: Array<T
 }
 
 /// Row concatenation of sparse row matrices.
+/// Stack csr in sequence vertically (row wise).
 pub fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
     let num_cols = this.ncols();
     let num_rows = this.nrows() + other.nrows();
@@ -159,6 +167,35 @@ pub fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatri
     };
     CsrMatrix::try_from_pattern_and_values(pattern, data).unwrap()
 }
+
+/// Column concatenation of sparse row matrices.
+pub fn hstack_csr<T: Clone + Scalar>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
+    vstack_csr(this.transpose(), other.transpose()).transpose()
+}
+
+/// Column concatenation of sparse column matrices.
+pub fn hstack_csc<T: Clone>(this: CscMatrix<T>, other: CscMatrix<T>) -> CscMatrix<T> {
+
+    let num_cols = this.ncols()  + other.ncols();
+    let num_rows = this.nrows();
+    let nnz = this.nnz();
+    let (mut indptr, mut indices, mut data) = this.disassemble();
+    let (indptr2, indices2, data2) = other.csc_data();
+    indices.extend_from_slice(indices2);
+    data.extend_from_slice(data2);
+    indptr2.iter().skip(1).for_each(|&i| indptr.push(i + nnz));
+
+    let pattern = unsafe {
+        SparsityPattern::from_offset_and_indices_unchecked(num_cols, num_rows, indptr, indices)
+    };
+    CscMatrix::try_from_pattern_and_values(pattern, data).unwrap()
+}
+
+/// Row concatenation of sparse column matrices.
+pub fn vstack_csc<T: Clone + Scalar>(this: CscMatrix<T>, other: CscMatrix<T>) -> CscMatrix<T> {
+    hstack_csc(this.transpose(), other.transpose()).transpose()
+}
+
 
 pub fn from_csr_rows<I, In, T>(iter: I, num_cols: usize) -> CsrMatrix<T>
 where
@@ -183,6 +220,35 @@ where
     CsrMatrix::try_from_csr_data(num_rows, num_cols, indptr, indices, data).unwrap()
 }
 
+
+pub fn from_csc_cols<I, In, T>(iter: I, num_rows: usize) -> CscMatrix<T>
+where
+    I: IntoIterator<IntoIter = In>,
+    In: ExactSizeIterator<Item = Vec<(usize, T)>>,
+{
+    let cols = iter.into_iter();
+    let num_cols = cols.len();
+    let mut data = Vec::new();
+    let mut indices = Vec::new();
+    let mut indptr = Vec::with_capacity(num_cols + 1);
+    let mut nnz = 0;
+    for col in cols {
+        indptr.push(nnz);
+        for (row, val) in col {
+            data.push(val);
+            indices.push(row);
+            nnz += 1;
+        }
+    }
+    indptr.push(nnz);
+    CscMatrix::try_from_csc_data(num_rows, num_cols, indptr, indices, data).unwrap()
+}
+
+
+
+/// select rows of csr_matrix, or columns of csc_matrix
+/// - major_indices: row_indices/col_indices of csr/csc matrix
+/// - offset: indptr
 pub fn cs_major_index<I, T>(
     major_indices: I,
     offsets: &[usize],
@@ -208,6 +274,10 @@ where
     (new_offsets, new_indices, new_data)
 }
 
+
+/// slicing rows of csr_matrix, or columns of csc_matrix
+/// - start, end: slice buound of row_indices/col_indices of csr/csc matrix
+/// - offset: indptr
 pub fn cs_major_slice<'a, T>(
     start: usize,
     end: usize,
@@ -221,6 +291,14 @@ pub fn cs_major_slice<'a, T>(
     (new_offsets, &indices[i..j], &data[i..j])
 }
 
+
+/// row and column indexing of csr_matrix
+/// - major_idx: row_idx of csr_matrix, col_idx of csc_matrix
+/// - minor_idx: col_idx of csr_matrix, row_idx of csc_matrix
+/// - len_minor: ncols of csr_matrix
+/// - offset: indptr
+/// - indices: 
+/// - data:
 pub fn cs_major_minor_index<I1, I2, T>(
     major_idx: I1,
     minor_idx: I2,
@@ -247,7 +325,7 @@ where
         }))
         .collect();
 
-    // cumsum in-place
+    // cumsum in-place -> calc new offset
     (1..len_minor).for_each(|j| minor_idx_count[j] += minor_idx_count[j - 1]);
 
     let col_order: Vec<usize> = minor_idx
@@ -260,6 +338,8 @@ where
     let mut new_indices = vec![0; new_nnz];
     let mut new_values: Vec<T> = Vec::with_capacity(new_nnz);
     let mut n = 0;
+
+    // iter major then minor
     major_idx.for_each(|i| {
         let new_start = n;
         let start = offsets[i];

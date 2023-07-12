@@ -7,7 +7,7 @@ mod chunks;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
-pub use sparse::DynCsrMatrix;
+pub use sparse::{DynCsrMatrix, DynCscMatrix};
 pub use dataframe::DataFrameIndex;
 pub use utils::{concat_array_data, from_csr_rows};
 pub use chunks::ArrayChunk;
@@ -19,12 +19,14 @@ use polars::prelude::DataFrame;
 use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::csc::CscMatrix;
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayData {
     Array(DynArray),
     CsrMatrix(DynCsrMatrix),
-    //CscMatrix(DynCscMatrix),
+    CscMatrix(DynCscMatrix),
     DataFrame(DataFrame),
 }
 
@@ -51,6 +53,11 @@ impl From<DynCsrMatrix> for ArrayData {
         ArrayData::CsrMatrix(data)
     }
 }
+impl From<DynCscMatrix> for ArrayData {
+    fn from(data: DynCscMatrix) -> Self {
+        ArrayData::CscMatrix(data)
+    }
+}
 
 impl TryFrom<ArrayData> for DynArray {
     type Error = anyhow::Error;
@@ -68,6 +75,17 @@ impl TryFrom<ArrayData> for DynCsrMatrix {
         match value {
             ArrayData::CsrMatrix(data) => Ok(data),
             _ => bail!("Cannot convert {:?} to DynCsrMatrix", value),
+        }
+    }
+}
+
+
+impl TryFrom<ArrayData> for DynCscMatrix {
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        match value {
+            ArrayData::CscMatrix(data) => Ok(data),
+            _ => bail!("Cannot convert {:?} to DynCscMatrix", value),
         }
     }
 }
@@ -96,7 +114,11 @@ macro_rules! impl_into_array_data {
                     ArrayData::CsrMatrix(data.into())
                 }
             }
-
+            impl From<CscMatrix<$ty>> for ArrayData {
+                fn from(data: CscMatrix<$ty>) -> Self {
+                    ArrayData::CscMatrix(data.into())
+                }
+            }
             impl<D: Dimension> TryFrom<ArrayData> for Array<$ty, D> {
                 type Error = anyhow::Error;
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
@@ -115,6 +137,15 @@ macro_rules! impl_into_array_data {
                     }
                 }
             }
+            impl TryFrom<ArrayData> for CscMatrix<$ty> {
+                type Error = anyhow::Error;
+                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+                    match value {
+                        ArrayData::CscMatrix(data) => data.try_into(),
+                        _ => bail!("Cannot convert {:?} to $ty CsrMatrix", value),
+                    }
+                }
+            }
         )*
     };
 }
@@ -126,6 +157,7 @@ impl WriteData for ArrayData {
         match self {
             ArrayData::Array(data) => data.data_type(),
             ArrayData::CsrMatrix(data) => data.data_type(),
+            ArrayData::CscMatrix(data) => data.data_type(),
             ArrayData::DataFrame(data) => data.data_type(),
         }
     }
@@ -137,6 +169,7 @@ impl WriteData for ArrayData {
         match self {
             ArrayData::Array(data) => data.write(location, name),
             ArrayData::CsrMatrix(data) => data.write(location, name),
+            ArrayData::CscMatrix(data) => data.write(location, name),
             ArrayData::DataFrame(data) => data.write(location, name),
         }
     }
@@ -149,7 +182,7 @@ impl ReadData for ArrayData {
                 DynArray::read(container).map(ArrayData::Array)
             }
             DataType::CsrMatrix(_) => DynCsrMatrix::read(container).map(ArrayData::CsrMatrix),
-            DataType::CscMatrix(_) => todo!(),
+            DataType::CscMatrix(_) => DynCscMatrix::read(container).map(ArrayData::CscMatrix),
             DataType::DataFrame => DataFrame::read(container).map(ArrayData::DataFrame),
             ty => bail!("Cannot read type '{:?}' as matrix data", ty),
         }
@@ -161,6 +194,7 @@ impl HasShape for ArrayData {
         match self {
             ArrayData::Array(data) => data.shape(),
             ArrayData::CsrMatrix(data) => data.shape(),
+            ArrayData::CscMatrix(data) => data.shape(),
             ArrayData::DataFrame(data) => HasShape::shape(data),
         }
     }
@@ -171,6 +205,7 @@ impl ArrayOp for ArrayData {
         match self {
             ArrayData::Array(data) => data.get(index),
             ArrayData::CsrMatrix(data) => data.get(index),
+            ArrayData::CscMatrix(data) => data.get(index),
             ArrayData::DataFrame(data) => ArrayOp::get(data, index),
         }
     }
@@ -182,6 +217,7 @@ impl ArrayOp for ArrayData {
         match self {
             ArrayData::Array(data) => data.select(info).into(),
             ArrayData::CsrMatrix(data) => data.select(info).into(),
+            ArrayData::CscMatrix(data) => data.select(info).into(),
             ArrayData::DataFrame(data) => ArrayOp::select(data,info).into(),
         }
     }
@@ -192,6 +228,7 @@ impl ReadArrayData for ArrayData {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => DynArray::get_shape(container),
             DataType::CsrMatrix(_) => DynCsrMatrix::get_shape(container),
+            DataType::CscMatrix(_) => DynCscMatrix::get_shape(container),
             DataType::DataFrame => DataFrame::get_shape(container),
             ty => bail!("Cannot read shape information from type '{}'", ty),
         }
@@ -207,6 +244,8 @@ impl ReadArrayData for ArrayData {
                 DynArray::read_select(container, info).map(ArrayData::Array),
             DataType::CsrMatrix(_) =>
                 DynCsrMatrix::read_select(container, info).map(ArrayData::CsrMatrix),
+            DataType::CscMatrix(_) =>
+                DynCscMatrix::read_select(container, info).map(ArrayData::CscMatrix),
             DataType::DataFrame =>
                 DataFrame::read_select(container, info).map(ArrayData::DataFrame),
             ty => bail!("Cannot read type '{:?}' as matrix data", ty),
@@ -214,4 +253,5 @@ impl ReadArrayData for ArrayData {
     }
 }
 impl WriteArrayData for ArrayData {}
+
 impl WriteArrayData for &ArrayData {}

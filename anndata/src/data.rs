@@ -14,6 +14,7 @@ use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 use ::ndarray::{Array, Dimension};
 use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
+use nalgebra_sparse::csc::CscMatrix;
 use polars::frame::DataFrame;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +52,11 @@ macro_rules! impl_into_data {
         impl From<CsrMatrix<$from_type>> for Data {
             fn from(data: CsrMatrix<$from_type>) -> Self {
                 Data::ArrayData(ArrayData::CsrMatrix(DynCsrMatrix::$to_type(data)))
+            }
+        }
+        impl From<CscMatrix<$from_type>> for Data {
+            fn from(data: CscMatrix<$from_type>) -> Self {
+                Data::ArrayData(ArrayData::CscMatrix(DynCscMatrix::$to_type(data)))
             }
         }
     };
@@ -166,7 +172,9 @@ impl ReadData for Data {
             DataType::CsrMatrix(_) => {
                 DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into())
             }
-            DataType::CscMatrix(_) => todo!(),
+            DataType::CscMatrix(_) => {
+                DynCscMatrix::read(container).map(|x| ArrayData::from(x).into())
+            },
             DataType::DataFrame => DataFrame::read(container).map(|x| ArrayData::from(x).into()),
             DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
             DataType::Mapping => Mapping::read(container).map(|x| x.into()),

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use anndata::*;
 
 use anndata::data::index::Interval;

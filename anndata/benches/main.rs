@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use anndata::*;
 use anndata_hdf5::H5;
 use anndata_n5::N5;
@@ -85,22 +86,22 @@ fn parallel_io<B: Backend>(name: &str, c: &mut Criterion) {
 
         group.bench_function(
             BenchmarkId::new("Serial read", "50 x 10000 (x5)"),
-            |b| b.iter(|| dataset.get_x().data::<ArrayData>().unwrap()),
+            |b| b.iter(|| dataset.x().data::<ArrayData>().unwrap()),
         );
 
         group.bench_function(
             BenchmarkId::new("Parallel read", "50 x 10000 (x5)"),
-            |b| b.iter(|| dataset.get_x().par_data::<ArrayData>().unwrap()),
+            |b| b.iter(|| dataset.x().par_data::<ArrayData>().unwrap()),
         );
 
         group.bench_function(
             BenchmarkId::new("Serial read slice", "10 x 1000 (x5)"),
-            |b| b.iter(|| dataset.get_x().select::<ArrayData, _>(s![0..10, 0..1000].as_ref()).unwrap()),
+            |b| b.iter(|| dataset.x().select::<ArrayData, _>(s![0..10, 0..1000].as_ref()).unwrap()),
         );
 
         group.bench_function(
             BenchmarkId::new("Parallel read slice", "10 x 1000 (x5)"),
-            |b| b.iter(|| dataset.get_x().par_select::<ArrayData, _>(&s![0..10, 0..1000].as_ref()).unwrap()),
+            |b| b.iter(|| dataset.x().par_select::<ArrayData, _>(&s![0..10, 0..1000].as_ref()).unwrap()),
         );
     })
 }
