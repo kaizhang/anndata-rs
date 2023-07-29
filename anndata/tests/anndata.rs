@@ -40,7 +40,7 @@ fn test_save<B: Backend>() {
             let select = [slice_obs, slice_var];
             adata.write_select::<B, _, _>(&select, &output).unwrap();
             adata.subset(&select).unwrap();
-            adata_in = AnnData::<B>::open(B::open(&output).unwrap()).unwrap();
+            let adata_in = AnnData::<B>::open(B::open(&output).unwrap()).unwrap();
             prop_assert!(anndata_eq(&adata, &adata_in).unwrap());
             adata_in.close().unwrap();
         });

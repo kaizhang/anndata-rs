@@ -285,12 +285,15 @@ impl ArrayChunk for DynCscMatrix {
 
 impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
     fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        todo!()
         // TODO! more efficent way should be implement
         // Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
+        /*
         Ok(iter.map(|csc| csc.transpose())
                .reduce(|acc, x| hstack_csc(acc, x))
                .unwrap()
                .transpose())
+        */
     }
 
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -299,6 +302,8 @@ impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
         B: Backend,
         G: GroupOp<Backend = B>,
     {
+        todo!()
+        /*
         let group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csc_matrix")?;
         group.write_str_attr("encoding-version", "0.1.0")?;
@@ -340,6 +345,7 @@ impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
         group.create_array_data("indptr", &indptr, Default::default())?;
         group.write_array_attr("shape", &[num_rows.unwrap_or(0), num_cols])?;
         Ok(DataContainer::Group(group))
+        */
     }
 }
 

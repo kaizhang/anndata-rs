@@ -1,6 +1,6 @@
 use crate::data::*;
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use polars::prelude::DataFrame;
 use smallvec::SmallVec;
 
@@ -134,6 +134,7 @@ pub trait AxisArraysOp {
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         self.get(key).and_then(|x| x.get().transpose()).transpose()
+            .map_err(|e| e.context(format!("key: {}", key)))
     }
 
     fn get_item_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>

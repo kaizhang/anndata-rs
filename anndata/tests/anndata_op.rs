@@ -122,21 +122,3 @@ fn test_iterator_h5() {
         test_iterator(|| adata_gen());
     })
 }
-
-#[test]
-fn test_io_h5_csc() {
-    let projectdir = std::env::current_dir().unwrap();
-    let path = projectdir.parent().unwrap().join("LLP.csc.h5ad");
-    let file = H5::open(path).unwrap();
-    let adata = AnnData::<H5>::open(file).unwrap();
-    // println!("adata csc_matrix: {:?}", &adata);
-    // // Automatical data type casting
-    // adata.x().get::<Array2<f64>>().unwrap().unwrap();
-    // adata.x().get::<ArrayData>().unwrap().unwrap()
-    let idxx = vec![0, 3, 5];
-    let gixx = s![5..100, idxx];
-    // let inner = adata.get_x().inner();
-    // let gex = inner.select::<CscMatrix<f32>, _>(gixx.as_ref()).unwrap();
-    let gex = adata.x().slice::<CscMatrix<f32>, _>(gixx).unwrap().unwrap();// CSCMatrix
-    println!("{:?}", gex);
-}
