@@ -8,8 +8,8 @@ import pytest
 from pathlib import Path
 import uuid
 from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse, random
-from hypothesis import given, example, settings, HealthCheck, strategies as st
+from scipy.sparse import csr_matrix, csc_matrix
+from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
 
 def h5ad(dir=Path("./")):
@@ -35,8 +35,12 @@ def test_basic(x, tmp_path):
     adata.X = csr_matrix(x)
     np.testing.assert_array_equal(x, adata.X[:].todense())
 
+    adata.X = csc_matrix(x)
+    np.testing.assert_array_equal(x, adata.X[:].todense())
+
     adata.layers["X1"] = x
     adata.layers["X2"] = csr_matrix(x)
+    adata.layers["X3"] = csc_matrix(x)
 
     df = pl.DataFrame({
         "a": [1, 2, 3, 4, 5],
@@ -53,17 +57,6 @@ def test_basic(x, tmp_path):
     adata.write(output)
     read(output).close()
     read(output, backed=None)
-    #np.testing.assert_equal(x, read(output, backed=None).layers["X1"]) 
-
-    """
-    def mk_iter(a):
-        yield a
-        yield a
-        yield a
-    adata.X = mk_iter(x)
-    np.testing.assert_array_equal(np.vstack((x,x,x)), adata.X[:])
-    """
-
 
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |

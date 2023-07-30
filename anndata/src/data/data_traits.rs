@@ -77,6 +77,8 @@ pub trait ArrayOp: HasShape {
         let selection = slice.as_ref().set_axis(axis, self.shape().ndim(), &full);
         self.select(selection.as_slice())
     }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized;
 }
 
 pub trait ReadArrayData: ReadData {

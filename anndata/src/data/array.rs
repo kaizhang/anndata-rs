@@ -16,7 +16,7 @@ use crate::backend::*;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
 
 use polars::prelude::DataFrame;
-use ::ndarray::{Array, Dimension};
+use ::ndarray::{Array, RemoveAxis};
 use anyhow::{bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;
@@ -104,7 +104,7 @@ impl TryFrom<ArrayData> for DataFrame {
 macro_rules! impl_into_array_data {
     ($($ty:ty),*) => {
         $(
-            impl<D: Dimension> From<Array<$ty, D>> for ArrayData {
+            impl<D: RemoveAxis> From<Array<$ty, D>> for ArrayData {
                 fn from(data: Array<$ty, D>) -> Self {
                     ArrayData::Array(data.into_dyn().into())
                 }
@@ -119,7 +119,7 @@ macro_rules! impl_into_array_data {
                     ArrayData::CscMatrix(data.into())
                 }
             }
-            impl<D: Dimension> TryFrom<ArrayData> for Array<$ty, D> {
+            impl<D: RemoveAxis> TryFrom<ArrayData> for Array<$ty, D> {
                 type Error = anyhow::Error;
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
@@ -219,6 +219,16 @@ impl ArrayOp for ArrayData {
             ArrayData::CsrMatrix(data) => data.select(info).into(),
             ArrayData::CscMatrix(data) => data.select(info).into(),
             ArrayData::DataFrame(data) => ArrayOp::select(data,info).into(),
+        }
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            ArrayData::Array(_) => DynArray::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::CsrMatrix(_) => DynCsrMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::CscMatrix(_) => DynCscMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::DataFrame(_) => <DataFrame as ArrayOp>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
         }
     }
 }

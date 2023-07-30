@@ -7,8 +7,8 @@ use crate::{
     },
 };
 
-use anyhow::{bail, ensure, Result};
-use ndarray::{ArrayView, Array, Array1, ArrayD, Dimension, SliceInfoElem};
+use anyhow::{bail, ensure, anyhow, Result};
+use ndarray::{ArrayView, Array, Array1, ArrayD, RemoveAxis, SliceInfoElem, Dimension, Axis};
 use std::collections::HashMap;
 use std::ops::Index;
 
@@ -50,20 +50,20 @@ impl TryFrom<DynArray> for CategoricalArray {
 
 macro_rules! impl_dyn_array_convert {
     ($from_type:ty, $to_type:ident) => {
-        impl<D: Dimension> From<Array<$from_type, D>> for DynArray {
+        impl<D: RemoveAxis> From<Array<$from_type, D>> for DynArray {
             fn from(data: Array<$from_type, D>) -> Self {
                 DynArray::$to_type(data.into_dyn())
             }
         }
 
-        impl<D: Dimension> TryFrom<DynArray> for Array<$from_type, D> {
+        impl<D: RemoveAxis> TryFrom<DynArray> for Array<$from_type, D> {
             type Error = anyhow::Error;
             fn try_from(v: DynArray) -> Result<Self, Self::Error> {
                 match v {
                     DynArray::$to_type(data) => {
                         let arr: ArrayD<$from_type> = data.try_into()?;
                         if let Some(n) = D::NDIM {
-                            ensure!(arr.ndim() == n, format!("Dimension mismatch: {} (in) != {} (out)", arr.ndim(), n));
+                            ensure!(arr.ndim() == n, format!("RemoveAxis mismatch: {} (in) != {} (out)", arr.ndim(), n));
                         }
                         Ok(arr.into_dimensionality::<D>()?)
                     },
@@ -225,6 +225,26 @@ impl ArrayOp for DynArray {
             .into(),
         }
     }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynArray::U8(_) => ArrayD::<u8>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::U16(_) => ArrayD::<u16>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::U32(_) => ArrayD::<u32>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::U64(_) => ArrayD::<u64>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::Usize(_) => ArrayD::<usize>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::I8(_) => ArrayD::<i8>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::I16(_) => ArrayD::<i16>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::I32(_) => ArrayD::<i32>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::I64(_) => ArrayD::<i64>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::F32(_) => ArrayD::<f32>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::F64(_) => ArrayD::<f64>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::Bool(_) => ArrayD::<bool>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::String(_) => ArrayD::<String>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            DynArray::Categorical(_) => todo!(),
+        }
+    }
 }
 
 impl WriteArrayData for DynArray {}
@@ -261,7 +281,7 @@ impl ReadArrayData for DynArray {
  
 }
 
-impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D: RemoveAxis> WriteData for ArrayView<'a, T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -283,7 +303,7 @@ impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
     }
 }
 
-impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> WriteData for Array<T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -296,19 +316,19 @@ impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
     }
 }
 
-impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> HasShape for Array<T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
 }
 
-impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D: RemoveAxis> HasShape for ArrayView<'a, T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
 }
 
-impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> ArrayOp for Array<T, D> {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         self.view().into_dyn().get(index).map(|x| x.into_dyn())
     }
@@ -336,15 +356,21 @@ impl<T: BackendData, D: Dimension> ArrayOp for Array<T, D> {
         }.into_dimensionality::<D>().unwrap()
     }
 
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        iter.reduce(|mut this, other| {
+            this.append(Axis(0), other.view()).unwrap();
+            this
+        }).ok_or_else(|| anyhow!("Cannot vstack empty iterator"))
+    }
 }
 
-impl<T: BackendData, D: Dimension> ReadData for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> ReadData for Array<T, D> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         Ok(container.as_dataset()?.read_array::<T, D>()?)
     }
 }
 
-impl<T: BackendData, D: Dimension> ReadArrayData for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> ReadArrayData for Array<T, D> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container.as_dataset()?.shape().into())
     }
@@ -359,9 +385,9 @@ impl<T: BackendData, D: Dimension> ReadArrayData for Array<T, D> {
 }
 
 
-impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
-impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
-impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
+impl<T: BackendData, D: RemoveAxis> WriteArrayData for Array<T, D> {}
+impl<T: BackendData, D: RemoveAxis> WriteArrayData for &Array<T, D> {}
+impl<'a, T: BackendData, D: RemoveAxis> WriteArrayData for ArrayView<'a, T, D> {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CategoricalArray {

@@ -1,6 +1,6 @@
 use crate::data::*;
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use polars::prelude::DataFrame;
 use smallvec::SmallVec;
 
@@ -176,19 +176,23 @@ pub trait ArrayElemOp {
         T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
         <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
+    /// Return the shape of the array.
     fn shape(&self) -> Option<Shape>;
 
+    /// Return the data.
     fn get<D>(&self) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
+    /// Return a slice of the data.
     fn slice<D, S>(&self, slice: S) -> Result<Option<D>>
     where
         D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
+    /// Return a slice of the data along an axis.
     fn slice_axis<D, S>(&self, axis: usize, slice: S) -> Result<Option<D>>
     where
         D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
@@ -204,6 +208,7 @@ pub trait ArrayElemOp {
         }).transpose()
     }
 
+    /// Return an iterator over the data.
     fn iter<T>(
         &self,
         chunk_size: usize,

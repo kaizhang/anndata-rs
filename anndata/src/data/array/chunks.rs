@@ -9,12 +9,9 @@ use anyhow::{bail, Result};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
 use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
-use super::utils::{vstack_arr, vstack_csr, hstack_csc};
 use super::{DynCsrMatrix, DynCscMatrix, DynArray};
 
 pub trait ArrayChunk: ArrayOp {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized;
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -23,16 +20,6 @@ pub trait ArrayChunk: ArrayOp {
 }
 
 impl ArrayChunk for ArrayData {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
-            ArrayData::Array(_) => DynArray::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::CsrMatrix(_) => DynCsrMatrix::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::CscMatrix(_) => DynCscMatrix::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::DataFrame(_) => todo!(),
-        }
-    }
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -50,26 +37,6 @@ impl ArrayChunk for ArrayData {
 }
 
 impl ArrayChunk for DynArray {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized {
-        let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
-            DynArray::U8(_) => ArrayD::<u8>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::U16(_) => ArrayD::<u16>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::U32(_) => ArrayD::<u32>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::U64(_) => ArrayD::<u64>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::Usize(_) => ArrayD::<usize>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::I8(_) => ArrayD::<i8>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::I16(_) => ArrayD::<i16>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::I32(_) => ArrayD::<i32>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::I64(_) => ArrayD::<i64>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::F32(_) => ArrayD::<f32>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::F64(_) => ArrayD::<f64>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::Bool(_) => ArrayD::<bool>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::String(_) => ArrayD::<String>::concat(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            DynArray::Categorical(_) => todo!(),
-        }
-    }
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -97,10 +64,6 @@ impl ArrayChunk for DynArray {
 }
 
 impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        Ok(iter.reduce(|acc, x| vstack_arr(acc, x)).unwrap())
-    }
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -133,25 +96,6 @@ impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
 }
 
 impl ArrayChunk for DynCsrMatrix {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
-            DynCsrMatrix::U8(_) => Ok(DynCsrMatrix::U8(CsrMatrix::<u8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U16(_) => Ok(DynCsrMatrix::U16(CsrMatrix::<u16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U32(_) => Ok(DynCsrMatrix::U32(CsrMatrix::<u32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U64(_) => Ok(DynCsrMatrix::U64(CsrMatrix::<u64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::Usize(_) => Ok(DynCsrMatrix::Usize(CsrMatrix::<usize>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I8(_) => Ok(DynCsrMatrix::I8(CsrMatrix::<i8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I16(_) => Ok(DynCsrMatrix::I16(CsrMatrix::<i16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I32(_) => Ok(DynCsrMatrix::I32(CsrMatrix::<i32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I64(_) => Ok(DynCsrMatrix::I64(CsrMatrix::<i64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::F32(_) => Ok(DynCsrMatrix::F32(CsrMatrix::<f32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::F64(_) => Ok(DynCsrMatrix::F64(CsrMatrix::<f64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::Bool(_) => Ok(DynCsrMatrix::Bool(CsrMatrix::<bool>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::String(_) => Ok(DynCsrMatrix::String(CsrMatrix::<String>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-        }
-    }
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -179,10 +123,6 @@ impl ArrayChunk for DynCsrMatrix {
 
 
 impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        Ok(iter.reduce(|acc, x| vstack_csr(acc, x)).unwrap())
-    }
-
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -238,25 +178,6 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
 
 
 impl ArrayChunk for DynCscMatrix {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
-            DynCscMatrix::U8(_) => Ok(DynCscMatrix::U8(CscMatrix::<u8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U16(_) => Ok(DynCscMatrix::U16(CscMatrix::<u16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U32(_) => Ok(DynCscMatrix::U32(CscMatrix::<u32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U64(_) => Ok(DynCscMatrix::U64(CscMatrix::<u64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::Usize(_) => Ok(DynCscMatrix::Usize(CscMatrix::<usize>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I8(_) => Ok(DynCscMatrix::I8(CscMatrix::<i8>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I16(_) => Ok(DynCscMatrix::I16(CscMatrix::<i16>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I32(_) => Ok(DynCscMatrix::I32(CscMatrix::<i32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I64(_) => Ok(DynCscMatrix::I64(CscMatrix::<i64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::F32(_) => Ok(DynCscMatrix::F32(CscMatrix::<f32>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::F64(_) => Ok(DynCscMatrix::F64(CscMatrix::<f64>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::Bool(_) => Ok(DynCscMatrix::Bool(CscMatrix::<bool>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::String(_) => Ok(DynCscMatrix::String(CscMatrix::<String>::concat(iter.map(|x| x.try_into().unwrap()))?)),
-        }
-    }
-
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
@@ -284,8 +205,6 @@ impl ArrayChunk for DynCscMatrix {
 
 
 impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
-    fn concat<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        todo!()
         // TODO! more efficent way should be implement
         // Ok(iter.reduce(|acc, x| vstack_csc(acc, x)).unwrap())
         /*
@@ -294,7 +213,6 @@ impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
                .unwrap()
                .transpose())
         */
-    }
 
     fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where

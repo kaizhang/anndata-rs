@@ -11,7 +11,7 @@ pub use scalar::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 
-use ::ndarray::{Array, Dimension};
+use ::ndarray::{Array, RemoveAxis};
 use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;
@@ -44,7 +44,7 @@ macro_rules! impl_into_data {
                 Data::Scalar(DynScalar::$to_type(data))
             }
         }
-        impl<D: Dimension> From<Array<$from_type, D>> for Data {
+        impl<D: RemoveAxis> From<Array<$from_type, D>> for Data {
             fn from(data: Array<$from_type, D>) -> Self {
                 Data::ArrayData(ArrayData::Array(DynArray::$to_type(data.into_dyn())))
             }
@@ -102,7 +102,7 @@ macro_rules! impl_try_from_for_scalar {
                 }
             }
 
-            impl<D: Dimension> TryFrom<Data> for Array<$to, D> {
+            impl<D: RemoveAxis> TryFrom<Data> for Array<$to, D> {
                 type Error = anyhow::Error;
                 fn try_from(v: Data) -> Result<Self> {
                     match v {

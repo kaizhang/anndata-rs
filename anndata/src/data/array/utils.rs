@@ -10,8 +10,7 @@ use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;
 use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::pattern::SparsityPattern;
-use ndarray::{Array, Axis, RemoveAxis};
-use ndarray::{ArrayView, Dimension};
+use ndarray::{ArrayView, Array, Axis, RemoveAxis};
 use smallvec::SmallVec;
 
 pub struct ExtendableDataset<B: Backend, T> {
@@ -66,7 +65,7 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
         Ok(())
     }
 
-    pub fn extend<'a, D: Dimension>(
+    pub fn extend<'a, D: RemoveAxis>(
         &mut self,
         axis: usize,
         data: ArrayView<'a, T, D>,

@@ -12,7 +12,6 @@ use nalgebra_sparse::csc::CscMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::Ix1;
 use num::FromPrimitive;
-use polars::export::chrono::format;
 
 use super::super::slice::BoundedSlice;
 
@@ -227,6 +226,25 @@ impl ArrayOp for DynCscMatrix {
             };
         }
         impl_dyn_csc_matrix!(self, select)
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynCscMatrix::U8(_) => Ok(DynCscMatrix::U8(CscMatrix::<u8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U16(_) => Ok(DynCscMatrix::U16(CscMatrix::<u16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U32(_) => Ok(DynCscMatrix::U32(CscMatrix::<u32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U64(_) => Ok(DynCscMatrix::U64(CscMatrix::<u64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::Usize(_) => Ok(DynCscMatrix::Usize(CscMatrix::<usize>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I8(_) => Ok(DynCscMatrix::I8(CscMatrix::<i8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I16(_) => Ok(DynCscMatrix::I16(CscMatrix::<i16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I32(_) => Ok(DynCscMatrix::I32(CscMatrix::<i32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::I64(_) => Ok(DynCscMatrix::I64(CscMatrix::<i64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::F32(_) => Ok(DynCscMatrix::F32(CscMatrix::<f32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::F64(_) => Ok(DynCscMatrix::F64(CscMatrix::<f64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::Bool(_) => Ok(DynCscMatrix::Bool(CscMatrix::<bool>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::String(_) => Ok(DynCscMatrix::String(CscMatrix::<String>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+        }
     }
 }
 
@@ -452,6 +470,10 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
             )
         };
         CscMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized {
+        todo!()
     }
 }
 

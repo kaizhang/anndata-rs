@@ -2,7 +2,7 @@ use crate::data::{DynArray, DynScalar, SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
 use core::fmt::{Display, Formatter, Debug};
-use ndarray::{Array, ArrayD, ArrayView, Dimension};
+use ndarray::{Array, ArrayD, ArrayView, RemoveAxis};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -95,7 +95,7 @@ pub trait GroupOp {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         let arr_view = arr.into();
         let shape = arr_view.shape();
@@ -136,13 +136,13 @@ pub trait LocationOp {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension;
+        Dim: RemoveAxis;
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
         self.write_scalar_attr(name, value.to_string())
     }
 
     fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T>;
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>>;
     fn read_str_attr(&self, name: &str) -> Result<String> {
         self.read_scalar_attr(name)
     }
@@ -159,7 +159,7 @@ pub trait DatasetOp {
 
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
     where
-        D: Dimension,
+        D: RemoveAxis,
     {
         self.read_array_slice(SelectInfo::all(self.shape().ndim()).as_ref())
     }
@@ -167,7 +167,7 @@ pub trait DatasetOp {
     fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
         S: AsRef<SelectInfoElem>,
-        D: Dimension;
+        D: RemoveAxis;
 
     fn write_array<'a, A, D, Dim>(
         &self,
@@ -176,7 +176,7 @@ pub trait DatasetOp {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         let arr = data.into();
         let ndim = arr.ndim();
@@ -192,7 +192,7 @@ pub trait DatasetOp {
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: Dimension;
+        D: RemoveAxis;
 }
 
 /// All data types that can be stored in an AnnData object.
@@ -293,7 +293,7 @@ impl<B: Backend> LocationOp for DataContainer<B> {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: Dimension,
+        Dim: RemoveAxis,
     {
         match self {
             DataContainer::Group(g) => g.write_array_attr(name, value),
@@ -313,7 +313,7 @@ impl<B: Backend> LocationOp for DataContainer<B> {
             DataContainer::Dataset(d) => d.read_scalar_attr(name),
         }
     }
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
             DataContainer::Group(g) => g.read_array_attr(name),
             DataContainer::Dataset(d) => d.read_array_attr(name),
