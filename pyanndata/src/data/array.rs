@@ -3,7 +3,7 @@ use crate::data::{FromPython, IntoPython};
 use ndarray::ArrayD;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
 use pyo3::prelude::*;
-use anndata::data::{DynArray, DynCsrMatrix, DynCscMatrix};
+use anndata::data::{DynArray, DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 use numpy::{PyReadonlyArrayDyn, IntoPyArray};
 
 macro_rules! proc_py_numeric {
@@ -106,6 +106,51 @@ impl FromPython<'_> for DynCsrMatrix {
                 ob.getattr("data")?.extract::<PyReadonlyArrayDyn<_>>()?.to_vec().unwrap()
             ).unwrap(),
             CsrMatrix
+        );
+         Ok(csr)
+    }
+}
+
+impl FromPython<'_> for DynCsrNonCanonical {
+    fn from_python(ob: &PyAny) -> PyResult<Self> {
+        fn extract_csr_indicies(indicies: &PyAny) -> PyResult<Vec<usize>> {
+            let res = match indicies
+                .getattr("dtype")?
+                .getattr("name")?
+                .extract::<&str>()?
+            {
+                "int32" => indicies
+                    .extract::<PyReadonlyArrayDyn<i32>>()?
+                    .as_array()
+                    .iter()
+                    .map(|x| (*x).try_into().unwrap())
+                    .collect(),
+                "int64" => indicies
+                    .extract::<PyReadonlyArrayDyn<i64>>()?
+                    .as_array()
+                    .iter()
+                    .map(|x| (*x).try_into().unwrap())
+                    .collect(),
+                other => panic!("CSR indicies type '{}' is not supported", other),
+            };
+            Ok(res)
+        }
+
+        let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
+        let indices = extract_csr_indicies(ob.getattr("indices")?)?;
+        let indptr = extract_csr_indicies(ob.getattr("indptr")?)?;
+        let ty = ob.getattr("data")?.getattr("dtype")?.getattr("name")?.extract::<&str>()?;
+
+        let csr = proc_py_numeric!(
+            ty,
+            CsrNonCanonical::from_csr_data(
+                shape[0],
+                shape[1],
+                indptr,
+                indices,
+                ob.getattr("data")?.extract::<PyReadonlyArrayDyn<_>>()?.to_vec().unwrap()
+            ),
+            CsrNonCanonical
         );
          Ok(csr)
     }
@@ -215,6 +260,45 @@ impl IntoPython for DynCsrMatrix {
         }
     }
 }
+
+impl IntoPython for DynCsrNonCanonical {
+    fn into_python(self, py: Python<'_>) -> PyResult<PyObject> {
+        fn helper<T: numpy::Element>(csr: CsrNonCanonical<T>, py: Python<'_>) -> PyResult<PyObject> {
+            let n = csr.nrows();
+            let m = csr.ncols();
+            let (indptr, indices, data) = csr.disassemble();
+            let scipy = PyModule::import(py, "scipy.sparse")?;
+            Ok(scipy
+                .getattr("csr_matrix")?
+                .call1((
+                    (
+                        data.into_pyarray(py),
+                        indices.into_pyarray(py),
+                        indptr.into_pyarray(py),
+                    ),
+                    (n, m),
+                ))?
+                .to_object(py))
+        }
+
+        match self {
+            DynCsrNonCanonical::I8(csr) => helper(csr, py),
+            DynCsrNonCanonical::I16(csr) => helper(csr, py),
+            DynCsrNonCanonical::I32(csr) => helper(csr, py),
+            DynCsrNonCanonical::I64(csr) => helper(csr, py),
+            DynCsrNonCanonical::U8(csr) => helper(csr, py),
+            DynCsrNonCanonical::U16(csr) => helper(csr, py),
+            DynCsrNonCanonical::U32(csr) => helper(csr, py),
+            DynCsrNonCanonical::U64(csr) => helper(csr, py),
+            DynCsrNonCanonical::Usize(csr) => helper(csr, py),
+            DynCsrNonCanonical::F32(csr) => helper(csr, py),
+            DynCsrNonCanonical::F64(csr) => helper(csr, py),
+            DynCsrNonCanonical::Bool(csr) => helper(csr, py),
+            DynCsrNonCanonical::String(_) => todo!(),
+        }
+    }
+}
+
 
 impl IntoPython for DynCscMatrix {
     fn into_python(self, py: Python<'_>) -> PyResult<PyObject> {

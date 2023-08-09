@@ -168,10 +168,10 @@ impl ReadData for Data {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => {
                 DynArray::read(container).map(|x| ArrayData::from(x).into())
-            }
+            },
             DataType::CsrMatrix(_) => {
                 DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into())
-            }
+            },
             DataType::CscMatrix(_) => {
                 DynCscMatrix::read(container).map(|x| ArrayData::from(x).into())
             },

@@ -166,3 +166,30 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
     # indexing
     x = dataset.X[:]
     np.testing.assert_array_equal(x[:, [1,2,3]].todense(), dataset.X[:, [1,2,3]].todense())
+
+def test_noncanonical_csr(tmp_path):
+    def assert_csr_equal(a, b):
+        np.testing.assert_array_equal(a.shape, b.shape)
+        np.testing.assert_array_equal(a.data, b.data)
+        np.testing.assert_array_equal(a.indices, b.indices)
+        np.testing.assert_array_equal(a.indptr, b.indptr)
+
+    csr = csr_matrix(
+        ([1,2,3,4,5,6,7], [0,0,0,2,3,1,3], [0, 1, 4, 5, 6, 7]),
+        (5,4), 
+    )
+    assert not csr.has_canonical_format
+
+    file = h5ad(tmp_path)
+    adata = AnnData(filename = file)
+    adata.X = csr
+    adata.obs = pl.DataFrame({"a": [1, 2, 3, 4, 5]})
+    assert_csr_equal(csr, adata.X[:])
+    adata.close()
+
+    adata = read(file, backed=None)
+    assert_csr_equal(csr, adata.X)
+
+    adata.write(file)
+    adata = read(file, backed=None)
+    assert_csr_equal(csr, adata.X)

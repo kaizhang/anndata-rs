@@ -7,103 +7,47 @@ use crate::data::{
     BoundedSelectInfo, BoundedSelectInfoElem,
 };
 
-use anyhow::{bail, anyhow, Context, Result};
-use nalgebra_sparse::csr::CsrMatrix;
-use nalgebra_sparse::pattern::SparsityPattern;
+use anyhow::{bail, Result};
+use nalgebra_sparse::coo::CooMatrix;
 use ndarray::Ix1;
-use num::FromPrimitive;
 
+use super::utils::{coo_to_unsorted_cs, sort_lane};
 use super::super::slice::BoundedSlice;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DynCsrMatrix {
-    I8(CsrMatrix<i8>),
-    I16(CsrMatrix<i16>),
-    I32(CsrMatrix<i32>),
-    I64(CsrMatrix<i64>),
-    U8(CsrMatrix<u8>),
-    U16(CsrMatrix<u16>),
-    U32(CsrMatrix<u32>),
-    U64(CsrMatrix<u64>),
-    Usize(CsrMatrix<usize>),
-    F32(CsrMatrix<f32>),
-    F64(CsrMatrix<f64>),
-    Bool(CsrMatrix<bool>),
-    String(CsrMatrix<String>),
+pub enum DynCsrNonCanonical {
+    I8(CsrNonCanonical<i8>),
+    I16(CsrNonCanonical<i16>),
+    I32(CsrNonCanonical<i32>),
+    I64(CsrNonCanonical<i64>),
+    U8(CsrNonCanonical<u8>),
+    U16(CsrNonCanonical<u16>),
+    U32(CsrNonCanonical<u32>),
+    U64(CsrNonCanonical<u64>),
+    Usize(CsrNonCanonical<usize>),
+    F32(CsrNonCanonical<f32>),
+    F64(CsrNonCanonical<f64>),
+    Bool(CsrNonCanonical<bool>),
+    String(CsrNonCanonical<String>),
 }
 
 macro_rules! impl_into_dyn_csr {
     ($from_type:ty, $to_type:ident) => {
-        impl From<CsrMatrix<$from_type>> for DynCsrMatrix {
-            fn from(data: CsrMatrix<$from_type>) -> Self {
-                DynCsrMatrix::$to_type(data)
+        impl From<CsrNonCanonical<$from_type>> for DynCsrNonCanonical {
+            fn from(data: CsrNonCanonical<$from_type>) -> Self {
+                DynCsrNonCanonical::$to_type(data)
             }
         }
-        impl TryFrom<DynCsrMatrix> for CsrMatrix<$from_type> {
+        impl TryFrom<DynCsrNonCanonical> for CsrNonCanonical<$from_type> {
             type Error = anyhow::Error;
-            fn try_from(data: DynCsrMatrix) -> Result<Self> {
+            fn try_from(data: DynCsrNonCanonical) -> Result<Self> {
                 match data {
-                    DynCsrMatrix::$to_type(data) => Ok(data),
-                    _ => bail!("Cannot convert to CsrMatrix<$from_type>"),
+                    DynCsrNonCanonical::$to_type(data) => Ok(data),
+                    _ => bail!("Cannot convert to CsrNonCanonical<$from_type>"),
                 }
             }
         }
     };
-}
-
-impl From<CsrMatrix<u32>> for DynCsrMatrix {
-    fn from(data: CsrMatrix<u32>) -> Self {
-        DynCsrMatrix::U32(data)
-    }
-}
-
-impl TryFrom<DynCsrMatrix> for CsrMatrix<u32> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCsrMatrix) -> Result<Self> {
-        match data {
-            DynCsrMatrix::U32(data) => Ok(data),
-            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
-            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U64(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::Usize(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::F32(_) => bail!("Cannot convert f32 to u32"),
-            DynCsrMatrix::F64(_) => bail!("Cannot convert f64 to u32"),
-            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
-}
-
-
-impl From<CsrMatrix<f64>> for DynCsrMatrix {
-    fn from(data: CsrMatrix<f64>) -> Self {
-        DynCsrMatrix::F64(data)
-    }
-}
-
-impl TryFrom<DynCsrMatrix> for CsrMatrix<f64> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCsrMatrix) -> Result<Self> {
-        match data {
-            DynCsrMatrix::F64(data) => Ok(data),
-            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
-            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U64(_) => bail!("Cannot convert u64 to f64"),
-            DynCsrMatrix::Usize(_) => bail!("Cannot convert usize to f64"),
-            DynCsrMatrix::F32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
 }
 
 impl_into_dyn_csr!(i8, I8);
@@ -112,33 +56,35 @@ impl_into_dyn_csr!(i32, I32);
 impl_into_dyn_csr!(i64, I64);
 impl_into_dyn_csr!(u8, U8);
 impl_into_dyn_csr!(u16, U16);
+impl_into_dyn_csr!(u32, U32);
 impl_into_dyn_csr!(u64, U64);
 impl_into_dyn_csr!(usize, Usize);
 impl_into_dyn_csr!(f32, F32);
+impl_into_dyn_csr!(f64, F64);
 impl_into_dyn_csr!(bool, Bool);
 impl_into_dyn_csr!(String, String);
 
 macro_rules! impl_dyn_csr_matrix {
     ($self:expr, $fun:ident) => {
         match $self {
-            DynCsrMatrix::I8(data) => $fun!(data),
-            DynCsrMatrix::I16(data) => $fun!(data),
-            DynCsrMatrix::I32(data) => $fun!(data),
-            DynCsrMatrix::I64(data) => $fun!(data),
-            DynCsrMatrix::U8(data) => $fun!(data),
-            DynCsrMatrix::U16(data) => $fun!(data),
-            DynCsrMatrix::U32(data) => $fun!(data),
-            DynCsrMatrix::U64(data) => $fun!(data),
-            DynCsrMatrix::Usize(data) => $fun!(data),
-            DynCsrMatrix::F32(data) => $fun!(data),
-            DynCsrMatrix::F64(data) => $fun!(data),
-            DynCsrMatrix::Bool(data) => $fun!(data),
-            DynCsrMatrix::String(data) => $fun!(data),
+            DynCsrNonCanonical::I8(data) => $fun!(data),
+            DynCsrNonCanonical::I16(data) => $fun!(data),
+            DynCsrNonCanonical::I32(data) => $fun!(data),
+            DynCsrNonCanonical::I64(data) => $fun!(data),
+            DynCsrNonCanonical::U8(data) => $fun!(data),
+            DynCsrNonCanonical::U16(data) => $fun!(data),
+            DynCsrNonCanonical::U32(data) => $fun!(data),
+            DynCsrNonCanonical::U64(data) => $fun!(data),
+            DynCsrNonCanonical::Usize(data) => $fun!(data),
+            DynCsrNonCanonical::F32(data) => $fun!(data),
+            DynCsrNonCanonical::F64(data) => $fun!(data),
+            DynCsrNonCanonical::Bool(data) => $fun!(data),
+            DynCsrNonCanonical::String(data) => $fun!(data),
         }
     };
 }
 
-impl WriteData for DynCsrMatrix {
+impl WriteData for DynCsrNonCanonical {
     fn data_type(&self) -> DataType {
         macro_rules! data_type{
             ($data:expr) => {
@@ -161,24 +107,24 @@ impl WriteData for DynCsrMatrix {
     }
 }
 
-impl ReadData for DynCsrMatrix {
+impl ReadData for DynCsrNonCanonical {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
             DataContainer::Group(group) => match group.open_dataset("data")?.dtype()? {
-                ScalarType::I8 => CsrMatrix::<i8>::read(container).map(DynCsrMatrix::I8),
-                ScalarType::I16 => CsrMatrix::<i16>::read(container).map(DynCsrMatrix::I16),
-                ScalarType::I32 => CsrMatrix::<i32>::read(container).map(DynCsrMatrix::I32),
-                ScalarType::I64 => CsrMatrix::<i64>::read(container).map(DynCsrMatrix::I64),
-                ScalarType::U8 => CsrMatrix::<u8>::read(container).map(DynCsrMatrix::U8),
-                ScalarType::U16 => CsrMatrix::<u16>::read(container).map(DynCsrMatrix::U16),
-                ScalarType::U32 => CsrMatrix::<u32>::read(container).map(DynCsrMatrix::U32),
-                ScalarType::U64 => CsrMatrix::<u64>::read(container).map(DynCsrMatrix::U64),
-                ScalarType::Usize => CsrMatrix::<usize>::read(container).map(DynCsrMatrix::Usize),
-                ScalarType::F32 => CsrMatrix::<f32>::read(container).map(DynCsrMatrix::F32),
-                ScalarType::F64 => CsrMatrix::<f64>::read(container).map(DynCsrMatrix::F64),
-                ScalarType::Bool => CsrMatrix::<bool>::read(container).map(DynCsrMatrix::Bool),
+                ScalarType::I8 => CsrNonCanonical::<i8>::read(container).map(DynCsrNonCanonical::I8),
+                ScalarType::I16 => CsrNonCanonical::<i16>::read(container).map(DynCsrNonCanonical::I16),
+                ScalarType::I32 => CsrNonCanonical::<i32>::read(container).map(DynCsrNonCanonical::I32),
+                ScalarType::I64 => CsrNonCanonical::<i64>::read(container).map(DynCsrNonCanonical::I64),
+                ScalarType::U8 => CsrNonCanonical::<u8>::read(container).map(DynCsrNonCanonical::U8),
+                ScalarType::U16 => CsrNonCanonical::<u16>::read(container).map(DynCsrNonCanonical::U16),
+                ScalarType::U32 => CsrNonCanonical::<u32>::read(container).map(DynCsrNonCanonical::U32),
+                ScalarType::U64 => CsrNonCanonical::<u64>::read(container).map(DynCsrNonCanonical::U64),
+                ScalarType::Usize => CsrNonCanonical::<usize>::read(container).map(DynCsrNonCanonical::Usize),
+                ScalarType::F32 => CsrNonCanonical::<f32>::read(container).map(DynCsrNonCanonical::F32),
+                ScalarType::F64 => CsrNonCanonical::<f64>::read(container).map(DynCsrNonCanonical::F64),
+                ScalarType::Bool => CsrNonCanonical::<bool>::read(container).map(DynCsrNonCanonical::Bool),
                 ScalarType::String => {
-                    CsrMatrix::<String>::read(container).map(DynCsrMatrix::String)
+                    CsrNonCanonical::<String>::read(container).map(DynCsrNonCanonical::String)
                 }
             },
             _ => bail!("cannot read csr matrix from non-group container"),
@@ -186,7 +132,7 @@ impl ReadData for DynCsrMatrix {
     }
 }
 
-impl HasShape for DynCsrMatrix {
+impl HasShape for DynCsrNonCanonical {
     fn shape(&self) -> Shape {
         macro_rules! shape {
             ($data:expr) => {
@@ -197,7 +143,7 @@ impl HasShape for DynCsrMatrix {
     }
 }
 
-impl ArrayOp for DynCsrMatrix {
+impl ArrayOp for DynCsrNonCanonical {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         macro_rules! get {
             ($data:expr) => {
@@ -222,25 +168,25 @@ impl ArrayOp for DynCsrMatrix {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
-            DynCsrMatrix::U8(_) => Ok(DynCsrMatrix::U8(CsrMatrix::<u8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U16(_) => Ok(DynCsrMatrix::U16(CsrMatrix::<u16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U32(_) => Ok(DynCsrMatrix::U32(CsrMatrix::<u32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::U64(_) => Ok(DynCsrMatrix::U64(CsrMatrix::<u64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::Usize(_) => Ok(DynCsrMatrix::Usize(CsrMatrix::<usize>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I8(_) => Ok(DynCsrMatrix::I8(CsrMatrix::<i8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I16(_) => Ok(DynCsrMatrix::I16(CsrMatrix::<i16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I32(_) => Ok(DynCsrMatrix::I32(CsrMatrix::<i32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::I64(_) => Ok(DynCsrMatrix::I64(CsrMatrix::<i64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::F32(_) => Ok(DynCsrMatrix::F32(CsrMatrix::<f32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::F64(_) => Ok(DynCsrMatrix::F64(CsrMatrix::<f64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::Bool(_) => Ok(DynCsrMatrix::Bool(CsrMatrix::<bool>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCsrMatrix::String(_) => Ok(DynCsrMatrix::String(CsrMatrix::<String>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::U8(_) => Ok(DynCsrNonCanonical::U8(CsrNonCanonical::<u8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::U16(_) => Ok(DynCsrNonCanonical::U16(CsrNonCanonical::<u16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::U32(_) => Ok(DynCsrNonCanonical::U32(CsrNonCanonical::<u32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::U64(_) => Ok(DynCsrNonCanonical::U64(CsrNonCanonical::<u64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::Usize(_) => Ok(DynCsrNonCanonical::Usize(CsrNonCanonical::<usize>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::I8(_) => Ok(DynCsrNonCanonical::I8(CsrNonCanonical::<i8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::I16(_) => Ok(DynCsrNonCanonical::I16(CsrNonCanonical::<i16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::I32(_) => Ok(DynCsrNonCanonical::I32(CsrNonCanonical::<i32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::I64(_) => Ok(DynCsrNonCanonical::I64(CsrNonCanonical::<i64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::F32(_) => Ok(DynCsrNonCanonical::F32(CsrNonCanonical::<f32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::F64(_) => Ok(DynCsrNonCanonical::F64(CsrNonCanonical::<f64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::Bool(_) => Ok(DynCsrNonCanonical::Bool(CsrNonCanonical::<bool>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCsrNonCanonical::String(_) => Ok(DynCsrNonCanonical::String(CsrNonCanonical::<String>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
         }
     }
 }
 
-impl WriteArrayData for DynCsrMatrix {}
-impl ReadArrayData for DynCsrMatrix {
+impl WriteArrayData for DynCsrNonCanonical {}
+impl ReadArrayData for DynCsrNonCanonical {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -256,31 +202,31 @@ impl ReadArrayData for DynCsrMatrix {
     {
         if let DataType::CsrMatrix(ty) = container.encoding_type()? {
             match ty {
-                ScalarType::I8 => CsrMatrix::<i8>::read_select(container, info)
+                ScalarType::I8 => CsrNonCanonical::<i8>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::I16 => CsrMatrix::<i16>::read_select(container, info)
+                ScalarType::I16 => CsrNonCanonical::<i16>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::I32 => CsrMatrix::<i32>::read_select(container, info)
+                ScalarType::I32 => CsrNonCanonical::<i32>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::I64 => CsrMatrix::<i64>::read_select(container, info)
+                ScalarType::I64 => CsrNonCanonical::<i64>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::U8 => CsrMatrix::<u8>::read_select(container, info)
+                ScalarType::U8 => CsrNonCanonical::<u8>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::U16 => CsrMatrix::<u16>::read_select(container, info)
+                ScalarType::U16 => CsrNonCanonical::<u16>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::U32 => CsrMatrix::<u32>::read_select(container, info)
+                ScalarType::U32 => CsrNonCanonical::<u32>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::U64 => CsrMatrix::<u64>::read_select(container, info) 
+                ScalarType::U64 => CsrNonCanonical::<u64>::read_select(container, info) 
                     .map(Into::into),
-                ScalarType::Usize => CsrMatrix::<usize>::read_select(container, info)
+                ScalarType::Usize => CsrNonCanonical::<usize>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::F32 => CsrMatrix::<f32>::read_select(container, info)
+                ScalarType::F32 => CsrNonCanonical::<f32>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::F64 => CsrMatrix::<f64>::read_select(container, info)
+                ScalarType::F64 => CsrNonCanonical::<f64>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::Bool => CsrMatrix::<bool>::read_select(container, info)
+                ScalarType::Bool => CsrNonCanonical::<bool>::read_select(container, info)
                     .map(Into::into),
-                ScalarType::String => CsrMatrix::<String>::read_select(container, info)
+                ScalarType::String => CsrNonCanonical::<String>::read_select(container, info)
                     .map(Into::into),
             }
         } else {
@@ -289,19 +235,164 @@ impl ReadArrayData for DynCsrMatrix {
     }
 }
 
-impl<T> HasShape for CsrMatrix<T> {
+
+/// Compressed sparse row matrix with potentially duplicate column indices.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CsrNonCanonical<T> {
+    offsets: Vec<usize>,
+    indices: Vec<usize>,
+    values: Vec<T>,
+    num_rows: usize,
+    num_cols: usize,
+}
+
+impl<T> CsrNonCanonical<T> {
+    pub fn nrows(&self) -> usize {
+        self.num_rows
+    }
+
+    pub fn ncols(&self) -> usize {
+        self.num_cols
+    }
+
+    pub fn row_offsets(&self) -> &[usize] {
+        &self.offsets
+    }
+
+    pub fn col_indices(&self) -> &[usize] {
+        &self.indices
+    }
+
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    pub fn csr_data(&self) -> (&[usize], &[usize], &[T]) {
+        (&self.offsets, &self.indices, &self.values)
+    }
+
+    pub fn nnz(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn disassemble(self) -> (Vec<usize>, Vec<usize>, Vec<T>) {
+        (self.offsets, self.indices, self.values)
+    }
+
+    pub fn from_csr_data(
+        num_rows: usize,
+        num_cols: usize,
+        row_offsets: Vec<usize>,
+        col_indices: Vec<usize>,
+        data: Vec<T>,
+    ) -> Self {
+        Self {
+            offsets: row_offsets,
+            indices: col_indices,
+            values: data,
+            num_rows,
+            num_cols,
+        }
+    }
+}
+
+impl<T: Clone + num::Zero> From<&CooMatrix<T>> for CsrNonCanonical<T> {
+    fn from(coo: &CooMatrix<T>) -> Self {
+        let major_dim = coo.nrows();
+        let major_indices = coo.row_indices();
+        let minor_indices = coo.col_indices();
+        let values = coo.values();
+        assert_eq!(major_indices.len(), minor_indices.len());
+        assert_eq!(minor_indices.len(), values.len());
+        let nnz = major_indices.len();
+
+        let (unsorted_major_offsets, unsorted_minor_idx, unsorted_vals) = {
+            let mut offsets = vec![0usize; major_dim + 1];
+            let mut minor_idx = vec![0usize; nnz];
+            let mut vals = vec![T::zero(); nnz];
+            coo_to_unsorted_cs(
+                &mut offsets,
+                &mut minor_idx,
+                &mut vals,
+                major_dim,
+                major_indices,
+                minor_indices,
+                values,
+            );
+            (offsets, minor_idx, vals)
+        };
+
+        // At this point, assembly is essentially complete. However, we must ensure
+        // that minor indices are sorted within each lane and without duplicates.
+        let mut sorted_major_offsets = Vec::new();
+        let mut sorted_minor_idx = Vec::new();
+        let mut sorted_vals = Vec::new();
+
+        sorted_major_offsets.push(0);
+
+        // We need some temporary storage when working with each lane. Since lanes often have a
+        // very small number of non-zero entries, we try to amortize allocations across
+        // lanes by reusing workspace vectors
+        let mut idx_workspace = Vec::new();
+        let mut perm_workspace = Vec::new();
+        let mut values_workspace = Vec::new();
+
+        for lane in 0..major_dim {
+            let begin = unsorted_major_offsets[lane];
+            let end = unsorted_major_offsets[lane + 1];
+            let count = end - begin;
+            let range = begin..end;
+    
+            // Ensure that workspaces can hold enough data
+            perm_workspace.resize(count, 0);
+            idx_workspace.resize(count, 0);
+            values_workspace.resize(count, T::zero());
+            sort_lane(
+                &mut idx_workspace[..count],
+                &mut values_workspace[..count],
+                &unsorted_minor_idx[range.clone()],
+                &unsorted_vals[range.clone()],
+                &mut perm_workspace[..count],
+            );
+    
+            let sorted_ja_current_len = sorted_minor_idx.len();
+
+            for i in range {
+                sorted_minor_idx.push(unsorted_minor_idx[i]);
+                sorted_vals.push(unsorted_vals[i].clone());
+            }
+
+            let new_col_count = sorted_minor_idx.len() - sorted_ja_current_len;
+            sorted_major_offsets.push(sorted_major_offsets.last().unwrap() + new_col_count);
+        }
+
+        Self::from_csr_data(coo.nrows(), coo.ncols(), sorted_major_offsets, sorted_minor_idx, sorted_vals)
+    }
+}
+
+impl<T: Clone> From<&CsrNonCanonical<T>> for CooMatrix<T> {
+    fn from(csr: &CsrNonCanonical<T>) -> Self {
+        let mut coo: CooMatrix<T> = CooMatrix::new(csr.nrows(), csr.ncols());
+        for row in 0..csr.nrows() {
+            let start = csr.row_offsets()[row];
+            let end = csr.row_offsets()[row + 1];
+            for i in start..end {
+                coo.push(row, csr.col_indices()[i], csr.values()[i].clone());
+            }
+        }
+        coo
+    }
+}
+
+impl<T> HasShape for CsrNonCanonical<T> {
     fn shape(&self) -> Shape {
         vec![self.nrows(), self.ncols()].into()
     }
 }
 
-impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        if index.len() != 2 {
-            panic!("index must have length 2");
-        }
-        todo!()
-        //self.get_entry(index[0], index[1]).map(|x| DynScalar::from(x.into_value()))
+impl<T: BackendData + Clone> ArrayOp for CsrNonCanonical<T> {
+    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
+        panic!("Cannot index into a noncanonical sparse matrix");
     }
 
     fn select<S>(&self, info: &[S]) -> Self
@@ -449,19 +540,17 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
             }
         };
         let out_shape = info.out_shape();
-        let pattern = unsafe {
-            SparsityPattern::from_offset_and_indices_unchecked(
-                out_shape[0],
-                out_shape[1],
-                new_row_offsets,
-                new_col_indices,
-            )
-        };
-        CsrMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
+        Self::from_csr_data(
+            out_shape[0],
+            out_shape[1],
+            new_row_offsets,
+            new_col_indices,
+            new_data,
+        )
     }
 
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
+        fn vstack_csr<T: Clone>(this: CsrNonCanonical<T>, other: CsrNonCanonical<T>) -> CsrNonCanonical<T> {
             let num_cols = this.ncols();
             let num_rows = this.nrows() + other.nrows();
             let nnz = this.nnz();
@@ -471,10 +560,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
             data.extend_from_slice(data2);
             indptr2.iter().skip(1).for_each(|&i| indptr.push(i + nnz));
 
-            let pattern = unsafe {
-                SparsityPattern::from_offset_and_indices_unchecked(num_rows, num_cols, indptr, indices)
-            };
-            CsrMatrix::try_from_pattern_and_values(pattern, data).unwrap()
+            CsrNonCanonical::from_csr_data(num_rows, num_cols, indptr, indices, data)
         }
 
         Ok(iter.reduce(|acc, x| vstack_csr(acc, x)).unwrap())
@@ -482,7 +568,8 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
 }
 
 
-impl<T: BackendData> WriteData for CsrMatrix<T> {
+
+impl<T: BackendData> WriteData for CsrNonCanonical<T> {
     fn data_type(&self) -> DataType {
         DataType::CsrMatrix(T::DTYPE)
     }
@@ -569,20 +656,18 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> ReadData for CsrMatrix<T> {
+impl<T: BackendData> ReadData for CsrNonCanonical<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
         let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
         let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
         let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
-        CsrMatrix::try_from_csr_data(
-            shape[0], shape[1], indptr, indices, data
-        ).map_err(|e| anyhow!("cannot read csr matrix: {}", e))
+        Ok(Self::from_csr_data(shape[0], shape[1], indptr, indices, data))
     }
 }
 
-impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
+impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -621,13 +706,13 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
             let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
             let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
             indptr.iter_mut().for_each(|x| *x -= lo);
-            CsrMatrix::try_from_csr_data(
+            Self::from_csr_data(
                 indptr.len() - 1,
                 Self::get_shape(container)?[1],
                 indptr,
                 indices,
                 data,
-            ).unwrap().select_axis(1, info[1].as_ref())
+            ).select_axis(1, info[1].as_ref())
         } else {
             Self::read(container)?.select(info)
         };
@@ -635,179 +720,73 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> WriteArrayData for &CsrMatrix<T> {}
-impl<T: BackendData> WriteArrayData for CsrMatrix<T> {}
-
-
-////////////////////////////////////////////////////////////////////////////////
-// Helper functions
-////////////////////////////////////////////////////////////////////////////////
-
-fn cast_csr<T, U>(csr: CsrMatrix<T>) -> Result<CsrMatrix<U>>
-where
-    T: TryInto<U>,
-    <T as TryInto<U>>::Error: std::error::Error + Sync + Send + 'static,
-{
-    let (pattern, values) = csr.into_pattern_and_values();
-    let out = CsrMatrix::try_from_pattern_and_values(
-        pattern,
-        values.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?,
-    ).unwrap();
-    Ok(out)
-}
-
-fn from_i64_csr<U: FromPrimitive>(csr: CsrMatrix<i64>) -> Result<CsrMatrix<U>>
-{
-    let (pattern, values) = csr.into_pattern_and_values();
-    let out = CsrMatrix::try_from_pattern_and_values(
-        pattern,
-        values.into_iter().map(|x| U::from_i64(x).context("cannot convert from i64")).collect::<Result<_>>()?,
-    ).unwrap();
-    Ok(out)
-}
+impl<T: BackendData> WriteArrayData for &CsrNonCanonical<T> {}
+impl<T: BackendData> WriteArrayData for CsrNonCanonical<T> {}
 
 #[cfg(test)]
-mod csr_matrix_index_tests {
+mod csr_noncanonical_index_tests {
     use super::*;
     use crate::s;
-    use nalgebra::base::DMatrix;
     use nalgebra_sparse::CooMatrix;
     use ndarray::Array;
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
 
-    fn csr_select<I1, I2>(
-        csr: &CsrMatrix<i64>,
-        row_indices: I1,
-        col_indices: I2,
-    ) -> CsrMatrix<i64>
-    where
-        I1: Iterator<Item = usize>,
-        I2: Iterator<Item = usize>,
-    {
-        let i = row_indices.collect::<Vec<_>>();
-        let j = col_indices.collect::<Vec<_>>();
-        let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
-        csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
-    }
-
-    fn csr_select_rows<I>(csr: &CsrMatrix<i64>, row_indices: I) -> CsrMatrix<i64>
-    where
-        I: Iterator<Item = usize>,
-    {
-        let i = row_indices.collect::<Vec<_>>();
-        let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
-        csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_rows(&i))
-    }
-
-    fn csr_select_cols<I>(csr: &CsrMatrix<i64>, col_indices: I) -> CsrMatrix<i64>
-    where
-        I: Iterator<Item = usize>,
-    {
-        let j = col_indices.collect::<Vec<_>>();
-        let mut dm = DMatrix::<i64>::zeros(csr.nrows(), csr.ncols());
-        csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
-        CsrMatrix::from(&dm.select_columns(&j))
+    fn csr_eq<T: std::cmp::PartialEq + std::fmt::Debug + Clone>(a: &CsrNonCanonical<T>, b: &CooMatrix<T>) {
+        assert_eq!(&CooMatrix::from(a), b);
     }
 
     #[test]
-    fn test_c() {
-        let dense = DMatrix::from_row_slice(3, 3, &[1, 0, 3, 2, 0, 1, 0, 0, 4]);
-        let csr = CsrMatrix::from(&dense);
+    fn test_csr_noncanonical() {
+        let coo = CooMatrix::try_from_triplets(
+            5, 4,
+            vec![0,1,1,1,2,3,4],
+            vec![0,0,0,2,3,1,3],
+            vec![1,2,3,4,5,6,7],
+        ).unwrap();
+        let csr = CsrNonCanonical::from(&coo);
 
-        // Column fancy indexing
-        let cidx = [1, 2, 0, 1, 1, 2];
-        let mut expected = DMatrix::from_row_slice(
-            3,
-            6,
-            &[0, 3, 1, 0, 0, 3, 0, 1, 2, 0, 0, 1, 0, 4, 0, 0, 0, 4],
-        );
-        let mut expected_csr = CsrMatrix::from(&expected);
-        assert_eq!(csr.select(s![.., cidx.as_ref()].as_ref()), expected_csr,);
+        csr_eq(&csr, &coo);
 
-        expected = DMatrix::from_row_slice(3, 2, &[1, 0, 2, 0, 0, 0]);
-        expected_csr = CsrMatrix::from(&expected);
-        assert_eq!(csr.select(s![.., 0..2].as_ref()), expected_csr);
-
-        let ridx = [1, 2, 0, 1];
-        expected = DMatrix::from_row_slice(
-            4,
-            6,
-            &[
-                0, 1, 2, 0, 0, 1, 0, 4, 0, 0, 0, 4, 0, 3, 1, 0, 0, 3, 0, 1, 2, 0, 0, 1,
-            ],
-        );
-        expected_csr = CsrMatrix::from(&expected);
-        let (new_offsets, new_indices, new_data) = cs_major_minor_index(
-            ridx.into_iter(),
-            cidx.into_iter(),
-            csr.ncols(),
-            csr.row_offsets(),
-            csr.col_indices(),
-            csr.values(),
+        csr_eq(
+            &csr.select(s![vec![0, 1], ..].as_ref()),
+            &CooMatrix::try_from_triplets(
+                2, 4,
+                vec![0,1,1,1],
+                vec![0,0,0,2],
+                vec![1,2,3,4],
+            ).unwrap(),
         );
 
-        assert_eq!(new_offsets.as_slice(), expected_csr.row_offsets());
-        assert_eq!(new_indices.as_slice(), expected_csr.col_indices());
-        assert_eq!(new_data.as_slice(), expected_csr.values());
-    }
-
-    #[test]
-    fn test_csr() {
-        let n: usize = 200;
-        let m: usize = 200;
-        let nnz: usize = 1000;
-
-        let ridx = Array::random(220, Uniform::new(0, n)).to_vec();
-        let cidx = Array::random(100, Uniform::new(0, m)).to_vec();
-
-        let row_indices = Array::random(nnz, Uniform::new(0, n)).to_vec();
-        let col_indices = Array::random(nnz, Uniform::new(0, m)).to_vec();
-        let values = Array::random(nnz, Uniform::new(-10000, 10000)).to_vec();
-
-        let csr_matrix: CsrMatrix<i64> =
-            (&CooMatrix::try_from_triplets(n, m, row_indices, col_indices, values).unwrap()).into();
-
-        // Row slice
-        assert_eq!(
-            csr_matrix.select(s![2..177, ..].as_ref()),
-            csr_select_rows(&csr_matrix, 2..177),
+        csr_eq(
+            &csr.select(s![.., vec![0, 0, 1]].as_ref()),
+            &CooMatrix::try_from_triplets(
+                5, 3,
+                vec![0,0,1,1,1,1,3],
+                vec![0,1,0,0,1,1,2],
+                vec![1,1,2,3,2,3,6],
+            ).unwrap(),
         );
 
-        // Row fancy indexing
-        assert_eq!(
-            csr_matrix.select(s![&ridx, ..].as_ref()),
-            csr_select_rows(&csr_matrix, ridx.iter().cloned()),
+        csr_eq(
+            &csr.select(s![vec![0, 1, 1], ..].as_ref()),
+            &CooMatrix::try_from_triplets(
+                3, 4,
+                vec![0,1,1,1,2,2,2],
+                vec![0,0,0,2,0,0,2],
+                vec![1,2,3,4,2,3,4],
+            ).unwrap(),
         );
 
-        // Column slice
-        assert_eq!(
-            csr_matrix.select(s![.., 77..200].as_ref()),
-            csr_select_cols(&csr_matrix, 77..200),
-        );
-
-        // Column fancy indexing
-        assert_eq!(
-            csr_matrix.select(s![.., &cidx].as_ref()),
-            csr_select_cols(&csr_matrix, cidx.iter().cloned()),
-        );
-
-        // Both
-        assert_eq!(
-            csr_matrix.select(s![2..49, 0..77].as_ref()),
-            csr_select(&csr_matrix, 2..49, 0..77),
-        );
-
-        assert_eq!(
-            csr_matrix.select(s![2..177, &cidx].as_ref()),
-            csr_select(&csr_matrix, 2..177, cidx.iter().cloned()),
-        );
-
-        assert_eq!(
-            csr_matrix.select(s![&ridx, &cidx].as_ref()),
-            csr_select(&csr_matrix, ridx.iter().cloned(), cidx.iter().cloned()),
+        csr_eq(
+            &csr.select(s![vec![0, 1, 1], vec![0,1]].as_ref()),
+            &CooMatrix::try_from_triplets(
+                3, 2,
+                vec![0,1,1,2,2],
+                vec![0,0,0,0,0],
+                vec![1,2,3,2,3],
+            ).unwrap(),
         );
     }
 }
+ 

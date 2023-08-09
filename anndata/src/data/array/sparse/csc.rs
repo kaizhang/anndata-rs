@@ -472,7 +472,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         CscMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
     }
 
-    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized {
+    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> where Self: Sized {
         todo!()
     }
 }

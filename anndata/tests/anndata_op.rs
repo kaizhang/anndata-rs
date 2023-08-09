@@ -5,10 +5,10 @@ use common::*;
 
 use ndarray::Array2;
 use proptest::prelude::*;
-use anndata::{*, data::DynCscMatrix};
+use anndata::{*, data::{DynCscMatrix, CsrNonCanonical}};
 use anndata_hdf5::H5;
 use std::path::Path;
-use nalgebra_sparse::{CscMatrix, CsrMatrix};
+use nalgebra_sparse::{CooMatrix, CscMatrix, CsrMatrix};
 
 
 fn test_speacial_cases<F, T>(adata_gen: F)
@@ -27,6 +27,24 @@ where
 
     // Automatical data type casting
     adata.x().get::<Array2<f64>>().unwrap().unwrap();
+}
+
+fn test_noncanonical<F, T>(adata_gen: F)
+where
+    F: Fn() -> T,
+    T: AnnDataOp,
+{
+    let adata = adata_gen();
+    let coo: CooMatrix<i32> = CooMatrix::try_from_triplets(
+        5, 4,
+        vec![0,1,1,1,2,3,4],
+        vec![0,0,0,2,3,1,3],
+        vec![1,2,3,4,5,6,7],
+    ).unwrap();
+    adata.set_x(&CsrNonCanonical::from(&coo)).unwrap();
+    adata.x().get::<CsrMatrix<i32>>().is_err();
+    adata.x().get::<CsrNonCanonical<i32>>().unwrap().unwrap();
+    adata.x().get::<ArrayData>().unwrap().unwrap();
 }
 
 fn test_io<F, T>(adata_gen: F)
@@ -96,6 +114,15 @@ fn test_speacial_cases_h5() {
         let file = dir.join("test.h5");
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
         test_speacial_cases(|| adata_gen());
+    })
+}
+
+#[test]
+fn test_noncanonical_h5() {
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata_gen = || AnnData::<H5>::new(&file).unwrap();
+        test_noncanonical(|| adata_gen());
     })
 }
 

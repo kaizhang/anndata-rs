@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
 use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
-use super::{DynCsrMatrix, DynCscMatrix, DynArray};
+use super::{DynCsrMatrix, DynCscMatrix, DynArray, DynCsrNonCanonical, CsrNonCanonical};
 
 pub trait ArrayChunk: ArrayOp {
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -30,6 +30,7 @@ impl ArrayChunk for ArrayData {
         match iter.peek().unwrap() {
             ArrayData::Array(_) => DynArray::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::CsrMatrix(_) => DynCsrMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            ArrayData::CsrNonCanonical(_) => DynCsrNonCanonical::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::CscMatrix(_) => DynCscMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::DataFrame(_) => todo!(),
         }
@@ -173,8 +174,82 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
     }
 }
 
+impl ArrayChunk for DynCsrNonCanonical {
+    fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let mut iter = iter.peekable();
+        match iter.peek().unwrap() {
+            DynCsrNonCanonical::U8(_) => CsrNonCanonical::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::U16(_) => CsrNonCanonical::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::U32(_) => CsrNonCanonical::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::U64(_) => CsrNonCanonical::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::Usize(_) => CsrNonCanonical::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::I8(_) => CsrNonCanonical::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::I16(_) => CsrNonCanonical::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::I32(_) => CsrNonCanonical::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::I64(_) => CsrNonCanonical::<i64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::F32(_) => CsrNonCanonical::<f32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::F64(_) => CsrNonCanonical::<f64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::Bool(_) => CsrNonCanonical::<bool>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynCsrNonCanonical::String(_) => CsrNonCanonical::<String>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+        }
+    }
+}
 
+impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
+    fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    where
+        I: Iterator<Item = Self>,
+        B: Backend,
+        G: GroupOp<Backend = B>,
+    {
+        let group = location.create_group(name)?;
+        group.write_str_attr("encoding-type", "csr_matrix")?;
+        group.write_str_attr("encoding-version", "0.1.0")?;
+        group.write_str_attr("h5sparse_format", "csr")?;
 
+        let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
+            &group, "data", 1000.into(),
+        )?;
+        let mut indices: ExtendableDataset<B, i64> = ExtendableDataset::with_capacity(
+            &group, "indices", 1000.into(),
+        )?;
+        let mut indptr: Vec<i64> = Vec::new();
+        let mut num_rows = 0;
+        let mut num_cols: Option<usize> = None;
+        let mut nnz = 0;
+
+        iter.try_for_each(|csr| {
+            let c = csr.ncols();
+            if num_cols.is_none() {
+                num_cols = Some(c);
+            }
+            if num_cols.unwrap() == c {
+                num_rows += csr.nrows();
+                let (indptr_, indices_, data_) = csr.csr_data();
+                indptr_[..indptr_.len() - 1]
+                    .iter()
+                    .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
+                nnz += *indptr_.last().unwrap_or(&0) as i64;
+                data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
+                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
+            } else {
+                bail!("All matrices must have the same number of columns");
+            }
+        })?;
+
+        indices.finish()?;
+        data.finish()?;
+        indptr.push(nnz);
+        group.create_array_data("indptr", &indptr, Default::default())?;
+        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        Ok(DataContainer::Group(group))
+    }
+}
 
 
 impl ArrayChunk for DynCscMatrix {

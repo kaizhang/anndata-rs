@@ -10,7 +10,7 @@ pub use slice::{to_select_info, to_select_elem};
 use polars::prelude::DataFrame;
 use std::{collections::HashMap, ops::Deref};
 use pyo3::{prelude::*, types::PyDict};
-use anndata::data::{Data, ArrayData, DynArray, DynCsrMatrix, DynCscMatrix, DynScalar, Mapping};
+use anndata::data::{Data, ArrayData, DynArray, DynCsrMatrix, DynCscMatrix, DynScalar, Mapping, DynCsrNonCanonical};
 
 pub(crate) trait FromPython<'source>: Sized {
     fn from_python(ob: &'source PyAny) -> PyResult<Self>;
@@ -48,7 +48,11 @@ impl<'py> FromPyObject<'py> for PyArrayData {
         if isinstance_of_arr(py, ob)? {
             Ok(ArrayData::from(DynArray::from_python(ob)?).into())
         } else if isinstance_of_csr(py, ob)? {
-            Ok(ArrayData::from(DynCsrMatrix::from_python(ob)?).into())
+            if ob.getattr("has_canonical_format")?.extract()? {
+                Ok(ArrayData::from(DynCsrMatrix::from_python(ob)?).into())
+            } else {
+                Ok(ArrayData::from(DynCsrNonCanonical::from_python(ob)?).into())
+            }
         } else if isinstance_of_csc(py, ob)? {
             Ok(ArrayData::from(DynCscMatrix::from_python(ob)?).into())
         } else if isinstance_of_pandas(py, ob)? || isinstance_of_polars(py, ob)? {
@@ -66,6 +70,7 @@ impl IntoPy<PyObject> for PyArrayData {
         match self.0 {
             ArrayData::Array(arr) => arr.into_python(py).unwrap(),
             ArrayData::CsrMatrix(csr) => csr.into_python(py).unwrap(),
+            ArrayData::CsrNonCanonical(csr) => csr.into_python(py).unwrap(),
             ArrayData::CscMatrix(csc) => csc.into_python(py).unwrap(),
             ArrayData::DataFrame(df) => PyDataFrame::from(df).into_py(py),
         }

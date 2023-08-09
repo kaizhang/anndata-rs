@@ -656,13 +656,13 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
 
     fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
         &self,
-        key: &str,
-        data: D,
+        _key: &str,
+        _data: D,
     ) -> Result<()> {
         todo!()
     }
 
-    fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
+    fn add_iter<I, D>(&self, _key: &str, _data: I) -> Result<()>
     where
         I: Iterator<Item = D>,
         D: ArrayChunk,
@@ -670,7 +670,7 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
         todo!()
     }
 
-    fn remove(&self, key: &str) -> Result<()> {
+    fn remove(&self, _key: &str) -> Result<()> {
         todo!()
     }
 }
