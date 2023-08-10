@@ -1,7 +1,7 @@
 mod ndarray;
 pub mod slice;
 pub mod dataframe;
-mod utils;
+pub mod utils;
 mod sparse;
 mod chunks;
 
@@ -9,12 +9,11 @@ pub use self::ndarray::{CategoricalArray, DynArray};
 pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 pub use dataframe::DataFrameIndex;
-pub use utils::{concat_array_data, from_csr_rows};
 pub use chunks::ArrayChunk;
 
 use crate::backend::*;
+use crate::data::utils::from_csr_data;
 use crate::data::{data_traits::*, scalar::DynScalar, DataType};
-use sparse::utils::from_csr_data;
 
 use polars::prelude::DataFrame;
 use ::ndarray::{Array, RemoveAxis, Ix1};

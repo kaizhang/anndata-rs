@@ -2,7 +2,7 @@ use crate::{
     traits::ArrayElemOp,
     backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
     data::*,
-    data::{array::concat_array_data, index::VecVecIndex},
+    data::index::VecVecIndex,
 };
 
 use anyhow::{bail, ensure, Result};
@@ -13,7 +13,7 @@ use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
-    prelude::{concat, IntoLazy},
+    prelude::{concat, IntoLazy, UnionArgs},
     series::{Series, IntoSeries},
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -131,7 +131,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
         let container = df.overwrite(index.write(location, name)?)?;
-        let column_names = df.get_column_names_owned().into_iter().collect();
+        let column_names = df.get_column_names().into_iter().map(|x| x.to_string()).collect();
         Ok(Self {
             element: None,
             container,
@@ -266,7 +266,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             "cannot update dataframe as lengths differ"
         );
         replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
-        self.column_names = data.get_column_names_owned().into_iter().collect();
+        self.column_names = data.get_column_names().into_iter().map(|x| x.to_string()).collect();
         if self.element.is_some() {
             self.element = Some(data);
         }
@@ -785,7 +785,7 @@ impl<B: Backend> StackedDataFrame<B> {
                         Ok::<_, anyhow::Error>(())
                     })
                 })?;
-                DataFrame::new(columns)
+                anyhow::Ok(DataFrame::new(columns)?)
             })?
         };
         Ok(df)
@@ -811,7 +811,10 @@ impl<B: Backend> StackedDataFrame<B> {
                 })
             })
             .collect::<Vec<_>>();
-        let df = concat(&dfs, true, true)?.collect()?;
+        let df = concat(
+            &dfs,
+            UnionArgs{parallel: true, rechunk: true, ..Default::default()}
+            )?.collect()?;
         if let Some(m) = mapping {
             let select: SmallVec<[SelectInfoElem; 3]> = std::iter::once(m.into())
                 .chain(std::iter::repeat((..).into()).take(selection.as_ref().len() - 1))
@@ -879,12 +882,12 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         let data = if self.is_empty() {
             None
         } else {
-            let arrays: Result<SmallVec<[_; 96]>> = self
+            let array = self
                 .elems
                 .iter()
                 .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
-                .collect();
-            Some(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+            Some(array.try_into().map_err(Into::into)?)
         };
         Ok(data)
     }
@@ -897,12 +900,14 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         let data = if self.is_empty() {
             None
         } else {
-            let arrays: Result<Vec<_>> = self
+            let array = self
                 .elems
                 .par_iter()
                 .flat_map(|x| x.lock().as_mut().map(|i| i.data::<ArrayData>()))
-                .collect();
-            Some(concat_array_data(arrays?)?.try_into().map_err(Into::into)?)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+            Some(array.try_into().map_err(Into::into)?)
         };
         Ok(data)
     }
@@ -933,7 +938,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             None
         } else {
             let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
-            let array = self
+            let array: ArrayData = self
                 .elems
                 .iter()
                 .enumerate()
@@ -945,8 +950,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                         el.inner().select(select.as_slice())
                     })
                 })
-                .collect::<Result<Vec<_>>>()
-                .and_then(concat_array_data)?;
+                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
             if let Some(m) = mapping {
                 Some(array
                     .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))
@@ -968,7 +972,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
             None
         } else {
             let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
-            let array = self
+            let array: ArrayData = self
                 .elems
                 .par_iter()
                 .enumerate()
@@ -980,8 +984,9 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                         el.inner().select(select.as_slice())
                     })
                 })
-                .collect::<Result<Vec<_>>>()
-                .and_then(concat_array_data)?;
+                .collect::<Vec<_>>()
+                .into_iter()
+                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
             if let Some(m) = mapping {
                 Some(array
                     .select_axis(0, SelectInfoElem::from(reverse_mapping(m)))

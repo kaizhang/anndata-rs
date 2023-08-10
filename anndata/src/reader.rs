@@ -1,4 +1,4 @@
-use crate::data::from_csr_rows;
+use crate::data::utils::from_csr_rows;
 use crate::{data::array::DataFrameIndex, AnnDataOp, ArrayData};
 
 use anyhow::Result;
@@ -64,7 +64,7 @@ impl MMReader {
                     .map(|x| x.1.map(|(_, j, v)| (j, v)).collect::<Vec<_>>())
                     .chunks(2000)
                     .into_iter()
-                    .map(|x| from_csr_rows(x.into_iter().collect::<Vec<_>>(), cols))
+                    .map(|x| from_csr_rows(x.into_iter().collect::<Vec<_>>(), cols).unwrap())
             )?;
         } else {
             output.set_x(read_matrix_market_from_bufread(&mut self.reader)?)?;

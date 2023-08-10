@@ -13,7 +13,7 @@ keywords = ["data"]
 pyanndata = { path = "../pyanndata" }
 
 [dependencies.pyo3]
-version = "0.18.0"
+version = "0.19.2"
 features = ["extension-module", "multiple-pymethods"]
 
 [lib]

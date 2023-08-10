@@ -1,4 +1,3 @@
-#![allow(dead_code, unused)]
 use std::ops::Deref;
 
 use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, LocationOp};
@@ -308,7 +307,7 @@ impl HasShape for Series {
 }
 
 impl ArrayOp for Series {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
+    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
         todo!()
     }
 
@@ -320,7 +319,7 @@ impl ArrayOp for Series {
         self.take_iter(&mut i.to_vec().into_iter()).unwrap()
     }
 
-    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> {
         todo!("vstack not implemented for Series")
     }
 }

@@ -1,5 +1,3 @@
-#![allow(dead_code, unused)]
-
 use ndarray::{Array1, Array2, Slice, SliceInfo, SliceInfoElem, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
@@ -537,7 +535,7 @@ pub const SLICE_FULL: Slice = Slice {
 /// 
 /// (unique_idx, mapping) = unique_indices_sorted(ori_idx, upper_bound)
 /// assert_eq!(ori_idx, mapping.iter().map(|x| unique_idx[*x]).collect::<Vec<usize>>())
-pub(crate) fn unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (Vec<usize>, Vec<usize>) {
+fn _unique_indices_sorted(indices: &[usize], upper_bound: usize) -> (Vec<usize>, Vec<usize>) {
     let mut mask = vec![upper_bound; upper_bound];
     // Set the mask for the present indices
     for i in indices {
@@ -617,7 +615,7 @@ mod tests {
             let max = (*input.iter().max().unwrap_or(&0) as usize) + 1;
             let indices = input.into_iter().map(|x| x as usize).collect::<Vec<_>>();
             let sorted_expected = indices.iter().map(|x| *x).unique().sorted().collect::<Vec<_>>();
-            let (sorted, mapping) = unique_indices_sorted(indices.as_slice(), max);
+            let (sorted, mapping) = _unique_indices_sorted(indices.as_slice(), max);
             assert_eq!(sorted, sorted_expected);
             assert_eq!(indices, mapping.iter().map(|x| sorted[*x]).collect::<Vec<_>>());
         }
@@ -626,7 +624,7 @@ mod tests {
     #[test]
     fn test_basic() {
         assert_eq!(
-            unique_indices_sorted(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 11),
+            _unique_indices_sorted(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 11),
             (
                 vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
                 vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],

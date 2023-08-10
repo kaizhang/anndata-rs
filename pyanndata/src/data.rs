@@ -95,7 +95,7 @@ impl<'py> FromPyObject<'py> for PyData {
     fn extract(ob: &'py PyAny) -> PyResult<Self> {
         let data = if let Ok(s) = DynScalar::from_python(ob) {
             PyData(Data::Scalar(s))
-        } else if ob.is_instance_of::<pyo3::types::PyDict>()? {
+        } else if ob.is_instance_of::<pyo3::types::PyDict>() {
             let m = Mapping::from_python(ob)?;
             PyData(Data::Mapping(m))
         } else {
@@ -118,13 +118,13 @@ impl IntoPy<PyObject> for PyData {
 
 impl FromPython<'_> for DynScalar {
     fn from_python(ob: &PyAny) -> PyResult<Self> {
-        if ob.is_instance_of::<pyo3::types::PyBool>()? {
+        if ob.is_instance_of::<pyo3::types::PyBool>() {
             ob.extract::<bool>().map(Into::into)
-        } else if ob.is_instance_of::<pyo3::types::PyInt>()? {
+        } else if ob.is_instance_of::<pyo3::types::PyInt>() {
             ob.extract::<i64>().map(Into::into)
-        } else if ob.is_instance_of::<pyo3::types::PyString>()? {
+        } else if ob.is_instance_of::<pyo3::types::PyString>() {
             ob.extract::<String>().map(Into::into)
-        } else if ob.is_instance_of::<pyo3::types::PyFloat>()? {
+        } else if ob.is_instance_of::<pyo3::types::PyFloat>() {
             ob.extract::<f64>().map(Into::into)
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(

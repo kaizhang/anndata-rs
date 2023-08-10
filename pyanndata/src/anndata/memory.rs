@@ -7,7 +7,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
 use anndata::{self, ArrayOp, ElemCollectionOp, ArrayElemOp};
 use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
-use anndata::data::{DataFrameIndex, SelectInfoElem, concat_array_data, ArrayChunk, Shape};
+use anndata::data::{DataFrameIndex, SelectInfoElem, ArrayChunk, Shape};
 use anyhow::{Result, bail};
 
 pub struct PyAnnData<'py>(&'py PyAny);
@@ -146,7 +146,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         I: Iterator<Item = D>,
         D: Into<ArrayData>,
     {
-        let array = concat_array_data(iter.map(|x| x.into()))?;
+        let array = ArrayOp::vstack(iter.map(|x| x.into()))?;
         let shape = array.shape();
         self.set_n_obs(shape[0])?;
         self.set_n_vars(shape[1])?;

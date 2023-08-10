@@ -11,7 +11,6 @@ use anyhow::{bail, Result};
 use nalgebra_sparse::coo::CooMatrix;
 use ndarray::Ix1;
 
-use super::utils::{coo_to_unsorted_cs, sort_lane};
 use super::super::slice::BoundedSlice;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,7 +309,7 @@ impl<T: Clone + num::Zero> From<&CooMatrix<T>> for CsrNonCanonical<T> {
             let mut offsets = vec![0usize; major_dim + 1];
             let mut minor_idx = vec![0usize; nnz];
             let mut vals = vec![T::zero(); nnz];
-            coo_to_unsorted_cs(
+            crate::data::utils::coo_to_unsorted_cs(
                 &mut offsets,
                 &mut minor_idx,
                 &mut vals,
@@ -347,7 +346,7 @@ impl<T: Clone + num::Zero> From<&CooMatrix<T>> for CsrNonCanonical<T> {
             perm_workspace.resize(count, 0);
             idx_workspace.resize(count, 0);
             values_workspace.resize(count, T::zero());
-            sort_lane(
+            crate::data::utils::sort_lane(
                 &mut idx_workspace[..count],
                 &mut values_workspace[..count],
                 &unsorted_minor_idx[range.clone()],
@@ -728,9 +727,6 @@ mod csr_noncanonical_index_tests {
     use super::*;
     use crate::s;
     use nalgebra_sparse::CooMatrix;
-    use ndarray::Array;
-    use ndarray_rand::rand_distr::Uniform;
-    use ndarray_rand::RandomExt;
 
     fn csr_eq<T: std::cmp::PartialEq + std::fmt::Debug + Clone>(a: &CsrNonCanonical<T>, b: &CooMatrix<T>) {
         assert_eq!(&CooMatrix::from(a), b);

@@ -8,7 +8,7 @@ pub fn to_select_info(ob: &PyAny, shape: &Shape) -> PyResult<SelectInfo> {
     let ndim = shape.ndim();
     if is_none_slice(py, ob)? {
         Ok(std::iter::repeat(SelectInfoElem::full()).take(ndim).collect())
-    } else if ob.is_instance_of::<pyo3::types::PyTuple>()? {
+    } else if ob.is_instance_of::<pyo3::types::PyTuple>() {
         ob.iter()?.zip(shape.as_ref())
             .map(|(x, len)| to_select_elem(x?, *len))
             .collect()
@@ -28,7 +28,7 @@ pub fn to_select_elem(ob: &PyAny, length: usize) -> PyResult<SelectInfoElem> {
         }.into()
     } else if is_none_slice(py, ob)? {
         SelectInfoElem::full()
-    } else if ob.is_instance_of::<pyo3::types::PyInt>()? {
+    } else if ob.is_instance_of::<pyo3::types::PyInt>() {
         ob.extract::<usize>()?.into()
     } else if isinstance_of_arr(py, ob)? && ob.getattr("dtype")?.getattr("name")?.extract::<&str>()? == "bool" {
         let arr = ob

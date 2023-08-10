@@ -26,7 +26,7 @@ impl<'py> FromPyObject<'py> for PyDataFrame {
         let py = ob.py();
         let df = if isinstance_of_pandas(py, ob)? {
             py.import("polars")?.call_method1("from_pandas", (ob, ))?
-        } else if ob.is_instance_of::<pyo3::types::PyDict>()? {
+        } else if ob.is_instance_of::<pyo3::types::PyDict>() {
             py.import("polars")?.call_method1("from_dict", (ob, ))?
         } else {
             ob
