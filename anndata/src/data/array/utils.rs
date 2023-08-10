@@ -413,12 +413,10 @@ fn check_format(nrows: usize, ncols: usize, indptr: &[usize], indices: &[usize])
     }
 }
 
-pub fn from_csr_rows<I, In, T>(iter: I, num_cols: usize) -> Result<ArrayData>
+pub fn to_csr_data<I, In, T>(iter: I, num_cols: usize) -> (usize, usize, Vec<usize>, Vec<usize>, Vec<T>)
 where
     I: IntoIterator<IntoIter = In>,
     In: ExactSizeIterator<Item = Vec<(usize, T)>>,
-    CsrMatrix<T>: Into<ArrayData>,
-    CsrNonCanonical<T>: Into<ArrayData>,
 {
     let rows = iter.into_iter();
     let num_rows = rows.len();
@@ -436,5 +434,5 @@ where
     }
     indptr.push(nnz);
 
-    from_csr_data(num_rows, num_cols, indptr, indices, data)
+    (num_rows, num_cols, indptr, indices, data)
 }
