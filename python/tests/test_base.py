@@ -56,7 +56,8 @@ def test_basic(x, tmp_path):
     output = h5ad(tmp_path)
     adata.write(output)
     read(output).close()
-    read(output, backed=None)
+    read(output, backed=None).write(output, compression="gzip")
+    read(output).close()
 
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |

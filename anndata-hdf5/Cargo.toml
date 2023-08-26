@@ -16,6 +16,7 @@ anyhow = "1.0"
 hdf5 = { version = "0.8" }
 hdf5-sys = { version = "0.8", features = ["static", "zlib", "threadsafe"] }
 #libz-sys = { version = "1", features = ["zlib-ng"], default-features = false }
+libz-sys = { version = "1", features = ["libc"], default-features = false }
 ndarray = { version = "0.15" }
 
 [dev-dependencies]
