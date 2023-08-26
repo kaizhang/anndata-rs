@@ -45,7 +45,6 @@ use super::backed::StackedAnnData;
     read_dataset
 */
 #[pyclass]
-#[pyo3(text_signature = "(adatas, *, filename, add_key, backend)")]
 #[repr(transparent)]
 pub struct AnnDataSet(Box<dyn AnnDataSetTrait>);
 

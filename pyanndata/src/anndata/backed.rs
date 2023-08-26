@@ -57,7 +57,6 @@ use std::ops::Deref;
     read_csv
 */
 #[pyclass]
-#[pyo3(text_signature = "(*, filename, X, n_obs, n_vars, obs, var, obsm, varm, uns)")]
 #[repr(transparent)]
 pub struct AnnData(Box<dyn AnnDataTrait>);
 

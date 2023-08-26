@@ -404,7 +404,7 @@ pub struct ElemCollection<'a>(&'a PyAny);
 
 impl ElemCollectionOp for ElemCollection<'_> {
     fn keys(&self) -> Vec<String> {
-        self.0.call_method0("keys").unwrap().extract().unwrap()
+        self.0.call_method0("keys").unwrap().iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
     }
 
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
@@ -451,7 +451,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
     type ArrayElem = ArrayElem<'py>;
 
     fn keys(&self) -> Vec<String> {
-        self.arrays.call_method0("keys").unwrap().extract().unwrap()
+        self.arrays.call_method0("keys").unwrap().iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
     }
 
     fn get(&self, key: &str) -> Option<Self::ArrayElem> {
