@@ -1,5 +1,3 @@
-#![feature(iterator_try_reduce)]
-
 mod anndata;
 pub mod traits;
 pub mod backend;
