@@ -287,8 +287,7 @@ impl ReadArrayData for ArrayData {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) =>
                 DynArray::read_select(container, info).map(ArrayData::Array),
-            DataType::CsrMatrix(_) =>
-                DynCsrMatrix::read_select(container, info).map(ArrayData::CsrMatrix),
+            DataType::CsrMatrix(_) => read_csr_select(container, info),
             DataType::CscMatrix(_) =>
                 DynCscMatrix::read_select(container, info).map(ArrayData::CscMatrix),
             DataType::DataFrame =>
@@ -333,6 +332,76 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
             ScalarType::F64 => _read_csr::<B, f64>(container),
             ScalarType::Bool => _read_csr::<B, bool>(container),
             ScalarType::String => _read_csr::<B, String>(container),
+        },
+        _ => bail!("cannot read csr matrix from non-group container"),
+    }
+}
+
+fn read_csr_select<B: Backend, S>(container: &DataContainer<B>, info: &[S]) -> Result<ArrayData>
+where
+    B: Backend,
+    S: AsRef<SelectInfoElem>,
+{
+    fn _read_csr<B: Backend, T: BackendData, S>(container: &DataContainer<B>, info: &[S]) -> Result<ArrayData>
+    where
+        CsrMatrix<T>: Into<ArrayData>,
+        CsrNonCanonical<T>: Into<ArrayData>,
+        S: AsRef<SelectInfoElem>,
+    {
+        if info.as_ref().len() != 2 {
+            panic!("index must have length 2");
+        }
+
+        if info.iter().all(|s| s.as_ref().is_full()) {
+            return read_csr(container);
+        }
+
+        let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
+            let group = container.as_group()?;
+            let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+            let indptr_slice = if let Some(end) = s.end {
+                SelectInfoElem::from(s.start .. end + 1)
+            } else {
+                SelectInfoElem::from(s.start ..)
+            };
+            let mut indptr: Vec<usize> = group 
+                .open_dataset("indptr")?
+                .read_array_slice(&[indptr_slice])?
+                .to_vec();
+            let lo = indptr[0];
+            let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
+            let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
+            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
+            indptr.iter_mut().for_each(|x| *x -= lo);
+
+            from_csr_data::<T>(
+                indptr.len() - 1,
+                shape[1],
+                indptr,
+                indices,
+                data,
+            ).unwrap().select_axis(1, info[1].as_ref())
+        } else {
+            read_csr(container)?.select(info)
+        };
+        Ok(data)
+    }
+
+    match container {
+        DataContainer::Group(group) => match group.open_dataset("data")?.dtype()? {
+            ScalarType::I8 => _read_csr::<B, i8, _>(container, info),
+            ScalarType::I16 => _read_csr::<B, i16, _>(container, info),
+            ScalarType::I32 => _read_csr::<B, i32, _>(container, info),
+            ScalarType::I64 => _read_csr::<B, i64, _>(container, info),
+            ScalarType::U8 => _read_csr::<B, u8, _>(container, info),
+            ScalarType::U16 => _read_csr::<B, u16, _>(container, info),
+            ScalarType::U32 => _read_csr::<B, u32, _>(container, info),
+            ScalarType::U64 => _read_csr::<B, u64, _>(container, info),
+            ScalarType::Usize => _read_csr::<B, usize, _>(container, info),
+            ScalarType::F32 => _read_csr::<B, f32, _>(container, info),
+            ScalarType::F64 => _read_csr::<B, f64, _>(container, info),
+            ScalarType::Bool => _read_csr::<B, bool, _>(container, info),
+            ScalarType::String => _read_csr::<B, String, _>(container, info),
         },
         _ => bail!("cannot read csr matrix from non-group container"),
     }
