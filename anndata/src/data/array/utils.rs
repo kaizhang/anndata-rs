@@ -351,7 +351,7 @@ where
     }
 }
 
-fn check_format(nrows: usize, ncols: usize, indptr: &[usize], indices: &[usize]) -> std::result::Result<(), SparsityPatternFormatError>
+pub(crate) fn check_format(nrows: usize, ncols: usize, indptr: &[usize], indices: &[usize]) -> std::result::Result<(), SparsityPatternFormatError>
 {
     use SparsityPatternFormatError::*;
 

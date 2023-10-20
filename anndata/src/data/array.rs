@@ -90,6 +90,7 @@ impl TryFrom<ArrayData> for DynCsrNonCanonical {
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         match value {
             ArrayData::CsrNonCanonical(data) => Ok(data),
+            ArrayData::CsrMatrix(data) => Ok(data.into()),
             _ => bail!("Cannot convert {:?} to DynCsrNonCanonical", value),
         }
     }
@@ -260,7 +261,11 @@ impl ArrayOp for ArrayData {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
             ArrayData::Array(_) => DynArray::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::CsrMatrix(_) => DynCsrMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::CsrMatrix(_) => DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap()))
+                .map(|x| match x.canonicalize() {
+                    Ok(x) => x.into(),
+                    Err(x) => x.into(),
+                }),
             ArrayData::CsrNonCanonical(_) => DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
             ArrayData::CscMatrix(_) => DynCscMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
             ArrayData::DataFrame(_) => <DataFrame as ArrayOp>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),

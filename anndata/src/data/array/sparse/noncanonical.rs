@@ -8,10 +8,12 @@ use crate::data::{
 };
 
 use anyhow::{bail, Result};
-use nalgebra_sparse::coo::CooMatrix;
+use nalgebra_sparse::pattern::SparsityPattern;
+use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
 use ndarray::Ix1;
 
 use super::super::slice::BoundedSlice;
+use super::DynCsrMatrix;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynCsrNonCanonical {
@@ -28,6 +30,26 @@ pub enum DynCsrNonCanonical {
     F64(CsrNonCanonical<f64>),
     Bool(CsrNonCanonical<bool>),
     String(CsrNonCanonical<String>),
+}
+
+impl DynCsrNonCanonical {
+    pub fn canonicalize(self) -> Result<DynCsrMatrix, Self> {
+        match self {
+            DynCsrNonCanonical::I8(data) => data.canonicalize().map(DynCsrMatrix::I8).map_err(Into::into),
+            DynCsrNonCanonical::I16(data) => data.canonicalize().map(DynCsrMatrix::I16).map_err(Into::into),
+            DynCsrNonCanonical::I32(data) => data.canonicalize().map(DynCsrMatrix::I32).map_err(Into::into),
+            DynCsrNonCanonical::I64(data) => data.canonicalize().map(DynCsrMatrix::I64).map_err(Into::into),
+            DynCsrNonCanonical::U8(data) => data.canonicalize().map(DynCsrMatrix::U8).map_err(Into::into),
+            DynCsrNonCanonical::U16(data) => data.canonicalize().map(DynCsrMatrix::U16).map_err(Into::into),
+            DynCsrNonCanonical::U32(data) => data.canonicalize().map(DynCsrMatrix::U32).map_err(Into::into),
+            DynCsrNonCanonical::U64(data) => data.canonicalize().map(DynCsrMatrix::U64).map_err(Into::into),
+            DynCsrNonCanonical::Usize(data) => data.canonicalize().map(DynCsrMatrix::Usize).map_err(Into::into),
+            DynCsrNonCanonical::F32(data) => data.canonicalize().map(DynCsrMatrix::F32).map_err(Into::into),
+            DynCsrNonCanonical::F64(data) => data.canonicalize().map(DynCsrMatrix::F64).map_err(Into::into),
+            DynCsrNonCanonical::Bool(data) => data.canonicalize().map(DynCsrMatrix::Bool).map_err(Into::into),
+            DynCsrNonCanonical::String(data) => data.canonicalize().map(DynCsrMatrix::String).map_err(Into::into),
+        }
+    }
 }
 
 macro_rules! impl_into_dyn_csr {
@@ -81,6 +103,26 @@ macro_rules! impl_dyn_csr_matrix {
             DynCsrNonCanonical::String(data) => $fun!(data),
         }
     };
+}
+
+impl From<DynCsrMatrix> for DynCsrNonCanonical {
+    fn from(value: DynCsrMatrix) -> Self {
+        match value {
+            DynCsrMatrix::I8(data) => DynCsrNonCanonical::I8(data.into()),
+            DynCsrMatrix::I16(data) => DynCsrNonCanonical::I16(data.into()),
+            DynCsrMatrix::I32(data) => DynCsrNonCanonical::I32(data.into()),
+            DynCsrMatrix::I64(data) => DynCsrNonCanonical::I64(data.into()),
+            DynCsrMatrix::U8(data) => DynCsrNonCanonical::U8(data.into()),
+            DynCsrMatrix::U16(data) => DynCsrNonCanonical::U16(data.into()),
+            DynCsrMatrix::U32(data) => DynCsrNonCanonical::U32(data.into()),
+            DynCsrMatrix::U64(data) => DynCsrNonCanonical::U64(data.into()),
+            DynCsrMatrix::Usize(data) => DynCsrNonCanonical::Usize(data.into()),
+            DynCsrMatrix::F32(data) => DynCsrNonCanonical::F32(data.into()),
+            DynCsrMatrix::F64(data) => DynCsrNonCanonical::F64(data.into()),
+            DynCsrMatrix::Bool(data) => DynCsrNonCanonical::Bool(data.into()),
+            DynCsrMatrix::String(data) => DynCsrNonCanonical::String(data.into()),
+        }
+    }
 }
 
 impl WriteData for DynCsrNonCanonical {
@@ -292,6 +334,28 @@ impl<T> CsrNonCanonical<T> {
             num_rows,
             num_cols,
         }
+    }
+
+    pub fn canonicalize(self) -> Result<CsrMatrix<T>, Self> {
+        let nrows = self.nrows();
+        let ncols = self.ncols();
+        if crate::data::utils::check_format(nrows, ncols, self.row_offsets(), self.col_indices()).is_ok() {
+            let pattern = unsafe {
+                SparsityPattern::from_offset_and_indices_unchecked(nrows, ncols, self.offsets, self.indices)
+            };
+            Ok(CsrMatrix::try_from_pattern_and_values(pattern, self.values).unwrap())
+        } else {
+            Err(self)
+        }
+    }
+}
+
+impl<T> From<CsrMatrix<T>> for CsrNonCanonical<T> {
+    fn from(csr: CsrMatrix<T>) -> Self {
+        let num_rows = csr.nrows();
+        let num_cols = csr.ncols();
+        let (row_offsets, col_indices, data) = csr.disassemble();
+        Self::from_csr_data(num_rows, num_cols, row_offsets, col_indices, data)
     }
 }
 

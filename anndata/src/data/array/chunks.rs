@@ -29,8 +29,8 @@ impl ArrayChunk for ArrayData {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
             ArrayData::Array(_) => DynArray::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            ArrayData::CsrMatrix(_) => DynCsrMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            ArrayData::CsrNonCanonical(_) => DynCsrNonCanonical::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            ArrayData::CsrMatrix(_) | ArrayData::CsrNonCanonical(_) =>
+                DynCsrNonCanonical::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::CscMatrix(_) => DynCscMatrix::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::DataFrame(_) => todo!(),
         }
