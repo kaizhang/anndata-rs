@@ -112,7 +112,12 @@ impl<'py> PyAnnData<'py> {
         if n == n_obs {
             Ok(())
         } else if n == 0 {
-            self.0.setattr("_n_obs", n_obs)?;
+            if self.0.hasattr("_n_obs")? {
+                self.0.setattr("_n_obs", n_obs)?;
+            } else {
+                let index = (0..n_obs).map(|x| x.to_string()).collect::<Vec<_>>();
+                self.0.getattr("obs")?.setattr("index", index)?;
+            }
             Ok(())
         } else {
             bail!("cannot set n_obs unless n_obs == 0")
@@ -124,7 +129,12 @@ impl<'py> PyAnnData<'py> {
         if n == n_vars {
             Ok(())
         } else if n == 0 {
-            self.0.setattr("_n_vars", n_vars)?;
+            if self.0.hasattr("_n_vars")? {
+                self.0.setattr("_n_vars", n_vars)?;
+            } else {
+                let index = (0..n_vars).map(|x| x.to_string()).collect::<Vec<_>>();
+                self.0.getattr("var")?.setattr("index", index)?;
+            }
             Ok(())
         } else {
             bail!("cannot set n_vars unless n_vars == 0")
