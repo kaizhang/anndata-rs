@@ -7,6 +7,7 @@ use crate::data::data_traits::*;
 use crate::data::index::{Index, Interval};
 use crate::data::scalar::DynScalar;
 
+use log::warn;
 use anyhow::{bail, Result};
 use ndarray::{Array1, Array2};
 use polars::datatypes::{CategoricalChunkedBuilder, DataType};
@@ -420,12 +421,15 @@ impl WriteData for DataFrameIndex {
         match &self.index {
             Index::List(_) => { data.write_str_attr("index_type", "list")?; },
             Index::Intervals(intervals) => {
-                data.write_str_attr("index_type", "intervals")?;
                 let keys: Array1<String> = intervals.keys().cloned().collect();
-                data.write_array_attr("names", &keys)?;
                 let vec: Vec<usize> = intervals.values().flat_map(|x| [x.start, x.end, x.size, x.step]).collect();
                 let values = Array2::from_shape_vec((intervals.deref().len(), 4), vec)?;
-                data.write_array_attr("intervals", &values)?;
+                if data.write_array_attr("names", &keys).is_err() || data.write_array_attr("intervals", &values).is_err() { // fallback to "list"
+                    data.write_str_attr("index_type", "list")?;
+                    warn!("Failed to save interval index as attributes, fallback to list index");
+                } else {
+                    data.write_str_attr("index_type", "intervals")?;
+                }
             },
             Index::Range(range) => {
                 data.write_str_attr("index_type", "range")?;
