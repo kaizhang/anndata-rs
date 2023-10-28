@@ -863,7 +863,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.elems.is_empty()
+        self.elems.is_empty() || self.elems.iter().all(|x| x.is_empty())
     }
 
     pub fn dtype(&self) -> DataType {
