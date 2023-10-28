@@ -5,7 +5,7 @@ use crate::data::{
     array::utils::ExtendableDataset,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Result, Context};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
 use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
@@ -27,7 +27,7 @@ impl ArrayChunk for ArrayData {
         G: GroupOp<Backend = B>,
     {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        match iter.peek().context("input iterator is empty")? {
             ArrayData::Array(_) => DynArray::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             ArrayData::CsrMatrix(_) | ArrayData::CsrNonCanonical(_) =>
                 DynCsrNonCanonical::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -45,7 +45,7 @@ impl ArrayChunk for DynArray {
         G: GroupOp<Backend = B>,
     {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        match iter.peek().context("input iterator is empty")? {
             DynArray::U8(_) => ArrayD::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::U16(_) => ArrayD::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::U32(_) => ArrayD::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -104,7 +104,7 @@ impl ArrayChunk for DynCsrMatrix {
         G: GroupOp<Backend = B>,
     {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        match iter.peek().context("input iterator is empty")? {
             DynCsrMatrix::U8(_) => CsrMatrix::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::U16(_) => CsrMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::U32(_) => CsrMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -182,7 +182,7 @@ impl ArrayChunk for DynCsrNonCanonical {
         G: GroupOp<Backend = B>,
     {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        match iter.peek().context("input iterator is empty")? {
             DynCsrNonCanonical::U8(_) => CsrNonCanonical::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::U16(_) => CsrNonCanonical::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::U32(_) => CsrNonCanonical::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -260,7 +260,7 @@ impl ArrayChunk for DynCscMatrix {
         G: GroupOp<Backend = B>,
     {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        match iter.peek().context("input iterator is empty")? {
             DynCscMatrix::U8(_) => CscMatrix::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::U16(_) => CscMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::U32(_) => CscMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -289,7 +289,7 @@ impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
                .transpose())
         */
 
-    fn write_by_chunk<B, G, I>(mut iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
+    fn write_by_chunk<B, G, I>(_: I, _: &G, _: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,
         B: Backend,
