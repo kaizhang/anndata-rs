@@ -379,6 +379,7 @@ impl<T> PyArrayIterator<T> {
 impl<T> Iterator for PyArrayIterator<T>
 where
     T: TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
 {
     type Item = (T, usize, usize);
 
@@ -391,7 +392,7 @@ where
             self.current_row = j;
             let slice = SelectInfoElem::from(i..j);
             let data = self.array.select_axis(0, slice);
-            Some((T::try_from(data).ok().unwrap(), i, j))
+            Some((T::try_from(data).map_err(Into::into).unwrap(), i, j))
         }
     }
 }
@@ -399,6 +400,7 @@ where
 impl<T> ExactSizeIterator for PyArrayIterator<T>
 where
     T: TryFrom<ArrayData>,
+    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
 {
     fn len(&self) -> usize {
         let n = self.total_rows / self.chunk_size;
