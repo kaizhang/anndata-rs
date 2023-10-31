@@ -163,6 +163,7 @@ macro_rules! impl_into_array_data {
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
                         ArrayData::CsrNonCanonical(data) => data.try_into(),
+                        ArrayData::CsrMatrix(data) => DynCsrNonCanonical::from(data).try_into(),
                         _ => bail!("Cannot convert {:?} to $ty CsrNonCanonical", value),
                     }
                 }
