@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.copy
+========================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.copy

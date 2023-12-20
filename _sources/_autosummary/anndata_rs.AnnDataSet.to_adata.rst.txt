@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.to\_adata
+================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnDataSet.to_adata

@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.obs\_names
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.obs_names

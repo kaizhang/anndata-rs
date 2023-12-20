@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.to\_memory
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.to_memory

@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.varm
+========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.varm

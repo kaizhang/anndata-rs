@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.obs\_ix
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnDataSet.obs_ix

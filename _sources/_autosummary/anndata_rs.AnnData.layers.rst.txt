@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.layers
+==========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.layers

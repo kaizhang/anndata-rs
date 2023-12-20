@@ -1,0 +1,6 @@
+﻿anndata\_rs.read
+================
+
+.. currentmodule:: anndata_rs
+
+.. autofunction:: read
