@@ -31,6 +31,7 @@ def test_basic(x, tmp_path):
     adata.X = x
     adata.obs_names = [str(i) for i in range(x.shape[0])]
     np.testing.assert_array_equal(x, adata.X[:])
+    np.testing.assert_array_equal(x, adata.X[...])
 
     adata.X = csr_matrix(x)
     np.testing.assert_array_equal(x, adata.X[:].todense())

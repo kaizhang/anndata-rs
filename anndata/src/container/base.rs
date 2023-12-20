@@ -773,20 +773,19 @@ impl<B: Backend> StackedDataFrame<B> {
         let df = if self.column_names.is_empty() || self.elems.is_empty() {
             DataFrame::empty()
         } else {
-            polars::datatypes::categorical::stringcache::with_string_cache(|| {
-                let mut elems = self.elems.iter();
-                let mut columns = elems.next().unwrap().inner().data()?
-                    .columns(self.column_names.iter())?.into_iter().cloned().collect::<Vec<_>>();
-                elems.try_for_each(|el| {
-                    let mut inner = el.inner();
-                    let col = inner.data()?.columns(self.column_names.iter())?;
-                    columns.iter_mut().zip(col.into_iter()).try_for_each(|(a, b)| {
-                        a.append(b)?;
-                        Ok::<_, anyhow::Error>(())
-                    })
-                })?;
-                anyhow::Ok(DataFrame::new(columns)?)
-            })?
+            let _sc = polars::datatypes::string_cache::StringCacheHolder::hold();
+            let mut elems = self.elems.iter();
+            let mut columns = elems.next().unwrap().inner().data()?
+                .columns(self.column_names.iter())?.into_iter().cloned().collect::<Vec<_>>();
+            elems.try_for_each(|el| {
+                let mut inner = el.inner();
+                let col = inner.data()?.columns(self.column_names.iter())?;
+                columns.iter_mut().zip(col.into_iter()).try_for_each(|(a, b)| {
+                    a.append(b)?;
+                    Ok::<_, anyhow::Error>(())
+                })
+            })?;
+            DataFrame::new(columns)?
         };
         Ok(df)
     }

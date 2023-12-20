@@ -10,6 +10,7 @@ use crate::data::scalar::DynScalar;
 use log::warn;
 use anyhow::{bail, Result};
 use ndarray::{Array1, Array2};
+use polars::chunked_array::ChunkedArray;
 use polars::datatypes::{CategoricalChunkedBuilder, DataType};
 use polars::prelude::IntoSeries;
 use polars::prelude::{DataFrame, Series};
@@ -117,9 +118,10 @@ impl ArrayOp for DataFrame {
         }
         let columns = self.get_column_names();
         let select = BoundedSelectInfo::new(&info, &HasShape::shape(self));
+        let ridx = select.as_ref()[0].iter().map(|x| x as u32).collect();
         self.select(select.as_ref()[1].to_vec().into_iter().map(|i| columns[i]))
             .unwrap()
-            .take_iter(select.as_ref()[0].to_vec().into_iter())
+            .take(&ChunkedArray::from_vec("idx", ridx))
             .unwrap()
     }
 
@@ -316,8 +318,9 @@ impl ArrayOp for Series {
     where
         S: AsRef<SelectInfoElem>,
     {
-        let i = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len());
-        self.take_iter(&mut i.to_vec().into_iter()).unwrap()
+        let i = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
+            .iter().map(|x| x as u32).collect::<Vec<_>>();
+        self.take(&ChunkedArray::from_vec("idx", i)).unwrap()
     }
 
     fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> {
