@@ -45,6 +45,7 @@ def test_basic(x, tmp_path):
 
     adata.uns['array'] = np.array([1, 2, 3, 4, 5])
     adata.uns['array'] = np.array(["one", "two", "three", "four", "five"])
+    adata.uns['array'] = np.array(["one", "two", "three", "four", "five"], dtype='object')
 
     # Dataframe
     df = pl.DataFrame({

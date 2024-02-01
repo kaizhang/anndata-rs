@@ -68,6 +68,11 @@ impl FromPython<'_> for DynArray {
                 .as_array()
                 .map(|x| x.extract::<String>(py).unwrap())
                 .into()
+        } else if dtype == "O" {
+            ob.extract::<PyReadonlyArrayDyn<PyObject>>()?
+                .as_array()
+                .map(|x| x.extract::<String>(py).unwrap())
+                .into()
         } else {
             let ty = ob.getattr("dtype")?.getattr("name")?.extract::<&str>()?;
             proc_py_numeric!(ty, ob.extract::<PyReadonlyArrayDyn<_>>()?.to_owned_array(), ArrayD)
