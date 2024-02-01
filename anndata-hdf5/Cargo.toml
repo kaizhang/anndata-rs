@@ -11,7 +11,7 @@ repository = "https://github.com/kaizhang/anndata-rs"
 homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
-anndata = { path = '../anndata' }
+anndata = "0.2"
 anyhow = "1.0"
 hdf5 = { version = "0.8" }
 hdf5-sys = { version = "0.8", features = ["static", "zlib", "threadsafe"] }

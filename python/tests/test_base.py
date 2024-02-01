@@ -43,9 +43,19 @@ def test_basic(x, tmp_path):
     adata.layers["X2"] = csr_matrix(x)
     adata.layers["X3"] = csc_matrix(x)
 
+    adata.uns['array'] = np.array([1, 2, 3, 4, 5])
+    adata.uns['array'] = np.array(["one", "two", "three", "four", "five"])
+
+    # Dataframe
     df = pl.DataFrame({
         "a": [1, 2, 3, 4, 5],
         "b": ["one", "two", "three", "four", "five"],
+    })
+    adata.uns['df'] = df
+    assert df.frame_equal(adata.uns['df'])
+    df = pl.DataFrame({
+        "a": [],
+        "b": [],
     })
     adata.uns['df'] = df
     assert df.frame_equal(adata.uns['df'])

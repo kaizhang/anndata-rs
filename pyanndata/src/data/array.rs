@@ -60,8 +60,18 @@ macro_rules! proc_py_numeric {
 
 impl FromPython<'_> for DynArray {
     fn from_python(ob: &PyAny) -> PyResult<Self> {
-        let ty = ob.getattr("dtype")?.getattr("name")?.extract::<&str>()?;
-        let arr = proc_py_numeric!(ty, ob.extract::<PyReadonlyArrayDyn<_>>()?.to_owned_array(), ArrayD);
+        let py = ob.py();
+        let dtype = ob.getattr("dtype")?.getattr("char")?.extract::<&str>()?;
+        let arr = if dtype == "U" || dtype == "S" {
+            ob.getattr("astype")?.call1(("object",))?
+                .extract::<PyReadonlyArrayDyn<PyObject>>()?
+                .as_array()
+                .map(|x| x.extract::<String>(py).unwrap())
+                .into()
+        } else {
+            let ty = ob.getattr("dtype")?.getattr("name")?.extract::<&str>()?;
+            proc_py_numeric!(ty, ob.extract::<PyReadonlyArrayDyn<_>>()?.to_owned_array(), ArrayD)
+        };
         Ok(arr)
     }
 }
