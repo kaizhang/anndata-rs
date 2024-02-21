@@ -4,9 +4,12 @@ use pyo3::{
     prelude::*,
     pymodule, types::PyModule, PyResult, Python,
 };
+use pyo3::prelude::*;
 
 #[pymodule]
 fn _anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
+    pyo3_log::init();
+
     m.add_class::<AnnData>().unwrap();
     m.add_class::<AnnDataSet>().unwrap();
 

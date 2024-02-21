@@ -11,6 +11,7 @@ keywords = ["data"]
 
 [dependencies]
 pyanndata = { path = "../pyanndata" }
+pyo3-log = "0.9"
 
 [dependencies.pyo3]
 version = "0.20.2"

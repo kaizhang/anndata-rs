@@ -15,6 +15,7 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use log::warn;
 
 pub struct InnerElemCollection<B: Backend> {
     container: B::Group,
@@ -699,16 +700,23 @@ impl<B: Backend> StackedAxisArrays<B> {
             .reduce(|a, b| a.intersection(&b).cloned().collect())
             .unwrap_or(HashSet::new());
 
+        let mut ignore_keys = Vec::new();
         let data = shared_keys
             .into_iter()
-            .map(|k| {
+            .flat_map(|k| {
                 let elems = arrays
                     .iter()
                     .map(|x| x.inner().get(&k).unwrap().clone())
                     .collect();
-                Ok((k, StackedArrayElem::new(elems)?))
+                if let Ok(arr) = StackedArrayElem::new(elems) {
+                    Some((k, arr))
+                } else {
+                    ignore_keys.push(k);
+                    None
+                }
             })
-            .collect::<Result<HashMap<_, _>>>()?;
+            .collect::<HashMap<_, _>>();
+        warn!("Unable to create stacked arrays for these keys: {}", ignore_keys.join(","));
         Ok(Self {
             axis: axis,
             data: Arc::new(data),
