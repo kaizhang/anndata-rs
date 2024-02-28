@@ -54,37 +54,6 @@ pub fn isinstance_of_polars<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<b
     )
 }
 
-pub fn is_list_of_bools<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    if obj.is_instance_of::<pyo3::types::PyList>() {
-        Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(|x| {
-            x.as_ref(py).is_instance_of::<pyo3::types::PyBool>()
-        }))
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn is_list_of_ints<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    if obj.is_instance_of::<pyo3::types::PyList>() {
-        Ok(obj
-            .extract::<Vec<PyObject>>()?
-            .into_iter()
-            .all(|x| x.as_ref(py).is_instance_of::<pyo3::types::PyInt>()))
-    } else {
-        Ok(false)
-    }
-}
-
-pub fn is_list_of_strings<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
-    if obj.is_instance_of::<pyo3::types::PyList>() {
-        Ok(obj.extract::<Vec<PyObject>>()?.into_iter().all(|x| {
-            x.as_ref(py).is_instance_of::<pyo3::types::PyString>()
-        }))
-    } else {
-        Ok(false)
-    }
-}
-
 pub fn is_none_slice<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     Ok(
         obj.is_none() ||

@@ -109,8 +109,13 @@ pub fn read_mtx(
 /// ----------
 /// filename: Path
 ///     File name.
-/// update_data_locations: Mapping[str, str]
-///     If provided, locations of component anndata files will be updated.
+/// adata_files_update: Mapping[str, Path] | Path | None
+///     AnnDataSet internally stores links to component anndata files.
+///     You can find this information in `.uns['AnnDataSet']`.
+///     These links may be invalid if the anndata files are moved to a different location.
+///     This parameter provides a way to update the locations of component anndata files.
+///     The value of this parameter can be either a mapping from component anndata file names to their new locations,
+///     or a directory containing component anndata files.
 /// mode: str
 ///     "r": Read-only mode; "r+": can modify annotation file but not component anndata files.
 /// backend: Literal['hdf5'] | None
@@ -120,15 +125,20 @@ pub fn read_mtx(
 /// AnnDataSet
 #[pyfunction]
 #[pyo3(
-    signature = (filename, *, update_data_locations=None, mode="r+", backend=None),
-    text_signature = "(filename, *, update_data_locations=None, mode='r+', backend=None)",
+    signature = (filename, *, adata_files_update=None, mode="r+", backend=None),
+    text_signature = "(filename, *, adata_files_update=None, mode='r+', backend=None)",
 )]
 pub fn read_dataset(
     filename: PathBuf,
-    update_data_locations: Option<HashMap<String, String>>,
+    adata_files_update: Option<LocationUpdate>,
     mode: &str,
     backend: Option<&str>,
 ) -> Result<AnnDataSet> {
+    let adata_files_update = match adata_files_update {
+        Some(LocationUpdate::Map(map)) => Some(Ok(map)),
+        Some(LocationUpdate::Dir(dir)) => Some(Err(dir)),
+        None => None,
+    };
     match backend.unwrap_or(H5::NAME) {
         H5::NAME => {
             let file = match mode {
@@ -136,8 +146,14 @@ pub fn read_dataset(
                 "r+" => H5::open_rw(filename)?,
                 _ => panic!("Unkown mode"),
             };
-            Ok(anndata::AnnDataSet::<H5>::open(file, update_data_locations)?.into())
+            Ok(anndata::AnnDataSet::<H5>::open(file, adata_files_update )?.into())
         },
         _ => todo!(),
     }
+}
+
+#[derive(FromPyObject)]
+pub enum LocationUpdate {
+    Map(HashMap<String, PathBuf>),
+    Dir(PathBuf),
 }

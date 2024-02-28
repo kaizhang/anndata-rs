@@ -255,14 +255,14 @@ impl WriteData for Series {
                 .collect::<Array1<_>>()
                 .into_dyn()
                 .into(),
-            DataType::Utf8 => self
-                .utf8()?
+            DataType::String => self
+                .str()?
                 .into_iter()
                 .map(|x| x.unwrap().to_string())
                 .collect::<Array1<_>>()
                 .into_dyn()
                 .into(),
-            DataType::Categorical(_) => self
+            DataType::Categorical(_,_) => self
                 .categorical()?
                 .iter_str()
                 .map(|x| x.unwrap())
@@ -291,13 +291,14 @@ impl ReadData for Series {
             DynArray::Bool(x) => Ok(x.iter().collect::<Series>()),
             DynArray::String(x) => Ok(x.iter().map(|x| x.as_str()).collect::<Series>()),
             DynArray::Categorical(arr) => {
-                let mut builder = CategoricalChunkedBuilder::new("", arr.codes.len());
-                builder.drain_iter(
+                let result = CategoricalChunkedBuilder::new(
+                    "", arr.codes.len(), polars::datatypes::CategoricalOrdering::Lexical
+                ).drain_iter_and_finish(
                     arr.codes
                         .into_iter()
                         .map(|i| Some(arr.categories[i as usize].as_str())),
-                );
-                Ok(builder.finish().into_series())
+                ).into_series();
+                Ok(result)
             }
         }
     }

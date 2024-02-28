@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::data::{
-    is_none_slice, to_select_info, IntoPython, PyArrayData, PyData, PyDataFrame,
+    is_none_slice, to_select_info, PyArrayData, PyData,
 };
 
 use anndata::backend::DataType;
@@ -14,6 +14,7 @@ use anndata::container::{ChunkedArrayElem, StackedChunkedArrayElem};
 use anyhow::{bail, Context, Result};
 use polars::series::Series;
 use pyo3::prelude::*;
+use pyo3_polars::{PySeries, PyDataFrame};
 use rand::Rng;
 use rand::SeedableRng;
 
@@ -177,14 +178,14 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
     fn get(&self, subscript: &PyAny) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(self.inner().column(key)?.into_python(py)?)
+            Ok(PySeries(self.inner().column(key)?.clone()).into_py(py))
         } else {
             let width = self.inner().width();
             let height = self.inner().height();
             let shape = [width, height].as_slice().into();
             let slice = to_select_info(subscript, &shape)?;
             let df = self.inner().select(slice.as_ref())?;
-            Ok(PyDataFrame::from(df).into_py(py))
+            Ok(PyDataFrame(df).into_py(py))
         }
     }
 
@@ -209,14 +210,14 @@ impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
     fn get(&self, subscript: &PyAny) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(self.column(key)?.into_python(py)?)
+            Ok(PySeries(self.column(key)?.clone()).into_py(py))
         } else {
             let width = self.width();
             let height = self.height();
             let shape = [width, height].as_slice().into();
             let slice = to_select_info(subscript, &shape)?;
             let df = self.select(slice.as_ref())?;
-            Ok(PyDataFrame::from(df).into_py(py))
+            Ok(PyDataFrame(df).into_py(py))
         }
     }
 

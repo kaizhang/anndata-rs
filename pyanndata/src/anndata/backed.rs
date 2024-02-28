@@ -1,5 +1,5 @@
 use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollection, PyChunkedArray};
-use crate::data::{to_select_elem, PyArrayData, PyData, PyDataFrame};
+use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::anndata::PyAnnData;
 
 use anndata;
@@ -10,6 +10,7 @@ use anndata_hdf5::H5;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
+use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::ops::Deref;
@@ -144,8 +145,8 @@ impl AnnData {
     pub fn new(
         filename: PathBuf,
         X: Option<PyArrayData>,
-        obs: Option<PyDataFrame>,
-        var: Option<PyDataFrame>,
+        obs: Option<&PyAny>,
+        var: Option<&PyAny>,
         obsm: Option<HashMap<String, PyArrayData>>,
         varm: Option<HashMap<String, PyArrayData>>,
         uns: Option<HashMap<String, PyData>>,
@@ -265,7 +266,7 @@ impl AnnData {
         self.0.get_obs()
     }
     #[setter(obs)]
-    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
+    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()> {
         self.0.set_obs(obs)
     }
 
@@ -279,7 +280,7 @@ impl AnnData {
         self.0.get_var()
     }
     #[setter(var)]
-    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
+    fn set_var(&self, var: Option<&PyAny>) -> Result<()> {
         self.0.set_var(var)
     }
 
@@ -514,8 +515,8 @@ trait AnnDataTrait: Send + Downcast {
     fn get_layers(&self) -> Option<PyAxisArrays>;
 
     fn set_x(&self, data: Option<PyArrayData>) -> Result<()>;
-    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()>;
-    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()>;
+    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()>;
+    fn set_var(&self, var: Option<&PyAny>) -> Result<()>;
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()>;
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
@@ -693,19 +694,35 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         }
         Ok(())
     }
-    fn set_obs(&self, obs: Option<PyDataFrame>) -> Result<()> {
+    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()> {
         let inner = self.adata.inner();
-        if let Some(o) = obs {
-            inner.set_obs(o.into())?;
+        if let Some(x) = obs {
+            let py = x.py();
+            let ob = if isinstance_of_pandas(py, x)? {
+                py.import("polars")?.call_method1("from_pandas", (x, ))
+            } else if x.is_instance_of::<pyo3::types::PyDict>() {
+                py.import("polars")?.call_method1("from_dict", (x, ))
+            } else {
+                Ok(x)
+            }?;
+            inner.set_obs(ob.extract::<PyDataFrame>()?.0)?;
         } else {
             inner.del_obs()?;
         }
         Ok(())
     }
-    fn set_var(&self, var: Option<PyDataFrame>) -> Result<()> {
+    fn set_var(&self, var: Option<&PyAny>) -> Result<()> {
         let inner = self.adata.inner();
-        if let Some(v) = var {
-            inner.set_var(v.into())?;
+        if let Some(x) = var {
+            let py = x.py();
+            let ob = if isinstance_of_pandas(py, x)? {
+                py.import("polars")?.call_method1("from_pandas", (x, ))
+            } else if x.is_instance_of::<pyo3::types::PyDict>() {
+                py.import("polars")?.call_method1("from_dict", (x, ))
+            } else {
+                Ok(x)
+            }?;
+            inner.set_var(ob.extract::<PyDataFrame>()?.0)?;
         } else {
             inner.del_var()?;
         }

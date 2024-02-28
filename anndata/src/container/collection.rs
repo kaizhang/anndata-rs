@@ -716,7 +716,9 @@ impl<B: Backend> StackedAxisArrays<B> {
                 }
             })
             .collect::<HashMap<_, _>>();
-        warn!("Unable to create stacked arrays for these keys: {}", ignore_keys.join(","));
+        if !ignore_keys.is_empty() {
+            warn!("Unable to create stacked arrays for these keys: {}", ignore_keys.join(","));
+        }
         Ok(Self {
             axis: axis,
             data: Arc::new(data),

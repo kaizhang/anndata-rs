@@ -1,6 +1,6 @@
 [package]
 name = "pyanndata"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["Kai Zhang <kai@kzhang.org>"]
@@ -12,17 +12,18 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 keywords = ["data"]
 
 [dependencies]
-anndata = "0.2"
-anndata-hdf5 = "0.1"
+anndata = "0.3"
+anndata-hdf5 = "0.2"
 anyhow = "1.0"
 downcast-rs = "1.2"
 numpy = "0.20.0"
 ndarray = "0.15"
 nalgebra-sparse = "0.9"
 hdf5 = "0.8"
-polars = { version = "0.35", features = ["ndarray"] }
-polars-core = "0.35"
-polars-arrow = "0.35"
+polars = { version = "0.37", features = ["ndarray"] }
+polars-core = "0.37"
+polars-arrow = "0.37"
+pyo3-polars = "0.11.3"
 thiserror = "1.0"
 rand = "0.8"
 flate2 = "1.0"

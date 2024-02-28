@@ -19,6 +19,11 @@ setup(
         "pandas",
         "scipy>=1.4",
         "polars>=0.14",
-        "pyarrow",
     ],
+    extras_require={
+        'test': [
+            'pytest',
+            'hypothesis==6.72.4',
+        ],
+    },
 )

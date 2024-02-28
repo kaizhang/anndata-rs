@@ -26,18 +26,6 @@ pub fn with_tmp_dir<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
     func(path)
 }
 
-pub fn with_tmp_path<T, F: FnMut(PathBuf) -> T>(mut func: F) -> T {
-    with_tmp_dir(|dir| func(dir.join("temp.h5")))
-}
-
-pub fn empty_adata<B>() -> AnnData<B>
-where
-    B: Backend,
-{
-    let file = tempfile::NamedTempFile::new().unwrap();
-    AnnData::new(file.path()).unwrap()
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Strategies
 ////////////////////////////////////////////////////////////////////////////////

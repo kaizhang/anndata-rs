@@ -17,8 +17,7 @@ jobs:
     - name: Install dependency
       run: |
         sudo pip install --upgrade pip
-        pip install --user pytest hypothesis \
-          Pygments==2.6.1 sphinx==4.4.0 pandoc nbsphinx \
+        pip install --user Pygments==2.6.1 sphinx==4.4.0 pandoc nbsphinx \
           sphinx-autodoc-typehints sphinx_rtd_theme \
           markupsafe==2.0.1
 
@@ -26,8 +25,7 @@ jobs:
       run: |
         cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --all --no-fail-fast
         cd ${GITHUB_WORKSPACE}/anndata && cargo test --all --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/python && \
-          pip install --user .
+        cd ${GITHUB_WORKSPACE}/python && pip install --user .[test]
         pytest ${GITHUB_WORKSPACE}/python/tests
 
     - name: Build doc

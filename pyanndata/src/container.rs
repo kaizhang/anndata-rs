@@ -1,8 +1,9 @@
 mod traits;
 
-use crate::data::{PyData, PyArrayData, PySeries};
+use crate::data::{PyData, PyArrayData};
 
 use pyo3::prelude::*;
+use pyo3_polars::PySeries;
 use traits::{ElemTrait, ArrayElemTrait, DataFrameElemTrait, AxisArrayTrait};
 use anyhow::Result;
 

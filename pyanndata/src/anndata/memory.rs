@@ -1,10 +1,11 @@
-use crate::data::{isinstance_of_pyanndata, isinstance_of_polars, PyArrayData, PyData, PyDataFrame};
+use crate::data::{isinstance_of_pyanndata, isinstance_of_polars, PyArrayData, PyData};
 
 use std::ops::Deref;
 use polars::prelude::DataFrame;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
+use pyo3_polars::PyDataFrame;
 use anndata::{self, ArrayOp, ElemCollectionOp, ArrayElemOp};
 use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
 use anndata::data::{DataFrameIndex, SelectInfoElem, ArrayChunk, Shape};
@@ -222,8 +223,8 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {todo!()}
-    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {todo!()}
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, _names: I) -> Result<Vec<usize>> {todo!()}
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, _names: I) -> Result<Vec<usize>> {todo!()}
 
     fn read_obs(&self) -> Result<DataFrame> {
         let py = self.py();
@@ -250,7 +251,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
                 .call_method1("DataFrame", (py.None(), index))?
                 .into_py(py)
         } else {
-            PyDataFrame::from(obs).into_py(py)
+            PyDataFrame(obs).into_py(py)
                 .call_method0(py, "to_pandas")?
                 .call_method1(py, "set_index", (index,))?
         };
@@ -266,7 +267,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
                 .call_method1("DataFrame", (py.None(), index))?
                 .into_py(py)
         } else {
-            PyDataFrame::from(var).into_py(py)
+            PyDataFrame(var).into_py(py)
                 .call_method0(py, "to_pandas")?
                 .call_method1(py, "set_index", (index,))?
         };

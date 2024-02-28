@@ -12,7 +12,7 @@ use indexmap::map::IndexMap;
 use itertools::Itertools;
 use polars::prelude::{DataFrame, NamedFrom, Series};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
-use std::{collections::{HashSet, HashMap}, path::Path};
+use std::{collections::{HashMap, HashSet}, path::{Path, PathBuf}};
 
 pub struct AnnDataSet<B: Backend> {
     annotation: AnnData<B>,
@@ -191,7 +191,10 @@ impl<B: Backend> AnnDataSet<B> {
         })
     }
 
-    pub fn open(file: B::File, adata_files_: Option<HashMap<String, String>>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(
+        file: B::File,
+        adata_files_update: Option<Result<HashMap<String, P>, P>>
+    ) -> Result<Self> {
         let annotation: AnnData<B> = AnnData::open(file)?;
         let file_path = annotation
             .filename()
@@ -199,39 +202,24 @@ impl<B: Backend> AnnDataSet<B> {
             .unwrap_or(annotation.filename())
             .to_path_buf();
 
-        let df: DataFrame = annotation
-            .uns().get_item("AnnDataSet")?
-            .context("key 'AnnDataSet' is not present")?;
-        let keys = df
-            .column("keys")?
-            .utf8()?
+        let adata_files = match adata_files_update {
+            None => update_anndata_locations_by_map(&annotation, HashMap::<String, P>::new())?,
+            Some(Ok(adata_files)) => update_anndata_locations_by_map(&annotation, adata_files)?,
+            Some(Err(dir)) => update_anndata_location_dir(&annotation, dir)?,
+        };
+
+        let anndatas: Vec<(String, AnnData<B>)> = adata_files
             .into_iter()
-            .collect::<Option<Vec<_>>>()
-            .unwrap();
-        let filenames = df
-            .column("file_path")?
-            .utf8()?
-            .into_iter()
-            .collect::<Option<Vec<_>>>()
-            .unwrap();
-        let adata_files = adata_files_.unwrap_or(HashMap::new());
-        let anndatas: Vec<(String, AnnData<B>)> = keys
-            .into_iter()
-            .zip(filenames)
-            .map(|(k, v)| {
-                let path = Path::new(adata_files.get(k).map_or(v, |x| &*x));
+            .map(|(k, path)| {
                 let fl = if path.is_absolute() {
                     B::open(path)
                 } else {
                     B::open(file_path.parent().unwrap_or(Path::new("./")).join(path))
                 }?;
-                Ok((k.to_string(), AnnData::open(fl)?))
+                Ok((k, AnnData::open(fl)?))
             })
             .collect::<Result<_>>()?;
 
-        if !adata_files.is_empty() {
-            update_anndata_locations(&annotation, adata_files)?;
-        }
         Ok(Self {
             annotation,
             anndatas: Slot::new(StackedAnnData::new(anndatas.into_iter())?),
@@ -338,34 +326,79 @@ impl<B: Backend> AnnDataSet<B> {
     }
 }
 
-fn update_anndata_locations<B: Backend>(
+/// Update the locations of AnnData files.
+fn update_anndata_locations_by_map<B: Backend, P: AsRef<Path>>(
     ann: &AnnData<B>,
-    new_locations: HashMap<String, String>,
-) -> Result<()> {
+    new_locations: HashMap<String, P>,
+) -> Result<Vec<(String, PathBuf)>> {
     let df: DataFrame = ann
         .uns().get_item("AnnDataSet")?
         .context("key 'AnnDataSet' is not present")?;
     let keys = df.column("keys").unwrap();
     let filenames = df
         .column("file_path")?
-        .utf8()?
+        .str()?
         .into_iter()
         .collect::<Option<Vec<_>>>()
         .unwrap();
     let new_files: Vec<_> = keys
-        .utf8()?
+        .str()?
         .into_iter()
         .zip(filenames)
         .map(|(k, v)| {
-            new_locations
-                .get(k.unwrap())
-                .map_or(v.to_string(), |x| x.clone())
+            let k = k.unwrap();
+            let name = new_locations
+                .get(k)
+                .map_or(PathBuf::from(v), |x| x.as_ref().to_path_buf());
+            (k.to_string(), name)
         })
         .collect();
-    let data = DataFrame::new(vec![keys.clone(), Series::new("file_path", new_files)]).unwrap();
-    ann.uns().add("AnnDataSet", data)?;
-    Ok(())
+    let data = DataFrame::new(
+        vec![keys.clone(),
+        Series::new("file_path", new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+    ).unwrap();
+    if !new_locations.is_empty() {
+        ann.uns().add("AnnDataSet", data)?;
+    }
+    Ok(new_files)
 }
+
+fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
+    ann: &AnnData<B>,
+    dir: P,
+) -> Result<Vec<(String, PathBuf)>> {
+    let df: DataFrame = ann
+        .uns().get_item("AnnDataSet")?
+        .context("key 'AnnDataSet' is not present")?;
+    let keys = df.column("keys").unwrap();
+    let file_map: HashMap<String, PathBuf> = std::fs::read_dir(dir)?.map(|x| x.map(|entry|
+        (entry.file_name().into_string().unwrap(), entry.path())
+    )).collect::<Result<_, std::io::Error>>()?;
+    let filenames = df
+        .column("file_path")?
+        .str()?
+        .into_iter()
+        .map(Option::unwrap)
+        .collect::<Vec<_>>();
+
+    let new_files: Vec<_> = keys
+        .str()?
+        .into_iter()
+        .zip(filenames)
+        .map(|(k, filename)| {
+            let path = PathBuf::from(filename);
+            let name = path.file_name().unwrap().to_str().unwrap();
+            (k.unwrap().to_string(), file_map.get(name).map_or(path, |x| std::fs::canonicalize(x).unwrap()))
+        })
+        .collect();
+    let data = DataFrame::new(
+        vec![keys.clone(),
+        Series::new("file_path", new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+    ).unwrap();
+    ann.uns().add("AnnDataSet", data)?;
+    Ok(new_files)
+}
+
 
 impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     type X = StackedArrayElem<B>;

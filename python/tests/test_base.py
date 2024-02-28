@@ -54,10 +54,7 @@ def test_basic(x, tmp_path):
     })
     adata.uns['df'] = df
     assert df.frame_equal(adata.uns['df'])
-    df = pl.DataFrame({
-        "a": [],
-        "b": [],
-    })
+    df = pl.DataFrame({"a": [], "b": []}, schema=[("a", pl.Float32), ("b", pl.Float32)])
     adata.uns['df'] = df
     assert df.frame_equal(adata.uns['df'])
 
@@ -135,9 +132,9 @@ def test_type(tmp_path):
     assert adata.uns["dict"] == x
 
 @given(
-    x1 = arrays(np.int64, (15, 179)),
-    x2 = arrays(np.int64, (47, 179)),
-    x3 = arrays(np.int64, (77, 179)),
+    x1 = arrays(np.int64, (7, 13)),
+    x2 = arrays(np.int64, (9, 13)),
+    x3 = arrays(np.int64, (3, 13)),
 )
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_create_anndataset(x1, x2, x3, tmp_path):

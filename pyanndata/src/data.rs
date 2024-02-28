@@ -1,13 +1,11 @@
 mod instance;
 mod slice;
-mod dataframe;
 mod array;
 
-pub use dataframe::{PyDataFrame, PySeries};
 pub(crate) use instance::*;
+use pyo3_polars::PyDataFrame;
 pub use slice::{to_select_info, to_select_elem};
 
-use polars::prelude::DataFrame;
 use std::{collections::HashMap, ops::Deref};
 use pyo3::{prelude::*, types::PyDict};
 use anndata::data::{Data, ArrayData, DynArray, DynCsrMatrix, DynCscMatrix, DynScalar, Mapping, DynCsrNonCanonical};
@@ -55,8 +53,11 @@ impl<'py> FromPyObject<'py> for PyArrayData {
             }
         } else if isinstance_of_csc(py, ob)? {
             Ok(ArrayData::from(DynCscMatrix::from_python(ob)?).into())
-        } else if isinstance_of_pandas(py, ob)? || isinstance_of_polars(py, ob)? {
-            Ok(ArrayData::from(DataFrame::from(PyDataFrame::extract(ob)?)).into())
+        } else if isinstance_of_pandas(py, ob)? {
+            let ob = py.import("polars")?.call_method1("from_pandas", (ob, ))?;
+            Ok(ArrayData::from(ob.extract::<PyDataFrame>()?.0).into())
+        } else if isinstance_of_polars(py, ob)? {
+            Ok(ArrayData::from(ob.extract::<PyDataFrame>()?.0).into())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                 format!("Could not convert Python type {} to Rust data", ob.get_type())
@@ -72,7 +73,7 @@ impl IntoPy<PyObject> for PyArrayData {
             ArrayData::CsrMatrix(csr) => csr.into_python(py).unwrap(),
             ArrayData::CsrNonCanonical(csr) => csr.into_python(py).unwrap(),
             ArrayData::CscMatrix(csc) => csc.into_python(py).unwrap(),
-            ArrayData::DataFrame(df) => PyDataFrame::from(df).into_py(py),
+            ArrayData::DataFrame(df) => PyDataFrame(df).into_py(py),
         }
     }
 }
