@@ -17,6 +17,7 @@ setup(
         "anndata>=0.8",
         "numpy>=1.16",
         "pandas",
+        "pyarrow",
         "scipy>=1.4",
         "polars>=0.14",
     ],

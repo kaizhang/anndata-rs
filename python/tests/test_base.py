@@ -103,6 +103,7 @@ def test_creation(tmp_path):
     adata.uns['df'] = pd.DataFrame([[1, 2, 3], [4, 5, 6]], columns=["a", "b", "c"])
 
     adata.obs = pl.DataFrame({"a": ['1', '2'], "b": [3, 4]})
+    adata.obs['c'] = np.array([1, 2])
     obs_names = list(adata.obs['a'])
     adata.obs_names = obs_names
     adata.obs = pl.DataFrame()

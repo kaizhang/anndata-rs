@@ -153,7 +153,8 @@ impl PyDataFrameElem {
         self.0.get(subscript)
     }
 
-    fn __setitem__(&self, key: &str, data: PySeries) -> Result<()> {
+    fn __setitem__(&self, key: &str, data: &PyAny) -> Result<()> {
+        let data: PySeries = data.py().import("polars")?.call_method1("Series", (data, ))?.extract()?;
         self.0.set(key, data.into())
     }
 
