@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 ndarray = { version = "0.15" }
-anndata = ">= 0.2, < 0.4"
+anndata = { path = '../anndata' }
 num = "0.4"
 tempfile = "3.2"
 criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_support", "html_reports"] }
@@ -16,3 +16,10 @@ ndarray-rand = "0.14"
 nalgebra = { version = "0.32", features = ["rand"] }
 nalgebra-sparse = "0.9"
 itertools = "0.12"
+
+[dev-dependencies]
+anndata-hdf5 = { path = '../anndata-hdf5' }
+tempfile = "3.2"
+proptest = "1"
+rand = "0.8.5"
+ndarray-rand = "0.14"

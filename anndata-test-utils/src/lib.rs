@@ -2,19 +2,24 @@ mod common;
 pub use common::*;
 
 use anndata::{*, data::CsrNonCanonical};
-use ndarray::Array2;
+use ndarray::{Array2, ArrayD};
 use nalgebra_sparse::{CooMatrix, CsrMatrix};
 use proptest::prelude::*;
 
 pub fn test_basic<B: Backend>() {
     with_tmp_dir(|dir| {
         let ann1 = AnnData::<B>::new(dir.join("test1.h5ad")).unwrap();
+        let csc = rand_csc::<i32>(10, 5, 3, 1, 100);
+        ann1.obsm().add("csc", &csc).unwrap();
+        assert!(ann1.obsm().get_item::<CsrMatrix<i32>>("csc").is_err());
+
         let ann2 = AnnData::<B>::new(dir.join("test2.h5ad")).unwrap();
         AnnDataSet::<B>::new(
             [("ann1", ann1), ("ann2", ann2)],
             dir.join("dataset.h5ads"),
             "sample",
         ).unwrap();
+
     })
 }
 

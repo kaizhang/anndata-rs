@@ -571,14 +571,19 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
 
 impl<T: BackendData> ReadData for CsrMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let group = container.as_group()?;
-        let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
-        CsrMatrix::try_from_csr_data(
-            shape[0], shape[1], indptr, indices, data
-        ).map_err(|e| anyhow!("cannot read csr matrix: {}", e))
+        match container.encoding_type()? {
+            DataType::CsrMatrix(_) => {
+                let group = container.as_group()?;
+                let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+                let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
+                let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
+                let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
+                CsrMatrix::try_from_csr_data(
+                    shape[0], shape[1], indptr, indices, data
+                ).map_err(|e| anyhow!("cannot read csr matrix: {}", e))
+            },
+            ty => bail!("cannot read csr matrix from container with data type {:?}", ty),
+        }
     }
 }
 

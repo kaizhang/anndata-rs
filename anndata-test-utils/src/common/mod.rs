@@ -274,7 +274,7 @@ fn dense_array_strat(shape: &Vec<usize>) -> impl Strategy<Value = ArrayData> {
 }
 
 /// Generate a random compressed sparse row matrix
-fn rand_csr<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CsrMatrix<T>
+pub fn rand_csr<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CsrMatrix<T>
 where
     T: Scalar + Zero + ClosedAdd + SampleUniform,
 {
@@ -289,7 +289,7 @@ where
 }
 
 /// Generate a random compressed sparse column matrix
-fn rand_csc<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CscMatrix<T>
+pub fn rand_csc<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CscMatrix<T>
 where
     T: Scalar + Zero + ClosedAdd + SampleUniform,
 {

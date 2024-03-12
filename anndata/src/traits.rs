@@ -124,10 +124,13 @@ pub trait ElemCollectionOp {
 pub trait AxisArraysOp {
     type ArrayElem: ArrayElemOp;
 
+    /// Return the keys.
     fn keys(&self) -> Vec<String>;
 
+    /// Return the ArrayElem object by key, but do not read the data.
     fn get(&self, key: &str) -> Option<Self::ArrayElem>;
 
+    /// Return the array data by key.
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
     where
         D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
@@ -137,6 +140,7 @@ pub trait AxisArraysOp {
             .map_err(|e| e.context(format!("key: {}", key)))
     }
 
+    /// Return a slice of the array data by key.
     fn get_item_slice<D, S>(&self, key: &str, slice: S) -> Result<Option<D>>
     where
         D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,

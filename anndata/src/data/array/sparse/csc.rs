@@ -567,14 +567,19 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
 
 impl<T: BackendData> ReadData for CscMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let group = container.as_group()?;
-        let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
-        CscMatrix::try_from_csc_data(
-            shape[0], shape[1], indptr, indices, data
-        ).map_err(|e| anyhow::anyhow!("{}", e))
+        match container.encoding_type()? {
+            DataType::CscMatrix(_) => {
+                let group = container.as_group()?;
+                let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+                let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
+                let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
+                let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
+                CscMatrix::try_from_csc_data(
+                    shape[0], shape[1], indptr, indices, data
+                ).map_err(|e| anyhow::anyhow!("{}", e))
+            },
+            ty => bail!("cannot read csc matrix from container with data type {:?}", ty),
+        }
     }
 }
 
