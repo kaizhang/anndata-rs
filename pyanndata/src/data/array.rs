@@ -1,8 +1,8 @@
-use crate::data::{FromPython, IntoPython};
+use crate::data::{isinstance_of_csc, isinstance_of_csr, FromPython, IntoPython};
 
 use ndarray::ArrayD;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyTypeError, prelude::*};
 use anndata::data::{DynArray, DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 use numpy::{PyReadonlyArrayDyn, IntoPyArray};
 
@@ -106,6 +106,10 @@ impl FromPython<'_> for DynCsrMatrix {
             Ok(res)
         }
 
+        if !isinstance_of_csr(ob.py(), ob)? {
+            return Err(PyTypeError::new_err("not a csr matrix"))
+        }
+
         let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
         let indices = extract_csr_indicies(ob.getattr("indices")?)?;
         let indptr = extract_csr_indicies(ob.getattr("indptr")?)?;
@@ -151,6 +155,10 @@ impl FromPython<'_> for DynCsrNonCanonical {
             Ok(res)
         }
 
+        if !isinstance_of_csr(ob.py(), ob)? {
+            return Err(PyTypeError::new_err("not a csr matrix"))
+        }
+
         let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
         let indices = extract_csr_indicies(ob.getattr("indices")?)?;
         let indptr = extract_csr_indicies(ob.getattr("indptr")?)?;
@@ -194,6 +202,10 @@ impl FromPython<'_> for DynCscMatrix {
                 other => panic!("CSC indicies type '{}' is not supported", other),
             };
             Ok(res)
+        }
+
+        if !isinstance_of_csc(ob.py(), ob)? {
+            return Err(PyTypeError::new_err("not a csc matrix"))
         }
 
         let shape: Vec<usize> = ob.getattr("shape")?.extract()?;

@@ -2,9 +2,9 @@ use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollect
 use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::anndata::PyAnnData;
 
-use anndata;
+use anndata::{self, ArrayElemOp, ArrayOp, AxisArraysOp, Data, ElemCollectionOp};
 use anndata::container::Slot;
-use anndata::data::{DataFrameIndex, SelectInfoElem};
+use anndata::data::{DataFrameIndex, SelectInfoElem, BoundedSelectInfoElem};
 use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
 use anyhow::{bail, Result};
@@ -352,31 +352,37 @@ impl AnnData {
     /// var_indices
     ///     var indices
     /// out: Path | None
-    ///     File name of the output `.h5ad` file. If provided, the result will be
-    ///     saved to a new file and the original AnnData object remains unchanged.
+    ///     File name of the output `.h5ad` file. When `inplace=False`,
+    ///     the result is written to this file. If `None`, an in-memory AnnData
+    ///     is returned. This parameter is ignored when `inplace=True`.
+    /// inplace: bool
+    ///     Whether to modify the AnnData object in place or return a new AnnData object.
     /// backend: str | None
+    ///     The backend to use. Currently "hdf5" is the only supported backend.
     ///
     /// Returns
     /// -------
     /// Optional[AnnData]
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
-        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)",
+        signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=None),
+        text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend=None)",
     )]
     pub fn subset(
         &self,
+        py: Python<'_>,
         obs_indices: Option<&PyAny>,
         var_indices: Option<&PyAny>,
         out: Option<PathBuf>,
+        inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<AnnData>> {
+    ) -> Result<Option<PyObject>> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         let j = var_indices
             .map(|x| self.select_var(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
-        self.0.subset(&[i, j], out, backend)
+        self.0.subset(py, &[i, j], out, inplace, backend)
     }
 
     /// Return an iterator over the rows of the data matrix X.
@@ -526,10 +532,12 @@ trait AnnDataTrait: Send + Downcast {
 
     fn subset(
         &self,
+        py: Python<'_>,
         slice: &[SelectInfoElem],
-        out: Option<PathBuf>,
+        file: Option<PathBuf>,
+        inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<AnnData>>;
+    ) -> Result<Option<PyObject>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
@@ -785,21 +793,121 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
 
     fn subset(
         &self,
+        py: Python<'_>,
         slice: &[SelectInfoElem],
-        out: Option<PathBuf>,
+        file: Option<PathBuf>,
+        inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<AnnData>> {
-        if let Some(out) = out {
+    ) -> Result<Option<PyObject>> {
+        let inner = self.adata.inner();
+        if inplace {
+            inner.subset(slice)?;
+            Ok(None)
+        } else if let Some(file) = file {
             match backend.unwrap_or(H5::NAME) {
                 H5::NAME => {
-                    self.adata.inner().write_select::<H5, _, _>(slice, &out)?;
-                    Ok(Some(AnnData::new_from(out, "r+", backend)?))
+                    inner.write_select::<H5, _, _>(slice, &file)?;
+                    Ok(Some(AnnData::new_from(file, "r+", backend)?.into_py(py)))
                 }
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
-            self.adata.inner().subset(slice)?;
-            Ok(None)
+            let adata = PyAnnData::new(py)?;
+            let obs_slice = BoundedSelectInfoElem::new(&slice[0], inner.n_obs());
+            let var_slice = BoundedSelectInfoElem::new(&slice[1], inner.n_vars());
+            let n_obs = obs_slice.len();
+            let n_vars = var_slice.len();
+            adata.set_n_obs(n_obs)?;
+            adata.set_n_vars(n_vars)?;
+
+            {
+                if let Some(x) = inner.x().slice::<ArrayData, _>(slice)? {
+                    adata.set_x(x)?;
+                }
+            }
+            {
+                // Set obs and var
+                let obs_idx = inner.obs_names();
+                if !obs_idx.is_empty() {
+                    adata.set_obs_names(obs_idx.select(&slice[0]))?;
+                    adata.set_obs(inner.read_obs()?.select_axis(0, &slice[0]))?;
+                }
+                let var_idx = inner.var_names();
+                if !var_idx.is_empty() {
+                    adata.set_var_names(var_idx.select(&slice[1]))?;
+                    adata.set_var(inner.read_var()?.select_axis(0, &slice[1]))?;
+                }
+            }
+            {
+                // Set uns
+                inner.uns()
+                    .keys()
+                    .into_iter()
+                    .try_for_each(|k| adata.uns().add(&k, inner.uns().get_item::<Data>(&k)?.unwrap()))?;
+            }
+            {
+                // Set obsm
+                inner.obsm().keys().into_iter().try_for_each(|k| {
+                    adata.obsm().add(
+                        &k,
+                        inner.obsm()
+                            .get(&k)
+                            .unwrap()
+                            .slice_axis::<ArrayData, _>(0, &slice[0])?
+                            .unwrap(),
+                    )
+                })?;
+            }
+            {
+                // Set obsp
+                inner.obsp().keys().into_iter().try_for_each(|k| {
+                    let elem = inner.obsp().get(&k).unwrap();
+                    let n = elem.shape().unwrap().ndim();
+                    let mut select = vec![SelectInfoElem::full(); n];
+                    select[0] = slice[0].clone();
+                    select[1] = slice[0].clone();
+                    let data = elem.slice::<ArrayData, _>(select)?.unwrap();
+                    adata.obsp().add(&k, data)
+                })?;
+            }
+            {
+                // Set varm
+                inner.varm().keys().into_iter().try_for_each(|k| {
+                    adata.varm().add(
+                        &k,
+                        inner.varm()
+                            .get(&k)
+                            .unwrap()
+                            .slice_axis::<ArrayData, _>(0, &slice[1])?
+                            .unwrap(),
+                    )
+                })?;
+            }
+            {
+                // Set varp
+                inner.varp().keys().into_iter().try_for_each(|k| {
+                    let elem = inner.varp().get(&k).unwrap();
+                    let n = elem.shape().unwrap().ndim();
+                    let mut select = vec![SelectInfoElem::full(); n];
+                    select[0] = slice[1].clone();
+                    select[1] = slice[1].clone();
+                    let data = elem.slice::<ArrayData, _>(select)?.unwrap();
+                    adata.varp().add(&k, data)
+                })?;
+            }
+            {
+                // Set layers
+                inner.layers().keys().into_iter().try_for_each(|k| {
+                    let elem = inner.layers().get(&k).unwrap();
+                    let n = elem.shape().unwrap().ndim();
+                    let mut select = vec![SelectInfoElem::full(); n];
+                    select[0] = slice[0].clone();
+                    select[1] = slice[1].clone();
+                    let data = elem.slice::<ArrayData, _>(select)?.unwrap();
+                    adata.layers().add(&k, data)
+                })?;
+            }
+            Ok(Some(adata.to_object(py)))
         }
     }
 

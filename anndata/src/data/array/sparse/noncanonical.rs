@@ -64,7 +64,7 @@ macro_rules! impl_into_dyn_csr {
             fn try_from(data: DynCsrNonCanonical) -> Result<Self> {
                 match data {
                     DynCsrNonCanonical::$to_type(data) => Ok(data),
-                    _ => bail!("Cannot convert to CsrNonCanonical<$from_type>"),
+                    _ => bail!("Cannot convert {:?} to {} CsrNonCanonical", data.data_type(), stringify!($from_type)),
                 }
             }
         }

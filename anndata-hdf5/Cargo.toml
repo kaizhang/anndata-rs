@@ -11,11 +11,15 @@ repository = "https://github.com/kaizhang/anndata-rs"
 homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
-#anndata = "0.3"
-anndata = { path = '../anndata' }
+anndata = "0.3"
 anyhow = "1.0"
 hdf5 = { version = "0.8" }
 hdf5-sys = { version = "0.8", features = ["static", "zlib", "threadsafe"] }
 #libz-sys = { version = "1", features = ["zlib-ng"], default-features = false }
 libz-sys = { version = "1", features = ["libc"], default-features = false }
 ndarray = { version = "0.15" }
+
+[dev-dependencies]
+tempfile = "3.2"
+rand = "0.8.5"
+ndarray-rand = "0.14"

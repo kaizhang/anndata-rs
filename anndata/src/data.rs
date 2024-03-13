@@ -97,7 +97,7 @@ macro_rules! impl_try_from_for_scalar {
                 fn try_from(data: Data) -> Result<Self> {
                     match data {
                         Data::Scalar(DynScalar::$from(data)) => Ok(data),
-                        _ => bail!("Cannot convert data to $to"),
+                        _ => bail!("Cannot convert data to {}", stringify!($to)),
                     }
                 }
             }
@@ -107,7 +107,7 @@ macro_rules! impl_try_from_for_scalar {
                 fn try_from(v: Data) -> Result<Self> {
                     match v {
                         Data::ArrayData(data) => data.try_into(),
-                        _ => bail!("Cannot convert data to $to Array"),
+                        _ => bail!("Cannot convert data to {} Array", stringify!($to)),
                     }
                 }
             }

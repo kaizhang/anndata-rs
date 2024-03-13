@@ -70,7 +70,7 @@ impl TryFrom<ArrayData> for DynArray {
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         match value {
             ArrayData::Array(data) => Ok(data),
-            _ => bail!("Cannot convert {:?} to DynArray", value),
+            _ => bail!("Cannot convert {:?} to DynArray", value.data_type()),
         }
     }
 }
@@ -80,7 +80,7 @@ impl TryFrom<ArrayData> for DynCsrMatrix {
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         match value {
             ArrayData::CsrMatrix(data) => Ok(data),
-            _ => bail!("Cannot convert {:?} to DynCsrMatrix", value),
+            _ => bail!("Cannot convert {:?} to DynCsrMatrix", value.data_type()),
         }
     }
 }
@@ -91,7 +91,7 @@ impl TryFrom<ArrayData> for DynCsrNonCanonical {
         match value {
             ArrayData::CsrNonCanonical(data) => Ok(data),
             ArrayData::CsrMatrix(data) => Ok(data.into()),
-            _ => bail!("Cannot convert {:?} to DynCsrNonCanonical", value),
+            _ => bail!("Cannot convert {:?} to DynCsrNonCanonical", value.data_type()),
         }
     }
 }
@@ -101,7 +101,7 @@ impl TryFrom<ArrayData> for DynCscMatrix {
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         match value {
             ArrayData::CscMatrix(data) => Ok(data),
-            _ => bail!("Cannot convert {:?} to DynCscMatrix", value),
+            _ => bail!("Cannot convert {:?} to DynCscMatrix", value.data_type()),
         }
     }
 }
@@ -111,7 +111,7 @@ impl TryFrom<ArrayData> for DataFrame {
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         match value {
             ArrayData::DataFrame(data) => Ok(data),
-            _ => bail!("Cannot convert {:?} to DataFrame", value),
+            _ => bail!("Cannot convert {:?} to DataFrame", value.data_type()),
         }
     }
 }
@@ -145,7 +145,7 @@ macro_rules! impl_into_array_data {
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
                         ArrayData::Array(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to $ty Array", value),
+                        _ => bail!("Cannot convert {:?} to {} Array", value.data_type(), stringify!($ty)),
                     }
                 }
             }
@@ -154,7 +154,7 @@ macro_rules! impl_into_array_data {
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
                         ArrayData::CsrMatrix(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to $ty CsrMatrix", value),
+                        _ => bail!("Cannot convert {:?} to {} CsrMatrix", value.data_type(), stringify!($ty)),
                     }
                 }
             }
@@ -164,7 +164,7 @@ macro_rules! impl_into_array_data {
                     match value {
                         ArrayData::CsrNonCanonical(data) => data.try_into(),
                         ArrayData::CsrMatrix(data) => DynCsrNonCanonical::from(data).try_into(),
-                        _ => bail!("Cannot convert {:?} to $ty CsrNonCanonical", value),
+                        _ => bail!("Cannot convert {:?} to {} CsrNonCanonical", value.data_type(), stringify!($ty)),
                     }
                 }
             }
@@ -173,7 +173,7 @@ macro_rules! impl_into_array_data {
                 fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
                     match value {
                         ArrayData::CscMatrix(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to $ty CsrMatrix", value),
+                        _ => bail!("Cannot convert {:?} to {} CsrMatrix", value.data_type(), stringify!($ty)),
                     }
                 }
             }

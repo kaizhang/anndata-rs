@@ -40,29 +40,32 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     adata.varp = dict(x=varp, y=csr_matrix(varp))
     adata.layers["raw"] = x
 
-    adata_subset = adata.subset(indices, indices2, out = h5ad(tmp_path))
-    np.testing.assert_array_equal(adata_subset.X[:], x[np.ix_(indices, indices2)])
-    np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
-    np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
-    np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
-    np.testing.assert_array_equal(adata_subset.obsp["x"], obsp[np.ix_(indices, indices)])
-    np.testing.assert_array_equal(adata_subset.obsp["y"].todense(), obsp[np.ix_(indices, indices)])
-    np.testing.assert_array_equal(adata_subset.varm["x"], varm[indices2, :])
-    np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[indices2, :])
-    np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
-    np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
-    np.testing.assert_array_equal(adata_subset.layers["raw"], x[np.ix_(indices, indices2)])
+    for adata_subset in [ adata.subset(indices, indices2, out=h5ad(tmp_path), inplace=False),
+                         adata.subset(indices, indices2, inplace=False)]:
+        np.testing.assert_array_equal(adata_subset.X[:], x[np.ix_(indices, indices2)])
+        np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
+        np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
+        np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
+        np.testing.assert_array_equal(adata_subset.obsp["x"], obsp[np.ix_(indices, indices)])
+        np.testing.assert_array_equal(adata_subset.obsp["y"].todense(), obsp[np.ix_(indices, indices)])
+        np.testing.assert_array_equal(adata_subset.varm["x"], varm[indices2, :])
+        np.testing.assert_array_equal(adata_subset.varm["y"].todense(), varm[indices2, :])
+        np.testing.assert_array_equal(adata_subset.varp["x"], varp[np.ix_(indices2, indices2)])
+        np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
+        np.testing.assert_array_equal(adata_subset.layers["raw"], x[np.ix_(indices, indices2)])
 
-    adata_subset = adata.subset([str(x) for x in indices], out = h5ad(tmp_path))
-    np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
-    np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
-    np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
-    np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
-    np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
+    for adata_subset in [ adata.subset([str(x) for x in indices], out=h5ad(tmp_path), inplace=False),
+                         adata.subset([str(x) for x in indices], inplace=False) ]:
+        np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
+        np.testing.assert_array_equal(adata_subset.obs["txt"], np.array(list(obs[i] for i in indices)))
+        np.testing.assert_array_equal(adata_subset.obsm["x"], obsm[indices, :])
+        np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
+        np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
-    adata_subset = adata.subset(pl.Series([str(x) for x in indices]), out = h5ad(tmp_path))
-    np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
-    np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
+    for adata_subset in [ adata.subset(pl.Series([str(x) for x in indices]), out=h5ad(tmp_path), inplace=False),
+                         adata.subset(pl.Series([str(x) for x in indices]), inplace=False) ]:
+        np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
+        np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
     adata.subset(indices)
     np.testing.assert_array_equal(adata.X[:], x[indices, :])

@@ -44,7 +44,7 @@ macro_rules! impl_into_dyn_csc {
             fn try_from(data: DynCscMatrix) -> Result<Self> {
                 match data {
                     DynCscMatrix::$to_type(data) => Ok(data),
-                    _ => bail!("Cannot convert to CscMatrix<$from_type>"),
+                    _ => bail!("Cannot convert {:?} to {} CscMatrix", data.data_type(), stringify!($from_type)),
                 }
             }
         }
@@ -567,18 +567,18 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
 
 impl<T: BackendData> ReadData for CscMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        match container.encoding_type()? {
-            DataType::CscMatrix(_) => {
-                let group = container.as_group()?;
-                let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-                let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
-                let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
-                let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
-                CscMatrix::try_from_csc_data(
-                    shape[0], shape[1], indptr, indices, data
-                ).map_err(|e| anyhow::anyhow!("{}", e))
-            },
-            ty => bail!("cannot read csc matrix from container with data type {:?}", ty),
+        let data_type = container.encoding_type()?;
+        if let DataType::CscMatrix(_) = data_type {
+            let group = container.as_group()?;
+            let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+            let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
+            let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
+            let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
+            CscMatrix::try_from_csc_data(
+                shape[0], shape[1], indptr, indices, data
+            ).map_err(|e| anyhow::anyhow!("{}", e))
+        } else {
+            bail!("cannot read csc matrix from container with data type {:?}", data_type)
         }
     }
 }
@@ -598,41 +598,46 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
         B: Backend,
         S: AsRef<SelectInfoElem>,
     {
-        if info.as_ref().len() != 2 {
-            panic!("index must have length 2");
-        }
+        let data_type = container.encoding_type()?;
+        if let DataType::CscMatrix(_) = data_type {
+            if info.as_ref().len() != 2 {
+                panic!("index must have length 2");
+            }
 
-        if info.iter().all(|s| s.as_ref().is_full()) {
-            return Self::read(container);
-        }
+            if info.iter().all(|s| s.as_ref().is_full()) {
+                return Self::read(container);
+            }
 
-        let data = if let SelectInfoElem::Slice(s) = info[1].as_ref()  {
-            let group = container.as_group()?;
-            let indptr_slice = if let Some(end) = s.end {
-                SelectInfoElem::from(s.start .. end + 1)
+            let data = if let SelectInfoElem::Slice(s) = info[1].as_ref()  {
+                let group = container.as_group()?;
+                let indptr_slice = if let Some(end) = s.end {
+                    SelectInfoElem::from(s.start .. end + 1)
+                } else {
+                    SelectInfoElem::from(s.start ..)
+                };
+                let mut indptr: Vec<usize> = group 
+                    .open_dataset("indptr")?
+                    .read_array_slice(&[indptr_slice])?
+                    .to_vec();
+                let lo = indptr[0];
+                let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
+                let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
+                let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
+                indptr.iter_mut().for_each(|x| *x -= lo);
+                CscMatrix::try_from_csc_data(
+                    Self::get_shape(container)?[0],
+                    indptr.len() - 1,
+                    indptr,
+                    indices,
+                    data,
+                ).unwrap().select_axis(0, info[0].as_ref()) // selct axis 1, then select axis 0 elements
             } else {
-                SelectInfoElem::from(s.start ..)
+                Self::read(container)?.select(info)
             };
-            let mut indptr: Vec<usize> = group 
-                .open_dataset("indptr")?
-                .read_array_slice(&[indptr_slice])?
-                .to_vec();
-            let lo = indptr[0];
-            let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
-            let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
-            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
-            indptr.iter_mut().for_each(|x| *x -= lo);
-            CscMatrix::try_from_csc_data(
-                Self::get_shape(container)?[0],
-                indptr.len() - 1,
-                indptr,
-                indices,
-                data,
-            ).unwrap().select_axis(0, info[0].as_ref()) // selct axis 1, then select axis 0 elements
+            Ok(data)
         } else {
-            Self::read(container)?.select(info)
-        };
-        Ok(data)
+            bail!("cannot read csc matrix from container with data type {:?}", data_type)
+        }
     }
 }
 

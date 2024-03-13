@@ -2,7 +2,7 @@ use pyo3::{prelude::*, types::PyType, PyResult, Python};
 
 pub fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     obj.is_instance(
-        py.import("scipy.sparse.csr")?
+        py.import("scipy.sparse")?
             .getattr("csr_matrix")?
             .downcast::<PyType>()
             .unwrap(),
@@ -11,7 +11,7 @@ pub fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool
 
 pub fn isinstance_of_csc<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
     obj.is_instance(
-        py.import("scipy.sparse.csc")?
+        py.import("scipy.sparse")?
             .getattr("csc_matrix")?
             .downcast::<PyType>()
             .unwrap(),

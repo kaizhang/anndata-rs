@@ -43,7 +43,7 @@ impl TryFrom<DynArray> for CategoricalArray {
     fn try_from(v: DynArray) -> Result<Self> {
         match v {
             DynArray::Categorical(cat) => Ok(cat),
-            _ => bail!("Cannot convert {:?} to CategoricalArray", v),
+            _ => bail!("Cannot convert {:?} to CategoricalArray", v.data_type()),
         }
     }
 }
@@ -67,7 +67,7 @@ macro_rules! impl_dyn_array_convert {
                         }
                         Ok(arr.into_dimensionality::<D>()?)
                     },
-                    _ => bail!("Cannot convert {:?} to ArrayD<$from_type>", v),
+                    _ => bail!("Cannot convert {:?} to {} ArrayD", v.data_type(), stringify!($from_type)),
                 }
             }
         }
