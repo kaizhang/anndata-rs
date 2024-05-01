@@ -11,7 +11,7 @@ use pyo3::{prelude::*, types::PyDict};
 use anndata::data::{Data, ArrayData, DynArray, DynCsrMatrix, DynCscMatrix, DynScalar, Mapping, DynCsrNonCanonical};
 
 pub(crate) trait FromPython<'source>: Sized {
-    fn from_python(ob: &'source PyAny) -> PyResult<Self>;
+    fn from_python(ob: &Bound<'source, PyAny>) -> PyResult<Self>;
 }
 
 pub(crate) trait IntoPython {
@@ -41,22 +41,21 @@ impl Into<ArrayData> for PyArrayData {
 }
 
 impl<'py> FromPyObject<'py> for PyArrayData {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
-        let py = ob.py();
-        if isinstance_of_arr(py, ob)? {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if isinstance_of_arr(ob)? {
             Ok(ArrayData::from(DynArray::from_python(ob)?).into())
-        } else if isinstance_of_csr(py, ob)? {
+        } else if isinstance_of_csr(ob)? {
             if ob.getattr("has_canonical_format")?.extract()? {
                 Ok(ArrayData::from(DynCsrMatrix::from_python(ob)?).into())
             } else {
                 Ok(ArrayData::from(DynCsrNonCanonical::from_python(ob)?).into())
             }
-        } else if isinstance_of_csc(py, ob)? {
+        } else if isinstance_of_csc(ob)? {
             Ok(ArrayData::from(DynCscMatrix::from_python(ob)?).into())
-        } else if isinstance_of_pandas(py, ob)? {
-            let ob = py.import("polars")?.call_method1("from_pandas", (ob, ))?;
+        } else if isinstance_of_pandas(ob)? {
+            let ob = ob.py().import_bound("polars")?.call_method1("from_pandas", (ob, ))?;
             Ok(ArrayData::from(ob.extract::<PyDataFrame>()?.0).into())
-        } else if isinstance_of_polars(py, ob)? {
+        } else if isinstance_of_polars(ob)? {
             Ok(ArrayData::from(ob.extract::<PyDataFrame>()?.0).into())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
@@ -93,7 +92,7 @@ impl Into<Data> for PyData {
 }
 
 impl<'py> FromPyObject<'py> for PyData {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let data = if let Ok(s) = DynScalar::from_python(ob) {
             PyData(Data::Scalar(s))
         } else if ob.is_instance_of::<pyo3::types::PyDict>() {
@@ -118,7 +117,7 @@ impl IntoPy<PyObject> for PyData {
 }
 
 impl FromPython<'_> for DynScalar {
-    fn from_python(ob: &PyAny) -> PyResult<Self> {
+    fn from_python(ob: &Bound<'_, PyAny>) -> PyResult<Self> {
         if ob.is_instance_of::<pyo3::types::PyBool>() {
             ob.extract::<bool>().map(Into::into)
         } else if ob.is_instance_of::<pyo3::types::PyInt>() {
@@ -136,7 +135,7 @@ impl FromPython<'_> for DynScalar {
 }
 
 impl FromPython<'_> for Mapping {
-    fn from_python(ob: &PyAny) -> PyResult<Self> {
+    fn from_python(ob: &Bound<'_, PyAny>) -> PyResult<Self> {
         let data: HashMap<String, PyData> = ob.extract()?;
         let mapping = data.into_iter()
             .map(|(k, v)| (k, v.0))
@@ -167,7 +166,7 @@ impl IntoPython for DynScalar {
 
 impl IntoPython for Mapping {
     fn into_python(self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         let data: HashMap<String, Data> = self.into();
         data.into_iter().try_for_each(|(k, v)| {
             dict.set_item(k, PyData(v).into_py(py))

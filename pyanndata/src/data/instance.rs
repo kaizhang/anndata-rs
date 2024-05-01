@@ -1,67 +1,68 @@
-use pyo3::{prelude::*, types::PyType, PyResult, Python};
+use pyo3::{prelude::*, types::PyType, PyResult};
 
-pub fn isinstance_of_csr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_csr<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("scipy.sparse")?
+        obj.py().import_bound("scipy.sparse")?
             .getattr("csr_matrix")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn isinstance_of_csc<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_csc<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("scipy.sparse")?
+        obj.py().import_bound("scipy.sparse")?
             .getattr("csc_matrix")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn isinstance_of_arr<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_arr<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("numpy")?
+        obj.py().import_bound("numpy")?
             .getattr("ndarray")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn isinstance_of_pyanndata<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_pyanndata<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("anndata")?
+        obj.py().import_bound("anndata")?
             .getattr("AnnData")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn isinstance_of_pandas<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_pandas<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("pandas")?
+        obj.py().import_bound("pandas")?
             .getattr("DataFrame")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn isinstance_of_polars<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn isinstance_of_polars<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
     obj.is_instance(
-        py.import("polars")?
+        obj.py().import_bound("polars")?
             .getattr("DataFrame")?
             .downcast::<PyType>()
             .unwrap(),
     )
 }
 
-pub fn is_none_slice<'py>(py: Python<'py>, obj: &'py PyAny) -> PyResult<bool> {
+pub fn is_none_slice<'py>(obj: &Bound<'py, PyAny>) -> PyResult<bool> {
+    let py = obj.py();
     Ok(
         obj.is_none() ||
-        obj.is_ellipsis() ||
-        (is_slice(obj) && obj.eq(py.eval("slice(None, None, None)", None, None)?)?)
+        obj.is(&py.Ellipsis()) ||
+        (is_slice(obj) && obj.eq(py.eval_bound("slice(None, None, None)", None, None)?)?)
     )
 }
 
-fn is_slice<'py>(obj: &'py PyAny) -> bool {
+fn is_slice<'py>(obj: &Bound<'py, PyAny>) -> bool {
     obj.is_instance_of::<pyo3::types::PySlice>()
 }

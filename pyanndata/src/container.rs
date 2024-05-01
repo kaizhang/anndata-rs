@@ -34,8 +34,8 @@ impl PyElem {
         self.0.is_scalar()
     }
 
-    fn __getitem__<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyData> {
-        self.0.get(py, subscript)
+    fn __getitem__<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<PyData> {
+        self.0.get(subscript)
     }
 
     fn __repr__(&self) -> String {
@@ -81,7 +81,7 @@ impl PyArrayElem {
         self.0.shape()
     }
 
-    fn __getitem__(&self, subscript: &PyAny) -> Result<PyArrayData> {
+    fn __getitem__(&self, subscript: &Bound<'_, PyAny>) -> Result<PyArrayData> {
         self.0.get(subscript)
     }
 
@@ -149,12 +149,12 @@ impl<T: DataFrameElemTrait + 'static> From<T> for PyDataFrameElem {
 
 #[pymethods]
 impl PyDataFrameElem {
-    fn __getitem__(&self, subscript: &PyAny) -> Result<PyObject> {
+    fn __getitem__(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
         self.0.get(subscript)
     }
 
-    fn __setitem__(&self, key: &str, data: &PyAny) -> Result<()> {
-        let data: PySeries = data.py().import("polars")?.call_method1("Series", (data, ))?.extract()?;
+    fn __setitem__(&self, key: &str, data: &Bound<'_, PyAny>) -> Result<()> {
+        let data: PySeries = data.py().import_bound("polars")?.call_method1("Series", (data, ))?.extract()?;
         self.0.set(key, data.into())
     }
 

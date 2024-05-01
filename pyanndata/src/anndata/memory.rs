@@ -11,31 +11,29 @@ use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData,
 use anndata::data::{DataFrameIndex, SelectInfoElem, ArrayChunk, Shape};
 use anyhow::{Result, bail};
 
-pub struct PyAnnData<'py>(&'py PyAny);
+pub struct PyAnnData<'py>(Bound<'py, PyAny>);
 
 impl<'py> Deref for PyAnnData<'py> {
-    type Target = PyAny;
+    type Target = Bound<'py, PyAny>;
 
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
 
 impl<'py> FromPyObject<'py> for PyAnnData<'py> {
-    fn extract(obj: &'py PyAny) -> PyResult<Self> {
-        Python::with_gil(|py| {
-            if isinstance_of_pyanndata(py, obj)? {
-                Ok(PyAnnData(obj))
-            } else {
-                Err(PyTypeError::new_err("Not a Python AnnData object"))
-            }
-        })
+    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if isinstance_of_pyanndata(obj)? {
+            Ok(PyAnnData(obj.clone()))
+        } else {
+            Err(PyTypeError::new_err("Not a Python AnnData object"))
+        }
     }
 }
 
 impl ToPyObject for PyAnnData<'_> {
     fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.into_py(py)
+        self.0.as_ref().into_py(py)
     }
 }
 
@@ -48,7 +46,7 @@ impl IntoPy<PyObject> for PyAnnData<'_> {
 
 impl<'py> PyAnnData<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        PyModule::import(py, "anndata")?
+        PyModule::import_bound(py, "anndata")?
             .call_method0("AnnData")?
             .extract()
     }
@@ -195,12 +193,12 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        if self.getattr("obs")?.getattr("empty")?.is_true()? {
+        if self.getattr("obs")?.getattr("empty")?.downcast().unwrap().is_true() {
             let py = self.py();
-            let df = py.import("pandas")?.call_method(
+            let df = py.import_bound("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.into_vec())].into_py_dict(py)),
+                Some(&[("index", index.into_vec())].into_py_dict_bound(py)),
             )?;
             self.setattr("obs", df)?;
         } else {
@@ -209,12 +207,12 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
-        if self.getattr("var")?.getattr("empty")?.is_true()? {
+        if self.getattr("var")?.getattr("empty")?.downcast().unwrap().is_true() {
             let py = self.py();
-            let df = py.import("pandas")?.call_method(
+            let df = py.import_bound("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.into_vec())].into_py_dict(py)),
+                Some(&[("index", index.into_vec())].into_py_dict_bound(py)),
             )?;
             self.setattr("var", df)?;
         } else {
@@ -227,17 +225,15 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, _names: I) -> Result<Vec<usize>> {todo!()}
 
     fn read_obs(&self) -> Result<DataFrame> {
-        let py = self.py();
-        let df: PyDataFrame = py
-            .import("polars")?
+        let df: PyDataFrame = self.py()
+            .import_bound("polars")?
             .call_method1("from_pandas", (self.0.getattr("obs")?,))?
             .extract()?;
         Ok(df.into())
     }
     fn read_var(&self) -> Result<DataFrame> {
-        let py = self.py();
-        let df: PyDataFrame = py
-            .import("polars")?
+        let df: PyDataFrame = self.py()
+            .import_bound("polars")?
             .call_method1("from_pandas", (self.0.getattr("var")?,))?
             .extract()?;
         Ok(df.into())
@@ -247,7 +243,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         let py = self.py();
         let index = self.getattr("obs")?.getattr("index")?;
         let df = if obs.is_empty() {
-            py.import("pandas")?
+            py.import_bound("pandas")?
                 .call_method1("DataFrame", (py.None(), index))?
                 .into_py(py)
         } else {
@@ -263,7 +259,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         let py = self.py();
         let index = self.getattr("var")?.getattr("index")?;
         let df = if var.is_empty() {
-            py.import("pandas")?
+            py.import_bound("pandas")?
                 .call_method1("DataFrame", (py.None(), index))?
                 .into_py(py)
         } else {
@@ -326,7 +322,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn del_uns(&self) -> Result<()> {
-        self.0.setattr("uns", pyo3::types::PyDict::new(self.py()))?;
+        self.0.setattr("uns", pyo3::types::PyDict::new_bound(self.py()))?;
         Ok(())
     }
 
@@ -413,7 +409,7 @@ where
     }
 }
 
-pub struct ElemCollection<'a>(&'a PyAny);
+pub struct ElemCollection<'a>(Bound<'a, PyAny>);
 
 impl ElemCollectionOp for ElemCollection<'_> {
     fn keys(&self) -> Vec<String> {
@@ -439,7 +435,7 @@ impl ElemCollectionOp for ElemCollection<'_> {
     {
         let py = self.0.py();
         let d = PyData::from(data.into()).into_py(py);
-        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
+        let new_d = if isinstance_of_polars(d.bind(py))? {
             d.call_method0(py, "to_pandas")?
         } else {
             d
@@ -455,7 +451,7 @@ impl ElemCollectionOp for ElemCollection<'_> {
 }
 
 pub struct AxisArrays<'a> {
-    arrays: &'a PyAny,
+    arrays: Bound<'a, PyAny>,
     adata: &'a PyAnnData<'a>,
     axis: u8,
 }
@@ -488,7 +484,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             self.adata.set_n_vars(shape[1])?;
         }
         let d = PyArrayData::from(data.into()).into_py(py);
-        let new_d = if isinstance_of_polars(py, d.as_ref(py))? {
+        let new_d = if isinstance_of_polars(d.bind(py))? {
             d.call_method0(py, "to_pandas")?
         } else {
             d
@@ -525,7 +521,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
 
 }
 
-pub struct ArrayElem<'a>(&'a PyAny);
+pub struct ArrayElem<'a>(Bound<'a, PyAny>);
 
 impl ArrayElemOp for ArrayElem<'_> {
     type ArrayIter<T> = PyArrayIterator<T>

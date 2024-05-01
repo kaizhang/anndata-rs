@@ -71,7 +71,7 @@ impl AnnDataSet {
         self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>().expect("downcast to AnnDataSet failed").inner()
     }
 
-    fn select_obs(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+    fn select_obs(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).map(|names| {
@@ -89,7 +89,7 @@ impl AnnDataSet {
         }
     }
 
-    fn select_var(&self, ix: &PyAny) -> PyResult<SelectInfoElem> {
+    fn select_var(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
         let from_iter = ix.iter().and_then(|iter| 
             iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
         ).map(|names| {
@@ -111,7 +111,7 @@ impl AnnDataSet {
 #[derive(FromPyObject)]
 pub enum AnnDataFile<'py> {
     Path(PathBuf),
-    Data(&'py PyCell<AnnData>),
+    Data(Bound<'py, AnnData>),
 }
 
 #[pymethods]
@@ -181,12 +181,12 @@ impl AnnDataSet {
         self.0.obs_names().into_vec()
     }
     #[setter(obs_names)]
-    pub fn set_obs_names(&self, names: &PyAny) -> Result<()> {
+    pub fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
         self.0.set_obs_names(names)
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn obs_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.obs_ix(names) }
+    fn obs_ix(&self, names: &Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.obs_ix(names) }
 
     /// Names of variables.
     ///
@@ -198,12 +198,12 @@ impl AnnDataSet {
         self.0.var_names().into_vec()
     }
     #[setter(var_names)]
-    pub fn set_var_names(&self, names: &PyAny) -> Result<()> {
+    pub fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
         self.0.set_var_names(names)
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn var_ix(&self, names: &PyAny) -> Result<Vec<usize>> { self.0.var_ix(names) }
+    fn var_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.var_ix(names) }
 
     /// Data matrix of shape n_obs × n_vars.
     ///
@@ -225,7 +225,7 @@ impl AnnDataSet {
         self.0.get_obs()
     }
     #[setter(obs)]
-    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()> {
+    fn set_obs(&self, obs: Option<Bound<'_, PyAny>>) -> Result<()> {
         self.0.set_obs(obs)
     }
 
@@ -239,7 +239,7 @@ impl AnnDataSet {
         self.0.get_var()
     }
     #[setter(var)]
-    fn set_var(&self, var: Option<&PyAny>) -> Result<()> {
+    fn set_var(&self, var: Option<Bound<'_, PyAny>>) -> Result<()> {
         self.0.set_var(var)
     }
 
@@ -327,8 +327,8 @@ impl AnnDataSet {
     )]
     pub fn subset(
         &self,
-        obs_indices: Option<&PyAny>,
-        var_indices: Option<&PyAny>,
+        obs_indices: Option<&Bound<'_, PyAny>>,
+        var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
@@ -363,8 +363,8 @@ impl AnnDataSet {
     pub fn to_adata(
         &self,
         py: Python<'_>,
-        obs_indices: Option<&PyAny>,
-        var_indices: Option<&PyAny>,
+        obs_indices: Option<&Bound<'_, PyAny>>,
+        var_indices: Option<&Bound<'_, PyAny>>,
         copy_x: bool,
         file: Option<PathBuf>,
         backend: Option<&str>,
@@ -442,11 +442,11 @@ pub struct StackedAnnData(pub Slot<anndata::StackedAnnData>);
 trait AnnDataSetTrait: Send + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
-    fn set_obs_names(&self, names: &PyAny) -> Result<()>;
-    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
+    fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()>;
+    fn obs_ix(&self, index: &Bound<'_, PyAny>) -> Result<Vec<usize>>;
     fn var_names(&self) -> DataFrameIndex;
-    fn set_var_names(&self, names: &PyAny) -> Result<()>;
-    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>>;
+    fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()>;
+    fn var_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>>;
 
     fn get_x(&self) -> Option<PyArrayElem>;
     fn get_obs(&self) -> Option<PyDataFrameElem>;
@@ -457,8 +457,8 @@ trait AnnDataSetTrait: Send + Downcast {
     fn get_varm(&self) -> Option<PyAxisArrays>;
     fn get_varp(&self) -> Option<PyAxisArrays>;
 
-    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()>;
-    fn set_var(&self, var: Option<&PyAny>) -> Result<()>;
+    fn set_obs(&self, obs: Option<Bound<'_, PyAny>>) -> Result<()>;
+    fn set_var(&self, var: Option<Bound<'_, PyAny>>) -> Result<()>;
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()>;
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
@@ -504,32 +504,30 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         self.inner().obs_names()
     }
 
-    fn set_obs_names(&self, names: &PyAny) -> Result<()> {
+    fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
         let obs_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
         self.inner().set_obs_names(obs_names?)
     }
 
-    fn obs_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
-        self.inner().obs_ix(
-            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
-        )
+    fn obs_ix(&self, index: &Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
+        self.inner().obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn var_names(&self) -> DataFrameIndex {
         self.inner().var_names()
     }
 
-    fn set_var_names(&self, names: &PyAny) -> Result<()> {
+    fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
         let var_names: Result<DataFrameIndex> =
             names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
         self.inner().set_var_names(var_names?)
     }
 
-    fn var_ix(&self, index: &PyAny) -> Result<Vec<usize>> {
-        self.inner().var_ix(
-            index.iter()?.map(|x| x.unwrap().extract::<&str>().unwrap())
-        )
+    fn var_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
+        self.inner().var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
@@ -599,34 +597,34 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         }
     }
 
-    fn set_obs(&self, obs: Option<&PyAny>) -> Result<()> {
+    fn set_obs(&self, obs: Option<Bound<'_, PyAny>>) -> Result<()> {
         let inner = self.inner();
         if let Some(x) = obs {
             let py = x.py();
-            let ob = if isinstance_of_pandas(py, x)? {
-                py.import("polars")?.call_method1("from_pandas", (x, ))
+            let ob = if isinstance_of_pandas(&x)? {
+                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import("polars")?.call_method1("from_dict", (x, ))
+                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
             } else {
-                Ok(x)
-            }?;
+                x
+            };
             inner.set_obs(ob.extract::<PyDataFrame>()?.0)?;
         } else {
             inner.del_obs()?;
         }
         Ok(())
     }
-    fn set_var(&self, var: Option<&PyAny>) -> Result<()> {
+    fn set_var(&self, var: Option<Bound<'_, PyAny>>) -> Result<()> {
         let inner = self.inner();
         if let Some(x) = var {
             let py = x.py();
-            let ob = if isinstance_of_pandas(py, x)? {
-                py.import("polars")?.call_method1("from_pandas", (x, ))
+            let ob = if isinstance_of_pandas(&x)? {
+                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import("polars")?.call_method1("from_dict", (x, ))
+                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
             } else {
-                Ok(x)
-            }?;
+                x
+            };
             inner.set_var(ob.extract::<PyDataFrame>()?.0)?;
         } else {
             inner.del_var()?;

@@ -25,7 +25,7 @@ pub trait ElemTrait: Send {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn is_scalar(&self) -> bool;
-    fn get<'py>(&self, py: Python<'py>, subscript: &'py PyAny) -> Result<PyData>;
+    fn get<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<PyData>;
     fn show(&self) -> String;
 }
 
@@ -45,8 +45,8 @@ impl<B: Backend> ElemTrait for Elem<B> {
         }
     }
 
-    fn get<'py>(&self, py: Python<'py>, slice: &'py PyAny) -> Result<PyData> {
-        if is_none_slice(py, slice)? {
+    fn get<'py>(&self, slice: &Bound<'py, PyAny>) -> Result<PyData> {
+        if is_none_slice(slice)? {
             Ok(self.inner().data::<Data>()?.into())
         } else {
             bail!("Please use None slice to retrieve data.")
@@ -62,7 +62,7 @@ pub trait ArrayElemTrait: Send {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn show(&self) -> String;
-    fn get(&self, subscript: &PyAny) -> Result<PyArrayData>;
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyArrayData>;
     fn shape(&self) -> Vec<usize>;
     fn chunk(
         &self,
@@ -82,7 +82,7 @@ impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
         self.lock().as_mut().map(|x| x.disable_cache());
     }
 
-    fn get(&self, subscript: &PyAny) -> Result<PyArrayData> {
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.inner().shape())?;
         self.inner()
             .select::<ArrayData, _>(slice.as_ref())
@@ -129,7 +129,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
         self.deref().disable_cache();
     }
 
-    fn get(&self, subscript: &PyAny) -> Result<PyArrayData> {
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.deref().shape().as_ref().unwrap())?;
         self.select::<ArrayData, _>(slice.as_ref())
             .map(|x| x.unwrap().into())
@@ -168,14 +168,14 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
 }
 
 pub trait DataFrameElemTrait: Send {
-    fn get(&self, subscript: &PyAny) -> Result<PyObject>;
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject>;
     fn set(&self, key: &str, data: Series) -> Result<()>;
     fn contains(&self, key: &str) -> bool;
     fn show(&self) -> String;
 }
 
 impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
-    fn get(&self, subscript: &PyAny) -> Result<PyObject> {
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
             Ok(PySeries(self.inner().column(key)?.clone()).into_py(py))
@@ -207,7 +207,7 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
 }
 
 impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
-    fn get(&self, subscript: &PyAny) -> Result<PyObject> {
+    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
             Ok(PySeries(self.column(key)?.clone()).into_py(py))
