@@ -32,7 +32,7 @@ impl WriteData for Mapping {
     fn data_type(&self) -> DataType {
         DataType::Mapping
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         let group = location.create_group(name)?;
         self.0
             .iter()

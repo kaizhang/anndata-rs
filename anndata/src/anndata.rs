@@ -4,7 +4,7 @@ pub use dataset::{AnnDataSet, StackedAnnData};
 use smallvec::SmallVec;
 
 use crate::{
-    backend::{Backend, DataContainer, FileOp, GroupOp},
+    backend::{Backend, DataContainer, StoreOp, GroupOp},
     container::{
         Dim, ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
         InnerDataFrameElem, Slot,
@@ -19,7 +19,7 @@ use polars::prelude::DataFrame;
 use std::path::{Path, PathBuf};
 
 pub struct AnnData<B: Backend> {
-    file: B::File,
+    file: B::Store,
     // Put n_obs in a Slot to allow concurrent access to different slots
     // because modifying n_obs requires modifying slots will also modify n_obs.
     // Operations that modify n_obs must acquire a lock until the end of the operation.
@@ -127,7 +127,7 @@ impl<B: Backend> AnnData<B> {
     }
 
     /// Open an existing AnnData.
-    pub fn open(file: B::File) -> Result<Self> {
+    pub fn open(file: B::Store) -> Result<Self> {
         let n_obs = Dim::empty();
         let n_vars = Dim::empty();
 

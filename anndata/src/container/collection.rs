@@ -1,5 +1,5 @@
 use crate::{
-    backend::{iter_containers, Backend, GroupOp, LocationOp},
+    backend::{iter_containers, Backend, GroupOp, AttributeOp},
     container::base::*,
     data::*,
     AxisArraysOp, ElemCollectionOp,
@@ -70,7 +70,7 @@ impl<B: Backend> InnerElemCollection<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+    pub fn export<O: Backend, G: GroupOp<O>>(
         &self,
         location: &G,
         name: &str,
@@ -160,7 +160,7 @@ impl<B: Backend> ElemCollection<B> {
             .as_ref()
             .map(|x| {
                 let g = &x.container;
-                g.file()?.delete(&g.path().to_string_lossy())
+                g.store()?.delete(&g.path().to_string_lossy())
             })
             .transpose()?;
         self.0.drop();
@@ -386,7 +386,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+    pub fn export<O: Backend, G: GroupOp<O>>(
         &self,
         location: &G,
         name: &str,
@@ -406,7 +406,7 @@ impl<B: Backend> InnerAxisArrays<B> {
     ) -> Result<()>
     where
         O: Backend,
-        G: GroupOp<Backend = O>,
+        G: GroupOp<O>,
     {
         if selection.into_iter().all(|x| x.as_ref().is_full()) {
             self.export::<O, _>(location, name)
@@ -564,7 +564,7 @@ impl<B: Backend> AxisArrays<B> {
             .as_ref()
             .map(|x| {
                 let g = &x.container;
-                g.file()?.delete(&g.path().to_string_lossy())
+                g.store()?.delete(&g.path().to_string_lossy())
             })
             .transpose()?;
         self.0.drop();

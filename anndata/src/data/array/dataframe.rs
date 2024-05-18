@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, LocationOp};
+use crate::backend::{Backend, DataContainer, DatasetOp, GroupOp, AttributeOp};
 use crate::data::array::slice::{SelectInfoElem, Shape};
 use crate::data::array::{CategoricalArray, DynArray};
 use crate::data::data_traits::*;
@@ -21,7 +21,7 @@ impl WriteData for DataFrame {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -172,7 +172,7 @@ impl WriteData for Series {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -401,7 +401,7 @@ impl WriteData for DataFrameIndex {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,

@@ -156,7 +156,7 @@ impl WriteData for DynCscMatrix {
             DynCscMatrix::String(csc) => csc.data_type(),
         }
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -482,7 +482,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
     fn data_type(&self) -> DataType {
         DataType::CscMatrix(T::DTYPE)
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,

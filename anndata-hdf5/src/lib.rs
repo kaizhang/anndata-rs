@@ -1,10 +1,4 @@
-use anndata::{
-    backend::{
-        Backend, BackendData, DatasetOp, DynArrayView, FileOp, GroupOp, LocationOp, ScalarType,
-        WriteConfig,
-    },
-    data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape},
-};
+use anndata::{backend::*, data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape}};
 
 use anyhow::{bail, Result, Ok};
 use hdf5::{
@@ -60,31 +54,26 @@ impl Deref for H5Dataset {
 impl Backend for H5 {
     const NAME: &'static str = "hdf5";
 
-    type File = H5File;
-
+    type Store = H5File;
     type Group = H5Group;
-
-    /// datasets contain arrays.
     type Dataset = H5Dataset;
 
-    fn create<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+    fn create<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         Ok(H5File(File::create(path)?))
     }
 
     /// Opens a file as read-only, file must exist.
-    fn open<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+    fn open<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         Ok(File::open(path).map(H5File)?)
     }
 
     /// Opens a file as read/write, file must exist.
-    fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self::File> {
+    fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         Ok(File::open_rw(path).map(H5File)?)
     }
 }
 
-impl FileOp for H5File {
-    type Backend = H5;
-
+impl StoreOp<H5> for H5File {
     fn filename(&self) -> PathBuf {
         hdf5::Location::filename(&self).into()
     }
@@ -235,9 +224,7 @@ fn create_scalar_data<D: BackendData>(group: &Group, name: &str, data: &D) -> Re
     .map(H5Dataset)
 }
 
-impl DatasetOp for H5Dataset {
-    type Backend = H5;
-
+impl DatasetOp<H5> for H5Dataset {
     fn dtype(&self) -> Result<ScalarType> {
         let ty = match hdf5::Container::dtype(self)?.to_descriptor()? {
             TypeDescriptor::Unsigned(U1) => ScalarType::U8,
@@ -525,18 +512,16 @@ fn read_array_attr<T: BackendData, D: RemoveAxis>(loc: &Location, name: &str) ->
 /// Derived implementations
 ////////////////////////////////////////////////////////////////////////////////
 
-impl GroupOp for H5File {
-    type Backend = H5;
-
+impl GroupOp<H5> for H5File {
     fn list(&self) -> Result<Vec<String>> {
         list(self)
     }
 
-    fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group> {
+    fn create_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         create_group(self, name)
     }
 
-    fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group> {
+    fn open_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         open_group(self, name)
     }
 
@@ -545,11 +530,11 @@ impl GroupOp for H5File {
         name: &str,
         shape: &Shape,
         config: WriteConfig,
-    ) -> Result<<Self::Backend as Backend>::Dataset> {
+    ) -> Result<<H5 as Backend>::Dataset> {
         new_dataset::<T>(self, name, shape, config)
     }
 
-    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset> {
+    fn open_dataset(&self, name: &str) -> Result<<H5 as Backend>::Dataset> {
         open_dataset(self, name)
     }
 
@@ -565,23 +550,21 @@ impl GroupOp for H5File {
         &self,
         name: &str,
         data: &D,
-    ) -> Result<<Self::Backend as Backend>::Dataset> {
+    ) -> Result<<H5 as Backend>::Dataset> {
         create_scalar_data(self, name, data)
     }
 }
 
-impl GroupOp for H5Group {
-    type Backend = H5;
-
+impl GroupOp<H5> for H5Group {
     fn list(&self) -> Result<Vec<String>> {
         list(self)
     }
 
-    fn create_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group> {
+    fn create_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         create_group(self, name)
     }
 
-    fn open_group(&self, name: &str) -> Result<<Self::Backend as Backend>::Group> {
+    fn open_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         open_group(self, name)
     }
 
@@ -590,11 +573,11 @@ impl GroupOp for H5Group {
         name: &str,
         shape: &Shape,
         config: WriteConfig,
-    ) -> Result<<Self::Backend as Backend>::Dataset> {
+    ) -> Result<<H5 as Backend>::Dataset> {
         new_dataset::<T>(self, name, shape, config)
     }
 
-    fn open_dataset(&self, name: &str) -> Result<<Self::Backend as Backend>::Dataset> {
+    fn open_dataset(&self, name: &str) -> Result<<H5 as Backend>::Dataset> {
         open_dataset(self, name)
     }
 
@@ -610,15 +593,13 @@ impl GroupOp for H5Group {
         &self,
         name: &str,
         data: &D,
-    ) -> Result<<Self::Backend as Backend>::Dataset> {
+    ) -> Result<<H5 as Backend>::Dataset> {
         create_scalar_data(self, name, data)
     }
 }
 
-impl LocationOp for H5Group {
-    type Backend = H5;
-
-    fn file(&self) -> Result<<Self::Backend as Backend>::File> {
+impl AttributeOp<H5> for H5Group {
+    fn store(&self) -> Result<<H5 as Backend>::Store> {
         file(self)
     }
 
@@ -652,10 +633,8 @@ impl LocationOp for H5Group {
     }
 }
 
-impl LocationOp for H5Dataset {
-    type Backend = H5;
-
-    fn file(&self) -> Result<<Self::Backend as Backend>::File> {
+impl AttributeOp<H5> for H5Dataset {
+    fn store(&self) -> Result<<H5 as Backend>::Store> {
         file(self)
     }
 

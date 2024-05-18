@@ -1,6 +1,6 @@
 use crate::{
     traits::ArrayElemOp,
-    backend::{Backend, DataContainer, DataType, GroupOp, LocationOp},
+    backend::{Backend, DataContainer, DataType, GroupOp, AttributeOp},
     data::*,
     data::index::VecVecIndex,
 };
@@ -120,7 +120,7 @@ pub struct InnerDataFrameElem<B: Backend> {
 }
 
 impl<B: Backend> InnerDataFrameElem<B> {
-    pub fn new<G: GroupOp<Backend = B>>(
+    pub fn new<G: GroupOp<B>>(
         location: &G,
         name: &str,
         index: DataFrameIndex,
@@ -195,7 +195,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
         }
     }
 
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+    pub fn export<O: Backend, G: GroupOp<O>>(
         &self,
         location: &G,
         name: &str,
@@ -216,7 +216,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
     ) -> Result<()>
     where
         O: Backend,
-        G: GroupOp<Backend = O>,
+        G: GroupOp<O>,
     {
         if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
@@ -238,7 +238,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
     where
         O: Backend,
         S: AsRef<SelectInfoElem>,
-        G: GroupOp<Backend = O>,
+        G: GroupOp<O>,
     {
         let full = SelectInfoElem::full();
         let slice = selection.as_ref().set_axis(axis, 2, &full);
@@ -400,7 +400,7 @@ impl<B: Backend, T: Clone> InnerElem<B, T> {
 }
 
 impl<B: Backend, T: ReadData + WriteData + Clone> InnerElem<B, T> {
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+    pub fn export<O: Backend, G: GroupOp<O>>(
         &self,
         location: &G,
         name: &str,
@@ -512,7 +512,7 @@ impl<B: Backend, T: Clone> InnerArrayElem<B, T> {
 }
 
 impl<B: Backend, T: ReadArrayData + WriteArrayData + Clone> InnerArrayElem<B, T> {
-    pub fn export<O: Backend, G: GroupOp<Backend = O>>(
+    pub fn export<O: Backend, G: GroupOp<O>>(
         &self,
         location: &G,
         name: &str,
@@ -565,7 +565,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArray
     ) -> Result<()>
     where
         O: Backend,
-        G: GroupOp<Backend = O>,
+        G: GroupOp<O>,
     {
         if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
@@ -584,7 +584,7 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArray
     ) -> Result<()>
     where
         O: Backend,
-        G: GroupOp<Backend = O>,
+        G: GroupOp<O>,
     {
         let full = SelectInfoElem::full();
         let slice = selection

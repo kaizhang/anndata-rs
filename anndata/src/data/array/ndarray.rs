@@ -107,7 +107,7 @@ impl WriteData for DynArray {
             Self::Categorical(arr) => arr.data_type(),
         }
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -285,7 +285,7 @@ impl<'a, T: BackendData, D: RemoveAxis> WriteData for ArrayView<'a, T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -307,7 +307,7 @@ impl<T: BackendData, D: RemoveAxis> WriteData for Array<T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -430,7 +430,7 @@ impl WriteData for CategoricalArray {
     fn data_type(&self) -> DataType {
         DataType::Categorical
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,

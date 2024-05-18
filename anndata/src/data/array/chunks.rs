@@ -1,4 +1,4 @@
-use crate::backend::{Backend, DataContainer, GroupOp, LocationOp, BackendData, ScalarType};
+use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, BackendData, ScalarType};
 use crate::ArrayOp;
 use crate::data::{
     ArrayData,
@@ -16,7 +16,7 @@ pub trait ArrayChunk: ArrayOp {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>;
+        G: GroupOp<B>;
 }
 
 impl ArrayChunk for ArrayData {
@@ -24,7 +24,7 @@ impl ArrayChunk for ArrayData {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
@@ -42,7 +42,7 @@ impl ArrayChunk for DynArray {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
@@ -69,7 +69,7 @@ impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         let chunk_size = if let Some(n) = D::NDIM {
@@ -101,7 +101,7 @@ impl ArrayChunk for DynCsrMatrix {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
@@ -128,7 +128,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csr_matrix")?;
@@ -179,7 +179,7 @@ impl ArrayChunk for DynCsrNonCanonical {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
@@ -205,7 +205,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csr_matrix")?;
@@ -257,7 +257,7 @@ impl ArrayChunk for DynCscMatrix {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
@@ -293,7 +293,7 @@ impl<T: BackendData+Scalar> ArrayChunk for CscMatrix<T> {
     where
         I: Iterator<Item = Self>,
         B: Backend,
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         todo!()
         /*

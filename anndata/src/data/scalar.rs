@@ -44,7 +44,7 @@ macro_rules! impl_from_dynscalar {
                 fn data_type(&self) -> DataType {
                     DataType::Scalar(ScalarType::$to)
                 }
-                fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+                fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
                     let dataset = location.create_scalar_data(name, self)?;
                     let container = DataContainer::Dataset(dataset);
                     let encoding_type = if $from::DTYPE == ScalarType::String {
@@ -96,7 +96,7 @@ impl WriteData for DynScalar {
         }
     }
 
-    fn write<B: Backend, G: GroupOp<Backend = B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+    fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         match self {
             DynScalar::I8(data) => data.write(location, name),
             DynScalar::I16(data) => data.write(location, name),

@@ -150,7 +150,7 @@ impl WriteData for Data {
             Data::Mapping(data) => data.data_type(),
         }
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,

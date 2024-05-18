@@ -192,7 +192,7 @@ impl<B: Backend> AnnDataSet<B> {
     }
 
     pub fn open<P: AsRef<Path>>(
-        file: B::File,
+        file: B::Store,
         adata_files_update: Option<Result<HashMap<String, P>, P>>
     ) -> Result<Self> {
         let annotation: AnnData<B> = AnnData::open(file)?;

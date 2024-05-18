@@ -20,7 +20,7 @@ pub(crate) struct ExtendableDataset<B: Backend, T> {
 impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
     pub fn with_capacity<G>(group: &G, name: &str, capacity: Shape) -> Result<Self>
     where
-        G: GroupOp<Backend = B>,
+        G: GroupOp<B>,
     {
         let block_size = vec![1000; capacity.ndim()].into();
         let dataset = group.new_dataset::<T>(name, &capacity, WriteConfig { block_size: Some(block_size), ..Default::default() })?;

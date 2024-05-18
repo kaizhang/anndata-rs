@@ -134,7 +134,7 @@ impl WriteData for DynCsrNonCanonical {
         }
         impl_dyn_csr_matrix!(self, data_type)
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
@@ -636,7 +636,7 @@ impl<T: BackendData> WriteData for CsrNonCanonical<T> {
     fn data_type(&self) -> DataType {
         DataType::CsrMatrix(T::DTYPE)
     }
-    fn write<B: Backend, G: GroupOp<Backend = B>>(
+    fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,

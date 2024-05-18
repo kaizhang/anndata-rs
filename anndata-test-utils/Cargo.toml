@@ -19,6 +19,7 @@ itertools = "0.12"
 
 [dev-dependencies]
 anndata-hdf5 = { path = '../anndata-hdf5' }
+#anndata-zarr = { path = '../anndata-zarr' }
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"
