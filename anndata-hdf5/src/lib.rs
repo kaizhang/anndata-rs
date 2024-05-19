@@ -1,4 +1,4 @@
-use anndata::{backend::*, data::{ArrayOp, BoundedSelectInfo, DynArray, DynScalar, SelectInfoElem, Shape}};
+use anndata::{backend::*, data::{BoundedSelectInfo, BoundedSelectInfoElem, DynArray, DynScalar, SelectInfoElem, Shape}};
 
 use anyhow::{bail, Result, Ok};
 use hdf5::{
@@ -7,8 +7,9 @@ use hdf5::{
     types::{FloatSize, TypeDescriptor, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
-use ndarray::{Array, ArrayView, RemoveAxis, SliceInfo, ArrayBase};
+use ndarray::{Array, ArrayBase, ArrayD, ArrayView, Dimension, SliceInfo, SliceInfoElem};
 use std::ops::Deref;
+use std::ops::Index;
 use std::path::{Path, PathBuf};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -279,18 +280,43 @@ impl DatasetOp<H5> for H5Dataset {
     where
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: RemoveAxis,
+        D: Dimension,
     {
+        fn select<S, T, D>(arr_: &Array<T, D>, info: &[S]) -> Array<T, D>
+        where
+            S: AsRef<SelectInfoElem>,
+            T: Clone,
+            D: Dimension,
+        {
+            let arr = arr_.view().into_dyn();
+            let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
+                SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
+                _ => None,
+            }).collect::<Option<Vec<_>>>();
+            if let Some(slices) = slices {
+                arr.slice(slices.as_slice()).into_owned()
+            } else {
+                let shape = arr_.shape();
+                let select: Vec<_> = info.as_ref().into_iter().zip(shape)
+                    .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n)).collect();
+                let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
+                ArrayD::from_shape_fn(new_shape, |idx| {
+                    let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();
+                    arr.index(new_idx.as_slice()).clone()
+                })
+            }.into_dimensionality::<D>().unwrap()
+        }
+
         fn read_arr<T, S, D>(dataset: &H5Dataset, selection: &[S]) -> Result<Array<T, D>>
         where
             T: H5Type + BackendData,
             S: AsRef<SelectInfoElem>,
-            D: RemoveAxis,
+            D: Dimension,
         {
             if selection.iter().any(|x| x.as_ref().is_index()) {
                 // fancy indexing is too slow, just read all
                 let arr = dataset.deref().read::<T, D>()?;
-                Ok(ArrayOp::select(&arr, selection))
+                Ok(select(&arr, selection))
             } else {
                 let (select, shape) = into_selection(selection, dataset.shape());
                 if matches!(select, Selection::Points(_)) {
@@ -322,7 +348,7 @@ impl DatasetOp<H5> for H5Dataset {
                     // fancy indexing is too slow, just read all
                     let arr = self.deref().read::<VarLenUnicode, D>()?;
                     let arr_ = arr.map(|s| s.to_string());
-                    let r: Result<_> = Ok(ArrayOp::select(&arr_, selection));
+                    let r: Result<_> = Ok(select(&arr_, selection));
                     r
                 } else {
                     let (select, shape) = into_selection(selection, self.shape());
@@ -352,7 +378,7 @@ impl DatasetOp<H5> for H5Dataset {
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: RemoveAxis,
+        D: Dimension,
     {
         fn write_array_impl<'a, T, D, S>(
             container: &H5Dataset,
@@ -361,7 +387,7 @@ impl DatasetOp<H5> for H5Dataset {
         ) -> Result<()>
         where
             T: H5Type + Clone,
-            D: RemoveAxis,
+            D: Dimension,
             S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
@@ -404,7 +430,7 @@ fn write_array_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Resu
 where
     A: Into<ArrayView<'a, D, Dim>>,
     D: BackendData,
-    Dim: RemoveAxis,
+    Dim: Dimension,
 {
     del_attr(loc, name);
     match BackendData::into_dyn_arr(value.into()) {
@@ -480,7 +506,7 @@ fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
     T::from_dyn(val)
 }
 
-fn read_array_attr<T: BackendData, D: RemoveAxis>(loc: &Location, name: &str) -> Result<Array<T, D>> {
+fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
     let attr = loc.attr(name)?;
     if attr.size() == 0 {
         let shape = D::zeros(D::NDIM.unwrap_or(0));
@@ -611,7 +637,7 @@ impl AttributeOp<H5> for H5Group {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis,
+        Dim: Dimension,
     {
         write_array_attr(self, name, value)
     }
@@ -628,7 +654,7 @@ impl AttributeOp<H5> for H5Group {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }
@@ -646,7 +672,7 @@ impl AttributeOp<H5> for H5Dataset {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis,
+        Dim: Dimension,
     {
         write_array_attr(self, name, value)
     }
@@ -663,7 +689,7 @@ impl AttributeOp<H5> for H5Dataset {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }

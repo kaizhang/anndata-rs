@@ -50,20 +50,20 @@ impl TryFrom<DynArray> for CategoricalArray {
 
 macro_rules! impl_dyn_array_convert {
     ($from_type:ty, $to_type:ident) => {
-        impl<D: RemoveAxis> From<Array<$from_type, D>> for DynArray {
+        impl<D: Dimension> From<Array<$from_type, D>> for DynArray {
             fn from(data: Array<$from_type, D>) -> Self {
                 DynArray::$to_type(data.into_dyn())
             }
         }
 
-        impl<D: RemoveAxis> TryFrom<DynArray> for Array<$from_type, D> {
+        impl<D: Dimension> TryFrom<DynArray> for Array<$from_type, D> {
             type Error = anyhow::Error;
             fn try_from(v: DynArray) -> Result<Self, Self::Error> {
                 match v {
                     DynArray::$to_type(data) => {
                         let arr: ArrayD<$from_type> = data.try_into()?;
                         if let Some(n) = D::NDIM {
-                            ensure!(arr.ndim() == n, format!("RemoveAxis mismatch: {} (in) != {} (out)", arr.ndim(), n));
+                            ensure!(arr.ndim() == n, format!("Dimension mismatch: {} (in) != {} (out)", arr.ndim(), n));
                         }
                         Ok(arr.into_dimensionality::<D>()?)
                     },
@@ -281,7 +281,7 @@ impl ReadArrayData for DynArray {
  
 }
 
-impl<'a, T: BackendData, D: RemoveAxis> WriteData for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -303,7 +303,7 @@ impl<'a, T: BackendData, D: RemoveAxis> WriteData for ArrayView<'a, T, D> {
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> WriteData for Array<T, D> {
+impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -316,13 +316,13 @@ impl<T: BackendData, D: RemoveAxis> WriteData for Array<T, D> {
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> HasShape for Array<T, D> {
+impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
 }
 
-impl<'a, T: BackendData, D: RemoveAxis> HasShape for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
@@ -385,9 +385,9 @@ impl<T: BackendData, D: RemoveAxis> ReadArrayData for Array<T, D> {
 }
 
 
-impl<T: BackendData, D: RemoveAxis> WriteArrayData for Array<T, D> {}
-impl<T: BackendData, D: RemoveAxis> WriteArrayData for &Array<T, D> {}
-impl<'a, T: BackendData, D: RemoveAxis> WriteArrayData for ArrayView<'a, T, D> {}
+impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
+impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
+impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CategoricalArray {

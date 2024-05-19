@@ -4,7 +4,7 @@ use crate::data::{SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
 use core::fmt::{Formatter, Debug};
-use ndarray::{Array, ArrayView, RemoveAxis};
+use ndarray::{Array, ArrayView, Dimension, arr0};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -79,12 +79,6 @@ pub trait GroupOp<B: Backend + ?Sized> {
     /// Check if a group or dataset exists.
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn create_scalar_data<D: BackendData>(
-        &self,
-        name: &str,
-        data: &D,
-    ) -> Result<B::Dataset>;
-
     fn create_array_data<'a, A, D, Dim>(
         &self,
         name: &str,
@@ -94,7 +88,7 @@ pub trait GroupOp<B: Backend + ?Sized> {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis,
+        Dim: Dimension,
     {
         let arr_view = arr.into();
         let shape = arr_view.shape();
@@ -116,6 +110,14 @@ pub trait GroupOp<B: Backend + ?Sized> {
         dataset.write_array(arr_view)?;
         Ok(dataset)
     }
+
+    fn create_scalar_data<D: BackendData>(
+        &self,
+        name: &str,
+        data: &D,
+    ) -> Result<B::Dataset> {
+        self.create_array_data(name, &arr0(data.clone()), WriteConfig::default())
+    }
 }
 
 pub trait AttributeOp<B: Backend + ?Sized> {
@@ -133,13 +135,13 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis;
+        Dim: Dimension;
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
         self.write_scalar_attr(name, value.to_string())
     }
 
     fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T>;
-    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>>;
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
     fn read_str_attr(&self, name: &str) -> Result<String> {
         self.read_scalar_attr(name)
     }
@@ -154,7 +156,7 @@ pub trait DatasetOp<B: Backend + ?Sized> {
 
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
     where
-        D: RemoveAxis,
+        D: Dimension,
     {
         self.read_array_slice(SelectInfo::all(self.shape().ndim()).as_ref())
     }
@@ -162,7 +164,7 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
         S: AsRef<SelectInfoElem>,
-        D: RemoveAxis;
+        D: Dimension;
 
     fn write_array<'a, A, D, Dim>(
         &self,
@@ -171,7 +173,7 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis,
+        Dim: Dimension,
     {
         let arr = data.into();
         let ndim = arr.ndim();
@@ -187,7 +189,7 @@ pub trait DatasetOp<B: Backend + ?Sized> {
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
-        D: RemoveAxis;
+        D: Dimension;
 }
 
 pub enum DataContainer<B: Backend> {
@@ -222,7 +224,7 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
-        Dim: RemoveAxis,
+        Dim: Dimension,
     {
         match self {
             DataContainer::Group(g) => g.write_array_attr(name, value),
@@ -242,7 +244,7 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
             DataContainer::Dataset(d) => d.read_scalar_attr(name),
         }
     }
-    fn read_array_attr<T: BackendData, D: RemoveAxis>(&self, name: &str) -> Result<Array<T, D>> {
+    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
             DataContainer::Group(g) => g.read_array_attr(name),
             DataContainer::Dataset(d) => d.read_array_attr(name),
