@@ -12,8 +12,10 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 keywords = ["data"]
 
 [dependencies]
-anndata = "0.3.3"
-anndata-hdf5 = "0.2"
+#anndata = "0.4.0"
+#anndata-hdf5 = "0.3"
+anndata = { path = '../anndata' }
+anndata-hdf5 = { path = '../anndata-hdf5' }
 anyhow = "1.0"
 downcast-rs = "1.2"
 numpy = "0.21.0"

@@ -4,7 +4,7 @@ use crate::data::{SelectInfo, SelectInfoElem, Shape};
 
 use anyhow::{bail, Result};
 use core::fmt::{Formatter, Debug};
-use ndarray::{Array, ArrayView, Dimension, arr0};
+use ndarray::{arr0, Array, ArrayView, Dimension, Ix0};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -127,21 +127,27 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     /// Returns the path of the location relative to the file root.
     fn path(&self) -> PathBuf;
 
-    /// Write a scalar attribute at a given location. This function should be able to
-    /// overwrite existing attributes.
-    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()>;
     /// Write a array-like attribute at a given location.
     fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension;
+    /// Write a scalar attribute at a given location. This function should be able to
+    /// overwrite existing attributes.
+    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+        self.write_array_attr(name, &arr0(value.clone()))
+    }
     fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
         self.write_scalar_attr(name, value.to_string())
     }
 
-    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T>;
     fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        self.read_array_attr::<T, Ix0>(name)
+            .map(|x| x.into_scalar())
+
+    }
     fn read_str_attr(&self, name: &str) -> Result<String> {
         self.read_scalar_attr(name)
     }
@@ -152,20 +158,31 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     fn shape(&self) -> Shape;
     fn reshape(&self, shape: &Shape) -> Result<()>;
 
-    fn read_scalar<T: BackendData>(&self) -> Result<T>;
-
+    fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
+    where
+        S: AsRef<SelectInfoElem>,
+        D: Dimension;
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
     where
         D: Dimension,
     {
         self.read_array_slice(SelectInfo::all(self.shape().ndim()).as_ref())
     }
+    fn read_scalar<T: BackendData>(&self) -> Result<T> {
+        self.read_array::<T, Ix0>()
+            .map(|x| x.into_scalar())
+    }
 
-    fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
+    fn write_array_slice<'a, A, S, T, D>(
+        &self,
+        data: A,
+        selection: &[S],
+    ) -> Result<()>
     where
+        A: Into<ArrayView<'a, T, D>>,
+        T: BackendData,
         S: AsRef<SelectInfoElem>,
         D: Dimension;
-
     fn write_array<'a, A, D, Dim>(
         &self,
         data: A,
@@ -179,17 +196,6 @@ pub trait DatasetOp<B: Backend + ?Sized> {
         let ndim = arr.ndim();
         self.write_array_slice(arr, SelectInfo::all(ndim).as_ref())
     }
-
-    fn write_array_slice<'a, A, S, T, D>(
-        &self,
-        data: A,
-        selection: &[S],
-    ) -> Result<()>
-    where
-        A: Into<ArrayView<'a, T, D>>,
-        T: BackendData,
-        S: AsRef<SelectInfoElem>,
-        D: Dimension;
 }
 
 pub enum DataContainer<B: Backend> {

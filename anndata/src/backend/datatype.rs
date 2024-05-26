@@ -69,10 +69,19 @@ impl Display for ScalarType {
 }
 
 pub trait BackendData: Send + Sync + Clone + 'static {
+    /// Type of the data
     const DTYPE: ScalarType;
+
+    /// Convert to opaque representation.
     fn into_dyn(&self) -> DynScalar;
+
+    /// Convert to opaque array representation.
     fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D>;
+
+    /// Convert from opaque representation.
     fn from_dyn(x: DynScalar) -> Result<Self>;
+
+    /// Convert from opaque array representation.
     fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>>;
 }
 
