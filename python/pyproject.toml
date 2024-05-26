@@ -1,2 +1,37 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools-rust"]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "anndata_rs"
+
+[project]
+name = "anndata_rs"
+authors = [
+    {name = "Kai Zhang", email = "zhangkai33@westlake.edu.cn"}
+]
+maintainers = [
+    {name = "Kai Zhang", email = "zhangkai33@westlake.edu.cn"}
+]
+license = {file = "LICENSE"}
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "License :: OSI Approved :: MIT License",
+]
+requires-python = ">=3.8, <3.13"
+dynamic = ["version"]
+
+dependencies = [
+    'anndata >= 0.8.0, < 0.11.0',
+    "numpy>=1.16",
+    "pandas",
+    "pyarrow",
+    "scipy>=1.4",
+    "polars>=0.14",
+]
+
+test = ["pytest", "hypothesis==6.72.4"]

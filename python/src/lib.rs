@@ -1,13 +1,9 @@
 use pyanndata::*;
 
-use pyo3::{
-    prelude::*,
-    pymodule, types::PyModule, PyResult, Python,
-};
-use pyo3::prelude::*;
+use pyo3::{prelude::*, pymodule, types::PyModule, PyResult};
 
 #[pymodule]
-fn _anndata_rs(_py: Python, m: &PyModule) -> PyResult<()> {
+fn anndata_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
 
     m.add_class::<AnnData>().unwrap();

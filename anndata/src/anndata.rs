@@ -18,21 +18,32 @@ use itertools::Itertools;
 use polars::prelude::DataFrame;
 use std::path::{Path, PathBuf};
 
+
+/// Represents an annotated data object backed by a specified backend.
 pub struct AnnData<B: Backend> {
+    /// The file storage backend.
     file: B::Store,
-    // Put n_obs in a Slot to allow concurrent access to different slots
-    // because modifying n_obs requires modifying slots will also modify n_obs.
-    // Operations that modify n_obs must acquire a lock until the end of the operation.
+    /// Number of observations (rows).
     pub(crate) n_obs: Dim,
+    /// Number of variables (columns).
     pub(crate) n_vars: Dim,
+    /// Data matrix.
     x: ArrayElem<B>,
+    /// Observations metadata.
     obs: DataFrameElem<B>,
+    /// Observation multi-dimensional annotation.
     obsm: AxisArrays<B>,
+    /// Observation pairwise annotation.
     obsp: AxisArrays<B>,
+    /// Variables metadata.
     var: DataFrameElem<B>,
+    /// Variable multi-dimensional annotation.
     varm: AxisArrays<B>,
+    /// Variable pairwise annotation.
     varp: AxisArrays<B>,
+    /// Unstructured annotation.
     uns: ElemCollection<B>,
+    /// Layers of data.
     layers: AxisArrays<B>,
 }
 
@@ -95,38 +106,48 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
     }
 }
 
+// Helper function to create a new observation matrix (obsm)
 fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Row, n_obs, None)
 }
 
+// Helper function to create a new pairwise observation matrix (obsp)
 fn new_obsp<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Pairwise, n_obs, None)
 }
 
+// Helper function to create a new variable matrix (varm)
 fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Row, n_vars, None)
 }
 
+// Helper function to create a new pairwise variable matrix (varp)
 fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Pairwise, n_vars, None)
 }
 
+// Helper function to create new layers of data
 fn new_layers<B: Backend>(group: B::Group, n_obs: &Dim, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::RowColumn, n_obs, Some(n_vars))
 }
 
 impl<B: Backend> AnnData<B> {
+    /// Get the data matrix.
     pub fn get_x(&self) -> &ArrayElem<B> {
         &self.x
     }
+
+    /// Get the observations metadata.
     pub fn get_obs(&self) -> &DataFrameElem<B> {
         &self.obs
     }
+
+    /// Get the variables metadata.
     pub fn get_var(&self) -> &DataFrameElem<B> {
         &self.var
     }
 
-    /// Open an existing AnnData.
+    /// Open an existing AnnData store.
     pub fn open(file: B::Store) -> Result<Self> {
         let n_obs = Dim::empty();
         let n_vars = Dim::empty();
@@ -205,6 +226,7 @@ impl<B: Backend> AnnData<B> {
         })
     }
 
+    /// Create a new AnnData file.
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
         let file = B::create(filename)?;
         let n_obs = Dim::empty();
@@ -225,6 +247,7 @@ impl<B: Backend> AnnData<B> {
         })
     }
 
+    /// Write the AnnData object to a new file.
     pub fn write<O: Backend, P: AsRef<Path>>(&self, filename: P) -> Result<()> {
         let file = O::create(filename)?;
         let _obs_lock = self.n_obs.lock();
@@ -278,6 +301,7 @@ impl<B: Backend> AnnData<B> {
         Ok(())
     }
 
+    /// Write a subset of the AnnData object to a new file.
     pub fn write_select<O, S, P>(&self, selection: S, filename: P) -> Result<()>
     where
         O: Backend,
@@ -342,10 +366,12 @@ impl<B: Backend> AnnData<B> {
         Ok(())
     }
 
+    /// Get the filename of the AnnData file.
     pub fn filename(&self) -> PathBuf {
         self.file.filename()
     }
 
+    /// Close the AnnData object and release all resources.
     pub fn close(self) -> Result<()> {
         macro_rules! close {
             ($($name:ident),*) => {
@@ -362,6 +388,7 @@ impl<B: Backend> AnnData<B> {
         self.file.close()
     }
 
+    /// Subset the AnnData object based on a selection.
     pub fn subset<S>(&self, selection: S) -> Result<()>
     where
         S: AsRef<[SelectInfoElem]>,
@@ -440,8 +467,6 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         self.x.clone()
     }
 
-    /// Set the 'X' element from an iterator. Note that the original data will be
-    /// lost if an error occurs during the writing.
     fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
         let mut obs_lock = self.n_obs.lock();
         let mut vars_lock = self.n_vars.lock();
@@ -492,6 +517,33 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn n_vars(&self) -> usize {
         self.n_vars.get()
+    }
+
+    fn set_n_obs(&self, n: usize) -> Result<()> {
+        let mut n_obs = self.n_obs.lock();
+        if let Err(e) = n_obs.try_set(n) {
+            if self.x().is_empty() && self.layers().is_empty() && self.obs.is_empty() &&
+               self.obsm().is_empty() && self.obsp().is_empty()
+            {
+                n_obs.set(n);
+            } else {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+    fn set_n_vars(&self, n: usize) -> Result<()> {
+        let mut n_vars = self.n_vars.lock();
+        if let Err(e) = n_vars.try_set(n) {
+            if self.x().is_empty() && self.layers().is_empty() && self.var.is_empty() &&
+               self.varm().is_empty() && self.varp().is_empty()
+            {
+                n_vars.set(n);
+            } else {
+                return Err(e);
+            }
+        }
+        Ok(())
     }
 
     fn obs_names(&self) -> DataFrameIndex {

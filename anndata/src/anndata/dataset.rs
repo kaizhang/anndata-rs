@@ -427,6 +427,12 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     fn n_vars(&self) -> usize {
         self.anndatas.inner().n_vars
     }
+    fn set_n_obs(&self, n: usize) -> Result<()> {
+        self.annotation.set_n_obs(n)
+    }
+    fn set_n_vars(&self, n: usize) -> Result<()> {
+        self.annotation.set_n_vars(n)
+    }
 
     fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
         self.annotation.obs_ix(names)

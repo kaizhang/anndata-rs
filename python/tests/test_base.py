@@ -93,10 +93,10 @@ def test_creation(tmp_path):
     assert adata.n_obs == 0
     assert adata.n_vars == 0
 
-    adata.obsm =dict(X_pca=np.array([[1, 2], [3, 4]]))
+    adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
     assert adata.n_obs == 2
 
-    adata.varm =dict(X_pca=np.array([[1, 2, 3], [3, 4, 5]]))
+    adata.varm = dict(X_pca=np.array([[1, 2, 3], [3, 4, 5]]))
     assert adata.n_vars == 2
 
     adata.uns['df'] = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -115,6 +115,12 @@ def test_creation(tmp_path):
     adata.var = pl.DataFrame()
     assert adata.var_names == var_names
     assert adata.to_memory().var_names.to_list() == var_names
+
+def test_resize(tmp_path):
+    adata = AnnData(filename=h5ad(tmp_path))
+    adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
+    adata.var_names = ['a', 'b', 'c', 'd']
+    adata.X = np.array([[1, 2, 3, 4], [3, 4, 5, 6]])
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))

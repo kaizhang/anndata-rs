@@ -105,40 +105,6 @@ impl<'py> PyAnnData<'py> {
         }
         Ok(adata)
     }
-
-    pub(crate) fn set_n_obs(&self, n_obs: usize) -> Result<()> {
-        let n = self.n_obs();
-        if n == n_obs {
-            Ok(())
-        } else if n == 0 {
-            if self.0.hasattr("_n_obs")? {
-                self.0.setattr("_n_obs", n_obs)?;
-            } else {
-                let index = (0..n_obs).map(|x| x.to_string()).collect::<Vec<_>>();
-                self.0.getattr("obs")?.setattr("index", index)?;
-            }
-            Ok(())
-        } else {
-            bail!("cannot set n_obs unless n_obs == 0")
-        }
-    }
-
-    pub(crate) fn set_n_vars(&self, n_vars: usize) -> Result<()> {
-        let n = self.n_vars();
-        if n == n_vars {
-            Ok(())
-        } else if n == 0 {
-            if self.0.hasattr("_n_vars")? {
-                self.0.setattr("_n_vars", n_vars)?;
-            } else {
-                let index = (0..n_vars).map(|x| x.to_string()).collect::<Vec<_>>();
-                self.0.getattr("var")?.setattr("index", index)?;
-            }
-            Ok(())
-        } else {
-            bail!("cannot set n_vars unless n_vars == 0")
-        }
-    }
 }
 
 impl<'py> AnnDataOp for PyAnnData<'py> {
@@ -183,6 +149,40 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
     fn n_vars(&self) -> usize {
         self.0.getattr("n_vars").unwrap().extract().unwrap()
+    }
+
+    fn set_n_obs(&self, n_obs: usize) -> Result<()> {
+        let n = self.n_obs();
+        if n == n_obs {
+            Ok(())
+        } else if n == 0 {
+            if self.0.hasattr("_n_obs")? {
+                self.0.setattr("_n_obs", n_obs)?;
+            } else {
+                let index = (0..n_obs).map(|x| x.to_string()).collect::<Vec<_>>();
+                self.0.getattr("obs")?.setattr("index", index)?;
+            }
+            Ok(())
+        } else {
+            bail!("cannot set n_obs unless n_obs == 0")
+        }
+    }
+
+    fn set_n_vars(&self, n_vars: usize) -> Result<()> {
+        let n = self.n_vars();
+        if n == n_vars {
+            Ok(())
+        } else if n == 0 {
+            if self.0.hasattr("_n_vars")? {
+                self.0.setattr("_n_vars", n_vars)?;
+            } else {
+                let index = (0..n_vars).map(|x| x.to_string()).collect::<Vec<_>>();
+                self.0.getattr("var")?.setattr("index", index)?;
+            }
+            Ok(())
+        } else {
+            bail!("cannot set n_vars unless n_vars == 0")
+        }
     }
 
     fn obs_names(&self) -> DataFrameIndex {
