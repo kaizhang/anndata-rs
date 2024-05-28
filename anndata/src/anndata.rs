@@ -159,7 +159,7 @@ impl<B: Backend> AnnData<B> {
             n_vars.try_set(x.inner().shape()[1])?;
             x
         } else {
-            Slot::empty()
+            Slot::none()
         };
 
         // Read obs
@@ -168,7 +168,7 @@ impl<B: Backend> AnnData<B> {
             n_obs.try_set(obs.inner().height())?;
             obs
         } else {
-            Slot::empty()
+            Slot::none()
         };
 
         // Read var
@@ -177,7 +177,7 @@ impl<B: Backend> AnnData<B> {
             n_vars.try_set(var.inner().height())?;
             var
         } else {
-            Slot::empty()
+            Slot::none()
         };
 
         let obsm = match file.open_group("obsm").or(file.create_group("obsm")) {
@@ -232,9 +232,9 @@ impl<B: Backend> AnnData<B> {
         let n_obs = Dim::empty();
         let n_vars = Dim::empty();
         Ok(Self {
-            x: Slot::empty(),
-            obs: Slot::empty(),
-            var: Slot::empty(),
+            x: Slot::none(),
+            obs: Slot::none(),
+            var: Slot::none(),
             obsm: new_obsm(file.create_group("obsm")?, &n_obs)?,
             obsp: new_obsp(file.create_group("obsp")?, &n_obs)?,
             varm: new_varm(file.create_group("varm")?, &n_vars)?,
@@ -499,7 +499,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         self.n_obs.try_set(shape[0])?;
         self.n_vars.try_set(shape[1])?;
 
-        if !self.x.is_empty() {
+        if !self.x.is_none() {
             self.x.inner().save(data)?;
         } else {
             let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
@@ -522,8 +522,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_n_obs(&self, n: usize) -> Result<()> {
         let mut n_obs = self.n_obs.lock();
         if let Err(e) = n_obs.try_set(n) {
-            if self.x().is_empty() && self.layers().is_empty() && self.obs.is_empty() &&
-               self.obsm().is_empty() && self.obsp().is_empty()
+            if self.x().is_none() && self.obs.is_none() &&
+               self.obsm().is_empty() && self.obsp().is_empty() && self.layers().is_empty() 
             {
                 n_obs.set(n);
             } else {
@@ -535,8 +535,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_n_vars(&self, n: usize) -> Result<()> {
         let mut n_vars = self.n_vars.lock();
         if let Err(e) = n_vars.try_set(n) {
-            if self.x().is_empty() && self.layers().is_empty() && self.var.is_empty() &&
-               self.varm().is_empty() && self.varp().is_empty()
+            if self.x().is_none() && self.var.is_none() &&
+               self.varm().is_empty() && self.varp().is_empty() && self.layers().is_empty() 
             {
                 n_vars.set(n);
             } else {
@@ -562,7 +562,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         self.n_obs.try_set(index.len())?;
-        if self.obs.is_empty() {
+        if self.obs.is_none() {
             let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
             self.obs.insert(df);
         } else {
@@ -573,7 +573,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         self.n_vars.try_set(index.len())?;
-        if self.var.is_empty() {
+        if self.var.is_none() {
             let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
             self.var.insert(df);
         } else {
@@ -626,7 +626,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         let nrows = obs.height();
         if nrows != 0 {
             self.n_obs.try_set(nrows)?;
-            if self.obs.is_empty() {
+            if self.obs.is_none() {
                 self.obs.insert(InnerDataFrameElem::new(
                     &self.file,
                     "obs",
@@ -644,7 +644,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         let nrows = var.height();
         if nrows != 0 {
             self.n_vars.try_set(nrows)?;
-            if self.var.is_empty() {
+            if self.var.is_none() {
                 self.var.insert(InnerDataFrameElem::new(
                     &self.file,
                     "var",
@@ -667,7 +667,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
 
     fn uns(&self) -> Self::ElemCollectionRef<'_> {
-        if self.uns.is_empty() {
+        if self.uns.is_none() {
             let elems = self.file.create_group("uns").and_then(|g| ElemCollection::new(g));
             if let Ok(uns) = elems {
                 self.uns.swap(&uns);
@@ -676,7 +676,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         &self.uns
     }
     fn obsm(&self) -> Self::AxisArraysRef<'_> {
-        if self.obsm.is_empty() {
+        if self.obsm.is_none() {
             let arrays = self.file.create_group("obsm")
                 .and_then(|g| new_obsm(g, &self.n_obs));
             if let Ok(obsm) = arrays {
@@ -686,7 +686,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         &self.obsm
     }
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
-        if self.obsp.is_empty() {
+        if self.obsp.is_none() {
             let arrays = self.file.create_group("obsp")
                 .and_then(|g| new_obsp(g, &self.n_obs));
             if let Ok(obsp) = arrays {
@@ -696,7 +696,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         &self.obsp
     }
     fn varm(&self) -> Self::AxisArraysRef<'_> {
-        if self.varm.is_empty() {
+        if self.varm.is_none() {
             let arrays = self.file.create_group("varm")
                 .and_then(|g| new_varm(g, &self.n_vars));
             if let Ok(varm) = arrays {
@@ -706,7 +706,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         &self.varm
     }
     fn varp(&self) -> Self::AxisArraysRef<'_> {
-        if self.varp.is_empty() {
+        if self.varp.is_none() {
             let arrays = self.file.create_group("varp")
                 .and_then(|g| new_varp(g, &self.n_vars));
             if let Ok(varp) = arrays {
@@ -716,7 +716,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         &self.varp
     }
     fn layers(&self) -> Self::AxisArraysRef<'_> {
-        if self.layers.is_empty() {
+        if self.layers.is_none() {
             let arrays = self.file.create_group("layers")
                 .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
             if let Ok(layers) = arrays {

@@ -536,7 +536,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_obs(&self) -> Option<PyDataFrameElem> {
         let inner = self.inner();
         let obs = inner.get_anno().get_obs();
-        if obs.is_empty() {
+        if obs.is_none() {
             None
         } else {
             Some(obs.clone().into())
@@ -545,7 +545,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_var(&self) -> Option<PyDataFrameElem> {
         let inner = self.inner();
         let var = inner.get_anno().get_var();
-        if var.is_empty() {
+        if var.is_none() {
             None
         } else {
             Some(var.clone().into())
@@ -554,7 +554,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_uns(&self) -> Option<PyElemCollection> {
         let inner = self.inner();
         let uns = inner.get_anno().uns();
-        if uns.is_empty() {
+        if uns.is_none() {
             None
         } else {
             Some(uns.clone().into())
@@ -563,7 +563,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_obsm(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
         let obsm = inner.get_anno().obsm();
-        if obsm.is_empty() {
+        if obsm.is_none() {
             None
         } else {
             Some(obsm.clone().into())
@@ -572,7 +572,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_obsp(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
         let obsp = inner.get_anno().obsp();
-        if obsp.is_empty() {
+        if obsp.is_none() {
             None
         } else {
             Some(obsp.clone().into())
@@ -581,7 +581,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_varm(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
         let varm = inner.get_anno().varm();
-        if varm.is_empty() {
+        if varm.is_none() {
             None
         } else {
             Some(varm.clone().into())
@@ -590,7 +590,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn get_varp(&self) -> Option<PyAxisArrays> {
         let inner = self.inner();
         let varp = inner.get_anno().varp();
-        if varp.is_empty() {
+        if varp.is_none() {
             None
         } else {
             Some(varp.clone().into())
@@ -805,11 +805,11 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     }
 
     fn is_closed(&self) -> bool {
-        self.is_empty()
+        self.is_none()
     }
 
     fn show(&self) -> String {
-        if self.is_empty() {
+        if self.is_none() {
             "Closed AnnDataSet object".to_string()
         } else {
             format!("{}", self)

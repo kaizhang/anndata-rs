@@ -36,7 +36,7 @@ where
     T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_empty() {
+        if self.is_none() {
             write!(f, "Empty or closed slot")
         } else {
             write!(f, "{}", self.inner().deref())
@@ -51,11 +51,11 @@ impl<T> Slot<T> {
     }
 
     /// Create an empty slot.
-    pub fn empty() -> Self {
+    pub fn none() -> Self {
         Slot(Arc::new(Mutex::new(None)))
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub fn is_none(&self) -> bool {
         self.0.lock().is_none()
     }
 
@@ -722,7 +722,7 @@ impl<B: Backend> std::fmt::Display for StackedDataFrame<B> {
 
 impl<B: Backend> StackedDataFrame<B> {
     pub fn is_empty(&self) -> bool {
-        self.elems.iter().all(|x| x.is_empty())
+        self.elems.iter().all(|x| x.is_none())
     }
 
     pub fn width(&self) -> usize {
@@ -738,13 +738,13 @@ impl<B: Backend> StackedDataFrame<B> {
             .iter()
             .map(|x| x.lock().as_ref().map(|x| x.height()).unwrap_or(0))
             .collect();
-        if elems.iter().all(|x| x.is_empty()) {
+        if elems.iter().all(|x| x.is_none()) {
             Ok(Self {
                 column_names: IndexSet::new(),
                 elems: Arc::new(elems),
                 index,
             })
-        } else if elems.iter().all(|x| !x.is_empty()) {
+        } else if elems.iter().all(|x| !x.is_none()) {
             let column_names = elems
                 .iter()
                 .map(|x| x.inner().get_column_names().clone())
@@ -862,7 +862,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.elems.is_empty() || self.elems.iter().all(|x| x.is_empty())
+        self.elems.is_empty() || self.elems.iter().all(|x| x.is_none())
     }
 
     pub fn dtype(&self) -> DataType {

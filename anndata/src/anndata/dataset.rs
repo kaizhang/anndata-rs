@@ -574,7 +574,7 @@ impl<B: Backend> StackedAnnData<B> {
 
         let x = StackedArrayElem::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
 
-        let obs = if adatas.values().any(|x| x.obs.is_empty()) {
+        let obs = if adatas.values().any(|x| x.obs.is_none()) {
             StackedDataFrame::new(Vec::new())
         } else {
             StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())

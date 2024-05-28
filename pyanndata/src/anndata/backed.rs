@@ -611,7 +611,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_x(&self) -> Option<PyArrayElem> {
         let inner = self.adata.inner();
         let x = inner.get_x();
-        if x.is_empty() {
+        if x.is_none() {
             None
         } else {
             Some(x.clone().into())
@@ -620,7 +620,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_obs(&self) -> Option<PyDataFrameElem> {
         let inner = self.adata.inner();
         let obs = inner.get_obs();
-        if obs.is_empty() {
+        if obs.is_none() {
             None
         } else {
             Some(obs.clone().into())
@@ -629,7 +629,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_var(&self) -> Option<PyDataFrameElem> {
         let inner = self.adata.inner();
         let var = inner.get_var();
-        if var.is_empty() {
+        if var.is_none() {
             None
         } else {
             Some(var.clone().into())
@@ -638,7 +638,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_uns(&self) -> Option<PyElemCollection> {
         let inner = self.adata.inner();
         let uns = inner.uns();
-        if uns.is_empty() {
+        if uns.is_none() {
             None
         } else {
             Some(uns.clone().into())
@@ -647,7 +647,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_obsm(&self) -> Option<PyAxisArrays> {
         let inner = self.adata.inner();
         let obsm = inner.obsm();
-        if obsm.is_empty() {
+        if obsm.is_none() {
             None
         } else {
             Some(obsm.clone().into())
@@ -656,7 +656,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_obsp(&self) -> Option<PyAxisArrays> {
         let inner = self.adata.inner();
         let obsp = inner.obsp();
-        if obsp.is_empty() {
+        if obsp.is_none() {
             None
         } else {
             Some(obsp.clone().into())
@@ -665,7 +665,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_varm(&self) -> Option<PyAxisArrays> {
         let inner = self.adata.inner();
         let varm = inner.varm();
-        if varm.is_empty() {
+        if varm.is_none() {
             None
         } else {
             Some(varm.clone().into())
@@ -674,7 +674,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_varp(&self) -> Option<PyAxisArrays> {
         let inner = self.adata.inner();
         let varp = inner.varp();
-        if varp.is_empty() {
+        if varp.is_none() {
             None
         } else {
             Some(varp.clone().into())
@@ -684,7 +684,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn get_layers(&self) -> Option<PyAxisArrays> {
         let inner = self.adata.inner();
         let layers = inner.layers();
-        if layers.is_empty() {
+        if layers.is_none() {
             None
         } else {
             Some(layers.clone().into())
@@ -938,7 +938,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     }
 
     fn is_closed(&self) -> bool {
-        self.adata.is_empty()
+        self.adata.is_none()
     }
 
     fn show(&self) -> String {
@@ -1034,7 +1034,7 @@ impl<B: Backend> StackedAnnDataTrait for Slot<anndata::StackedAnnData<B>> {
         }
     }
     fn show(&self) -> String {
-        if self.is_empty() {
+        if self.is_none() {
             "Closed AnnData object".to_string()
         } else {
             format!("{}", self.inner().deref())

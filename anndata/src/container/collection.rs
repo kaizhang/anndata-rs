@@ -114,7 +114,11 @@ impl<B: Backend> DerefMut for ElemCollection<B> {
 
 impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
     fn keys(&self) -> Vec<String> {
-        self.inner().keys().cloned().collect()
+        if self.is_empty() {
+            Vec::new()
+        } else {
+            self.inner().keys().cloned().collect()
+        }
     }
 
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
@@ -140,7 +144,11 @@ impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
 
 impl<B: Backend> ElemCollection<B> {
     pub fn empty() -> Self {
-        Self(Slot::empty())
+        Self(Slot::none())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.is_none() || self.inner().data.is_empty()
     }
 
     pub fn new(container: B::Group) -> Result<Self> {
@@ -518,7 +526,11 @@ impl<B: Backend> DerefMut for AxisArrays<B> {
 
 impl<B: Backend> AxisArrays<B> {
     pub fn empty() -> Self {
-        Self(Slot::empty())
+        Self(Slot::none())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.is_none() || self.inner().data.is_empty()
     }
 
     pub fn new(group: B::Group, axis: Axis, dim1: &Dim, dim2: Option<&Dim>) -> Result<Self> {
@@ -576,7 +588,11 @@ impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
     type ArrayElem = ArrayElem<B>;
 
     fn keys(&self) -> Vec<String> {
-        self.inner().keys().cloned().collect()
+        if self.is_empty() {
+            Vec::new()
+        } else {
+            self.inner().keys().cloned().collect()
+        }
     }
 
     fn get(&self, key: &str) -> Option<Self::ArrayElem> {
@@ -685,7 +701,7 @@ impl<B: Backend> StackedAxisArrays<B> {
     }
 
     pub(crate) fn new(axis: Axis, arrays: Vec<AxisArrays<B>>) -> Result<Self> {
-        if arrays.iter().any(|x| x.is_empty()) {
+        if arrays.iter().any(|x| x.is_none()) {
             return Ok(Self::empty(axis));
         }
 
