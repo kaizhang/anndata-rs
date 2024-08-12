@@ -5,7 +5,7 @@ use anndata::data::{BoundedSelectInfoElem, DataFrameIndex, SelectInfoElem};
 use anyhow::Result;
 use itertools::Itertools;
 use nalgebra::base::DMatrix;
-use nalgebra::{ClosedAdd, Scalar};
+use nalgebra::{ClosedAddAssign, Scalar};
 use nalgebra_sparse::{
     coo::CooMatrix, csr::CsrMatrix, csc::CscMatrix,
 };
@@ -276,7 +276,7 @@ fn dense_array_strat(shape: &Vec<usize>) -> impl Strategy<Value = ArrayData> {
 /// Generate a random compressed sparse row matrix
 pub fn rand_csr<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CsrMatrix<T>
 where
-    T: Scalar + Zero + ClosedAdd + SampleUniform,
+    T: Scalar + Zero + ClosedAddAssign + SampleUniform,
 {
     let mut rng = rand::thread_rng();
     let values: Vec<T> = Array::random((nnz,), Uniform::new(low, high)).to_vec();
@@ -291,7 +291,7 @@ where
 /// Generate a random compressed sparse column matrix
 pub fn rand_csc<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> CscMatrix<T>
 where
-    T: Scalar + Zero + ClosedAdd + SampleUniform,
+    T: Scalar + Zero + ClosedAddAssign + SampleUniform,
 {
     let mut rng = rand::thread_rng();
     let values: Vec<T> = Array::random((nnz,), Uniform::new(low, high)).to_vec();
@@ -481,7 +481,7 @@ fn csr_select<T: Scalar + Zero + Copy>(
 
 fn csr_chunks<T>(csr: &CsrMatrix<T>, chunk_size: usize) -> impl Iterator<Item = CsrMatrix<T>> + '_
 where
-    T: Zero + Clone + Scalar + ClosedAdd,
+    T: Zero + Clone + Scalar + ClosedAddAssign,
 {
     let nrow = csr.nrows();
     let mat: DMatrix<T> = DMatrix::from(csr);

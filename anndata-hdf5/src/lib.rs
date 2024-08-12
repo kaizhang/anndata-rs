@@ -322,7 +322,7 @@ impl DatasetOp<H5> for H5Dataset {
                 if matches!(select, Selection::Points(_)) {
                     let slice_1d = hdf5::Container::read_slice_1d::<T, _>(dataset, select)?;
                     Ok(slice_1d
-                        .into_shape(shape.as_ref())?
+                        .into_shape_with_order(shape.as_ref())?
                         .into_dimensionality::<D>()?)
                 } else {
                     Ok(hdf5::Container::read_slice::<T, _, D>(dataset, select)?)
@@ -355,7 +355,7 @@ impl DatasetOp<H5> for H5Dataset {
                     let arr: Result<_> = if matches!(select, Selection::Points(_)) {
                         let slice_1d = self.deref().read_slice_1d::<VarLenUnicode, _>(select)?;
                         Ok(slice_1d
-                            .into_shape(shape.as_ref())?
+                            .into_shape_with_order(shape.as_ref())?
                             .into_dimensionality::<D>()?)
                     } else {
                         Ok(self.deref().read_slice::<VarLenUnicode, _, D>(select)?)

@@ -307,7 +307,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
                 let index = DataFrameIndex::read(&container)?;
                 let column_names = container
                     .read_array_attr::<String, Ix1>("column-order")?
-                    .into_raw_vec()
+                    .into_raw_vec_and_offset().0
                     .into_iter()
                     .collect();
                 let df = InnerDataFrameElem {
@@ -857,10 +857,6 @@ impl<B: Backend> std::fmt::Display for InnerStackedArrayElem<B> {
 }
 
 impl<B: Backend> InnerStackedArrayElem<B> {
-    pub(crate) fn get_index(&self) -> &VecVecIndex {
-        &self.index
-    }
-
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty() || self.elems.iter().all(|x| x.is_none())
     }

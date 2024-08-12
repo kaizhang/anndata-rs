@@ -1,6 +1,6 @@
 [package]
 name = "anndata"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["Kai Zhang <kai@kzhang.org>"]
@@ -14,12 +14,12 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 anyhow = "1.0"
 flate2 = "1.0"
 log = "0.4"
-indexmap = { version = "2.2", features = ["rayon"] }
-itertools = "0.12"
-ndarray = { version = "0.15" }
-nalgebra-sparse = "0.9"
+indexmap = { version = "2.3", features = ["rayon"] }
+itertools = "0.13"
+ndarray = { version = "0.16" }
+nalgebra-sparse = "0.10"
 num = "0.4"
-polars = { version = "0.40", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
+polars = { version = "0.41", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
 parking_lot = "0.12"
 replace_with = "0.1"
 smallvec = "1.13"
@@ -30,5 +30,5 @@ permutation = "0.4"
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"
-ndarray-rand = "0.14"
-nalgebra = { version = "0.32", features = ["rand"] }
+ndarray-rand = "0.15"
+nalgebra = { version = "0.33", features = ["rand"] }

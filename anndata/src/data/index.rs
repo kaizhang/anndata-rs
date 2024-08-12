@@ -380,7 +380,7 @@ impl VecVecIndex {
             .enumerate()
             .sorted_by_key(|(_, (x, _))| *x)
             .into_iter()
-            .group_by(|(_, (x, _))| *x)
+            .chunk_by(|(_, (x, _))| *x)
             .into_iter()
             .map(|(outer, inner)| {
                 let (new_indices, order): (Vec<_>, Vec<_>) = inner.map(|(i, (_, x))| (x, i)).unzip();

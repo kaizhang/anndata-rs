@@ -59,7 +59,7 @@ impl MMReader {
             let (_, cols, iter) = read_sorted_mm_body_from_bufread::<_, f64>(&mut self.reader);
             output.set_x_from_iter(
                 iter
-                    .group_by(|x| x.0)
+                    .chunk_by(|x| x.0)
                     .into_iter()
                     .map(|x| x.1.map(|(_, j, v)| (j, v)).collect::<Vec<_>>())
                     .chunks(2000)

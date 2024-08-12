@@ -723,9 +723,9 @@ impl<T: BackendData> ReadData for CsrNonCanonical<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
+        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
+        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
+        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
         Ok(Self::from_csr_data(shape[0], shape[1], indptr, indices, data))
     }
 }

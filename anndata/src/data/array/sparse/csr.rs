@@ -575,9 +575,9 @@ impl<T: BackendData> ReadData for CsrMatrix<T> {
         if let DataType::CsrMatrix(_) = data_type {
             let group = container.as_group()?;
             let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-            let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec();
-            let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec();
-            let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec();
+            let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
+            let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
+            let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
             CsrMatrix::try_from_csr_data(
                 shape[0], shape[1], indptr, indices, data
             ).map_err(|e| anyhow!("cannot read csr matrix: {}", e))

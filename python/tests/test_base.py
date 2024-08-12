@@ -1,6 +1,7 @@
 from anndata_rs import AnnData, AnnDataSet, read
 
 import math
+import anndata as ad
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -121,6 +122,15 @@ def test_resize(tmp_path):
     adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
     adata.var_names = ['a', 'b', 'c', 'd']
     adata.X = np.array([[1, 2, 3, 4], [3, 4, 5, 6]])
+
+def test_nullable(tmp_path):
+    file = h5ad(tmp_path)
+    adata = ad.AnnData(X=np.array([[float('nan'), float('inf')]]))
+    adata.write(file)
+
+    adata = read(file)
+    assert math.isnan(adata.X[0, 0])
+    assert math.isinf(adata.X[0, 1])
 
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
