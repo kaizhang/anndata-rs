@@ -159,7 +159,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
                     .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
                 nnz += *indptr_.last().unwrap_or(&0) as i64;
                 data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
-                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
+                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| i64::try_from(x).unwrap()).view())
             } else {
                 bail!("All matrices must have the same number of columns");
             }
@@ -236,7 +236,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
                     .for_each(|x| indptr.push(i64::try_from(*x).unwrap() + nnz));
                 nnz += *indptr_.last().unwrap_or(&0) as i64;
                 data.extend(0, ArrayView1::from_shape(data_.len(), data_)?)?;
-                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| x as i64).view())
+                indices.extend(0, ArrayView1::from_shape(indices_.len(), indices_)?.mapv(|x| i64::try_from(x).unwrap()).view())
             } else {
                 bail!("All matrices must have the same number of columns");
             }
