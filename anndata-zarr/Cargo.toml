@@ -1,0 +1,25 @@
+[package]
+name = "anndata-zarr"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Kai Zhang <kai@kzhang.org>"]
+description = "Zarr backend for the anndata package"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/kaizhang/anndata-rs"
+homepage = "https://github.com/kaizhang/anndata-rs"
+
+[dependencies]
+#anndata = { path = '../anndata' }
+anndata = "0.4"
+anyhow = "1.0"
+ndarray = { version = "0.16" }
+zarrs = "0.16"
+smallvec = "1.13"
+
+[dev-dependencies]
+tempfile = "3.2"
+proptest = "1"
+rand = "0.8.5"
+ndarray-rand = "0.15"
