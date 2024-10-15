@@ -2,7 +2,7 @@ mod common;
 pub use common::*;
 
 use anndata::{*, data::CsrNonCanonical};
-use ndarray::{Array2, ArrayD};
+use ndarray::Array2;
 use nalgebra_sparse::{CooMatrix, CsrMatrix};
 use proptest::prelude::*;
 

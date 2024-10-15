@@ -5,10 +5,8 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 from pathlib import Path
 import uuid
-from scipy import sparse as sp
 from scipy.sparse import csr_matrix, csc_matrix
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
@@ -54,10 +52,10 @@ def test_basic(x, tmp_path):
         "b": ["one", "two", "three", "four", "five"],
     })
     adata.uns['df'] = df
-    assert df.frame_equal(adata.uns['df'])
+    assert df.equals(adata.uns['df'])
     df = pl.DataFrame({"a": [], "b": []}, schema=[("a", pl.Float32), ("b", pl.Float32)])
     adata.uns['df'] = df
-    assert df.frame_equal(adata.uns['df'])
+    assert df.equals(adata.uns['df'])
 
     adata.uns['df'] = pl.DataFrame({
         "a": [1, 2, 3],
@@ -96,6 +94,7 @@ def test_creation(tmp_path):
 
     adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
     assert adata.n_obs == 2
+    assert adata.obsm['X_pca'].shape == (2, 2)
 
     adata.varm = dict(X_pca=np.array([[1, 2, 3], [3, 4, 5]]))
     assert adata.n_vars == 2

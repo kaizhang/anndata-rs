@@ -1,0 +1,8 @@
+[workspace]
+members = ["anndata", "anndata-hdf5", "pyanndata", "anndata-test-utils", "python"]
+resolver = "2"
+
+[workspace.dependencies]
+anndata = { version = "0.5", path = "anndata" }
+anndata-hdf5 = { version = "0.4", path = "anndata-hdf5" }
+pyanndata = { path = "pyanndata" }

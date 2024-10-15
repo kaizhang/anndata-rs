@@ -190,7 +190,7 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
     }
 
     fn set(&self, key: &str, mut data: Series) -> Result<()> {
-        data.rename(key);
+        data.rename(key.into());
         self.inner().set_column(key, data)
     }
 

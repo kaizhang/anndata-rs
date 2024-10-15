@@ -37,7 +37,7 @@ impl WriteData for DataFrame {
         let columns: Array1<String> = self
             .get_column_names()
             .into_iter()
-            .map(|x| x.to_owned())
+            .map(|x| x.to_string())
             .collect();
         group.write_array_attr("column-order", &columns)?;
         self.iter()
@@ -70,7 +70,7 @@ impl WriteData for DataFrame {
         let columns: Array1<String> = self
             .get_column_names()
             .into_iter()
-            .map(|x| x.to_owned())
+            .map(|x| x.to_string())
             .collect();
         container.write_array_attr("column-order", &columns)?;
         self.iter()
@@ -91,7 +91,7 @@ impl ReadData for DataFrame {
                 let name = x.as_str();
                 let series_container = DataContainer::<B>::open(container.as_group()?, name)?;
                 let mut series = Series::read::<B>(&series_container)?;
-                series.rename(name);
+                series.rename(name.into());
                 Ok(series)
             })
             .collect()
@@ -119,9 +119,9 @@ impl ArrayOp for DataFrame {
         let columns = self.get_column_names();
         let select = BoundedSelectInfo::new(&info, &HasShape::shape(self));
         let ridx = select.as_ref()[0].iter().map(|x| x as u32).collect();
-        self.select(select.as_ref()[1].to_vec().into_iter().map(|i| columns[i]))
+        self.select(select.as_ref()[1].to_vec().into_iter().map(|i| columns[i].as_str()))
             .unwrap()
-            .take(&ChunkedArray::from_vec("idx", ridx))
+            .take(&ChunkedArray::from_vec("idx".into(), ridx))
             .unwrap()
     }
 
@@ -159,7 +159,7 @@ impl ReadArrayData for DataFrame {
                     .open_dataset(name)
                     .map(DataContainer::Dataset)
                     .and_then(|x| Series::read_select::<B, _>(&x, &info[..1]))?;
-                series.rename(name);
+                series.rename(name.into());
                 Ok(series)
             })
             .collect()
@@ -292,7 +292,7 @@ impl ReadData for Series {
             DynArray::String(x) => Ok(x.iter().map(|x| x.as_str()).collect::<Series>()),
             DynArray::Categorical(arr) => {
                 let result = CategoricalChunkedBuilder::new(
-                    "", arr.codes.len(), polars::datatypes::CategoricalOrdering::Lexical
+                    "".into(), arr.codes.len(), polars::datatypes::CategoricalOrdering::Lexical
                 ).drain_iter_and_finish(
                     arr.codes
                         .into_iter()
@@ -321,7 +321,7 @@ impl ArrayOp for Series {
     {
         let i = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
             .iter().map(|x| x as u32).collect::<Vec<_>>();
-        self.take(&ChunkedArray::from_vec("idx", i)).unwrap()
+        self.take(&ChunkedArray::from_vec("idx".into(), i)).unwrap()
     }
 
     fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> {

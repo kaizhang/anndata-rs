@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 ndarray = { version = "0.16" }
-anndata = { path = '../anndata' }
+anndata = { workspace = true }
 num = "0.4"
 tempfile = "3.2"
 criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_support", "html_reports"] }
@@ -18,8 +18,8 @@ nalgebra-sparse = "0.10"
 itertools = "0.13"
 
 [dev-dependencies]
-anndata-hdf5 = { path = '../anndata-hdf5' }
-#anndata-zarr = { path = '../anndata-zarr' }
+anndata-hdf5 = { workspace = true }
+#anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"

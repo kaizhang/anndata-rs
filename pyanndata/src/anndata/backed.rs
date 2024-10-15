@@ -461,7 +461,10 @@ impl AnnData {
     /// filename: Path
     ///     File name of the output `.h5ad` file.
     /// backend: str | None
-    #[pyo3(text_signature = "($self, filename, backend)")]
+    #[pyo3(
+        signature = (filename, backend=None),
+        text_signature = "($self, filename, backend=None)",
+    )]
     pub fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
         self.0.write(filename, backend)
     }
@@ -477,7 +480,10 @@ impl AnnData {
     /// Returns
     /// -------
     /// AnnData
-    #[pyo3(text_signature = "($self, filename, backend)")]
+    #[pyo3(
+        signature = (filename, backend=None),
+        text_signature = "($self, filename, backend=None)",
+    )]
     fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<Self> {
         self.0.copy(filename, backend)
     }

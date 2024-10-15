@@ -1,15 +1,12 @@
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
-import pytest
 from anndata_rs import AnnData, AnnDataSet
 
 import polars as pl
 import numpy as np
-import pandas as pd
 from pathlib import Path
 import uuid
-from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse, random, vstack
+from scipy.sparse import csr_matrix
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)

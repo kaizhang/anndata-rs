@@ -1,15 +1,11 @@
-import pytest
-from hypothesis import given, example, settings, HealthCheck, strategies as st
+from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
-from anndata_rs import AnnData, AnnDataSet, read
+from anndata_rs import AnnData
 
-import math
 import numpy as np
-import pandas as pd
 from pathlib import Path
 import uuid
-from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse, random
+from scipy.sparse import csr_matrix
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)

@@ -146,8 +146,8 @@ impl<B: Backend> AnnDataSet<B> {
                 .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
                 .unzip();
             let data = DataFrame::new(vec![
-                Series::new("keys", keys),
-                Series::new("file_path", filenames),
+                Series::new("keys".into(), keys),
+                Series::new("file_path".into(), filenames),
             ])?;
             annotation.uns().add("AnnDataSet", data)?;
 
@@ -169,7 +169,7 @@ impl<B: Backend> AnnDataSet<B> {
                 annotation.set_obs_names(obs_names)?;
             }
             let keys = Series::new(
-                add_key,
+                add_key.into(),
                 anndatas
                     .iter()
                     .map(|(k, v)| vec![k.clone(); v.n_obs()])
@@ -271,8 +271,8 @@ impl<B: Backend> AnnDataSet<B> {
             .map(|(k, v)| (k, parent_dir.join(v.as_str()).to_str().unwrap().to_string()))
             .unzip();
         let file_loc = DataFrame::new(vec![
-            Series::new("keys", keys),
-            Series::new("file_path", filenames),
+            Series::new("keys".into(), keys),
+            Series::new("file_path".into(), filenames),
         ])?;
         adata.uns().add("AnnDataSet", file_loc)?;
         adata.close()?;
@@ -355,7 +355,7 @@ fn update_anndata_locations_by_map<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Series::new("file_path", new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     if !new_locations.is_empty() {
         ann.uns().add("AnnDataSet", data)?;
@@ -393,7 +393,7 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Series::new("file_path", new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     ann.uns().add("AnnDataSet", data)?;
     Ok(new_files)

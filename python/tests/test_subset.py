@@ -1,16 +1,13 @@
-from hypothesis import given, settings, HealthCheck, strategies as st
+from hypothesis import Phase, given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
-import pytest
-from anndata_rs import AnnData, AnnDataSet, read_dataset
+from anndata_rs import AnnData, AnnDataSet
 import os
 
 import polars as pl
 import numpy as np
-import pandas as pd
 from pathlib import Path
 import uuid
-from scipy import sparse as sp
-from scipy.sparse import csr_matrix, issparse, random, vstack
+from scipy.sparse import csr_matrix, random, vstack
 
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
@@ -26,7 +23,11 @@ def h5ad(dir=Path("./")):
     varm = arrays(integer_dtypes(endianness='='), (79, 39)),
     varp = arrays(integer_dtypes(endianness='='), (79, 79)),
 )
-@settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
+@settings(
+    deadline=None,
+    phases=(Phase.explicit, Phase.reuse, Phase.generate, Phase.target),
+    suppress_health_check = [HealthCheck.function_scoped_fixture],
+)
 def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path):
     ident = list(map(lambda x: str(x), range(len(obs))))
     adata = AnnData(

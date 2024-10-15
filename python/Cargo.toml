@@ -10,11 +10,11 @@ homepage = "https://github.com/"
 keywords = ["data"]
 
 [dependencies]
-pyanndata = { path = "../pyanndata" }
-pyo3-log = "0.10"
+pyanndata = { workspace = true }
+pyo3-log = "0.11"
 
 [dependencies.pyo3]
-version = "0.21.2"
+version = "0.22.4"
 features = ["extension-module", "multiple-pymethods"]
 
 [lib]

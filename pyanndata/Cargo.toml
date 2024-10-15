@@ -12,18 +12,19 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 keywords = ["data"]
 
 [dependencies]
-anndata = "0.4.1"
-anndata-hdf5 = "0.3"
+anndata = { version = "0.5", workspace = true }
+anndata-hdf5 = { version = "0.4", workspace = true }
 anyhow = "1.0"
 downcast-rs = "1.2"
-numpy = "0.21.0"
+numpy = "0.22"
 ndarray = "0.16"
 nalgebra-sparse = "0.10"
-hdf5 = "0.8"
-polars = { version = "0.41", features = ["ndarray"] }
-polars-core = "0.41"
-polars-arrow = "0.41"
-pyo3-polars = "0.15"
+hdf5 = { package = "hdf5-metno", version = "0.9" }
+polars = { version = "0.43", features = ["ndarray"] }
+#pyo3-polars = {version = "0.17", features = ["dtype-full"] }
+pyo3-polars = { git = "https://github.com/pola-rs/pyo3-polars", rev = "d426148ae27410aa4fb10a4a9dc67647a058244f", features = ["dtype-full"] }
+polars-core = "0.43"
+polars-arrow = "0.43"
 thiserror = "1.0"
 rand = "0.8"
 flate2 = "1.0"
@@ -32,7 +33,7 @@ parking_lot = "0.12"
 rayon = "1.10"
 
 [dependencies.pyo3]
-version = "0.21.2"
+version = "0.22.4"
 features = ["extension-module", "multiple-pymethods", "anyhow"]
 
 [lib]
