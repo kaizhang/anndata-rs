@@ -3,6 +3,7 @@ use crate::data::{DynArray, DynScalar};
 use anyhow::{bail, Result};
 use core::fmt::{Display, Formatter, Debug};
 use ndarray::{ArrayD, ArrayView};
+use serde::{Serialize, Deserialize};
 
 /// All data types that can be stored in an AnnData object.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -68,7 +69,7 @@ impl Display for ScalarType {
     }
 }
 
-pub trait BackendData: Send + Sync + Clone + 'static {
+pub trait BackendData: Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone + 'static {
     /// Type of the data
     const DTYPE: ScalarType;
 

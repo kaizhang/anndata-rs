@@ -46,7 +46,7 @@ macro_rules! impl_from_dynscalar {
                 }
                 fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
                     let dataset = location.create_scalar_data(name, self)?;
-                    let container = DataContainer::Dataset(dataset);
+                    let mut container = DataContainer::Dataset(dataset);
                     let encoding_type = if $from::DTYPE == ScalarType::String {
                         "string"
                     } else {

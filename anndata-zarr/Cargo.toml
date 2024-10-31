@@ -11,11 +11,11 @@ repository = "https://github.com/kaizhang/anndata-rs"
 homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
-#anndata = { path = '../anndata' }
-anndata = "0.4"
+anndata = { workspace = true }
+serde_json = "1.0"
 anyhow = "1.0"
-ndarray = { version = "0.16" }
-zarrs = "0.16"
+ndarray = { version = "0.16", features = ["serde"] }
+zarrs = "0.17"
 smallvec = "1.13"
 
 [dev-dependencies]

@@ -89,7 +89,7 @@ impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
         } else {
             "array"
         };
-        let container = DataContainer::<B>::Dataset(dataset);
+        let mut container = DataContainer::<B>::Dataset(dataset);
         container.write_str_attr("encoding-type", encoding_type)?;
         container.write_str_attr("encoding-version", "0.2.0")?;
         Ok(container)
@@ -130,7 +130,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         B: Backend,
         G: GroupOp<B>,
     {
-        let group = location.create_group(name)?;
+        let mut group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csr_matrix")?;
         group.write_str_attr("encoding-version", "0.1.0")?;
         group.write_str_attr("h5sparse_format", "csr")?;
@@ -207,7 +207,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         B: Backend,
         G: GroupOp<B>,
     {
-        let group = location.create_group(name)?;
+        let mut group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "csr_matrix")?;
         group.write_str_attr("encoding-version", "0.1.0")?;
         group.write_str_attr("h5sparse_format", "csr")?;

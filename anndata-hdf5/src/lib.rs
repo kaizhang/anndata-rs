@@ -1,6 +1,9 @@
-use anndata::{backend::*, data::{BoundedSelectInfo, BoundedSelectInfoElem, DynArray, DynScalar, SelectInfoElem, Shape}};
+use anndata::{
+    backend::*,
+    data::{DynArray, DynScalar, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape},
+};
 
-use anyhow::{bail, Result, Ok};
+use anyhow::{bail, Ok, Result};
 use hdf5::{
     dataset::Dataset,
     types::IntSize::*,
@@ -114,7 +117,7 @@ fn new_dataset<T: BackendData>(
         ScalarType::I16 => group.new_dataset::<i16>(),
         ScalarType::I32 => group.new_dataset::<i32>(),
         ScalarType::I64 => group.new_dataset::<i64>(),
-        ScalarType::F32 => group.new_dataset::<f32>(),  
+        ScalarType::F32 => group.new_dataset::<f32>(),
         ScalarType::F64 => group.new_dataset::<f64>(),
         ScalarType::Bool => group.new_dataset::<bool>(),
         ScalarType::String => group.new_dataset::<VarLenUnicode>(),
@@ -250,7 +253,7 @@ impl DatasetOp<H5> for H5Dataset {
         hdf5::Container::shape(self).into()
     }
 
-    fn reshape(&self, shape: &Shape) -> Result<()> {
+    fn reshape(&mut self, shape: &Shape) -> Result<()> {
         Ok(Dataset::resize(self, shape.as_ref())?)
     }
 
@@ -289,22 +292,35 @@ impl DatasetOp<H5> for H5Dataset {
             D: Dimension,
         {
             let arr = arr_.view().into_dyn();
-            let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
-                SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
-                _ => None,
-            }).collect::<Option<Vec<_>>>();
+            let slices = info
+                .as_ref()
+                .into_iter()
+                .map(|x| match x.as_ref() {
+                    SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>();
             if let Some(slices) = slices {
                 arr.slice(slices.as_slice()).into_owned()
             } else {
                 let shape = arr_.shape();
-                let select: Vec<_> = info.as_ref().into_iter().zip(shape)
-                    .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n)).collect();
+                let select: Vec<_> = info
+                    .as_ref()
+                    .into_iter()
+                    .zip(shape)
+                    .map(|(x, n)| SelectInfoElemBounds::new(x.as_ref(), *n))
+                    .collect();
                 let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
                 ArrayD::from_shape_fn(new_shape, |idx| {
-                    let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();
+                    let new_idx: Vec<_> = (0..idx.ndim())
+                        .into_iter()
+                        .map(|i| select[i].index(idx[i]))
+                        .collect();
                     arr.index(new_idx.as_slice()).clone()
                 })
-            }.into_dimensionality::<D>().unwrap()
+            }
+            .into_dimensionality::<D>()
+            .unwrap()
         }
 
         fn read_arr<T, S, D>(dataset: &H5Dataset, selection: &[S]) -> Result<Array<T, D>>
@@ -391,7 +407,9 @@ impl DatasetOp<H5> for H5Dataset {
             S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
-            container.deref().write_slice(&arr.as_standard_layout(), select)?;
+            container
+                .deref()
+                .write_slice(&arr.as_standard_layout(), select)?;
             Ok(())
         }
 
@@ -480,8 +498,10 @@ fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Re
         DynScalar::Bool(x) => loc.new_attr::<bool>().create(name)?.write_scalar(&x)?,
         DynScalar::String(x) => {
             let value_: VarLenUnicode = x.parse().unwrap();
-            loc.new_attr::<VarLenUnicode>().create(name)?.write_scalar(&value_)?
-        },
+            loc.new_attr::<VarLenUnicode>()
+                .create(name)?
+                .write_scalar(&value_)?
+        }
     };
     Ok(())
 }
@@ -506,7 +526,10 @@ fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
     T::from_dyn(val)
 }
 
-fn read_array_attr<T: BackendData, D: Dimension>(loc: &Location, name: &str) -> Result<Array<T, D>> {
+fn read_array_attr<T: BackendData, D: Dimension>(
+    loc: &Location,
+    name: &str,
+) -> Result<Array<T, D>> {
     let attr = loc.attr(name)?;
     if attr.size() == 0 {
         let shape = D::zeros(D::NDIM.unwrap_or(0));
@@ -633,7 +656,7 @@ impl AttributeOp<H5> for H5Group {
         path(self)
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -642,11 +665,11 @@ impl AttributeOp<H5> for H5Group {
         write_array_attr(self, name, value)
     }
 
-    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         write_scalar_attr(self, name, value)
     }
 
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
         write_str_attr(self, name, value)
     }
 
@@ -668,7 +691,7 @@ impl AttributeOp<H5> for H5Dataset {
         path(self)
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -677,11 +700,11 @@ impl AttributeOp<H5> for H5Dataset {
         write_array_attr(self, name, value)
     }
 
-    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         write_scalar_attr(self, name, value)
     }
 
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
         write_str_attr(self, name, value)
     }
 
@@ -706,7 +729,7 @@ where
     if selection.as_ref().into_iter().all(|x| x.as_ref().is_full()) {
         (Selection::All, shape)
     } else {
-        let bounded_selection = BoundedSelectInfo::new(&selection, &shape);
+        let bounded_selection = SelectInfoBounds::new(&selection, &shape);
         let out_shape = bounded_selection.out_shape();
         if let Some(idx) = bounded_selection.try_into_indices() {
             (Selection::from(idx), out_shape)
@@ -731,9 +754,9 @@ fn del_attr(loc: &Location, name: &str) {
 mod tests {
     use super::*;
     use anndata::s;
+    use ndarray::{concatenate, Array1, Axis, Ix1};
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
-    use ndarray::{Array1, Axis, concatenate, Ix1};
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -783,7 +806,8 @@ mod tests {
                 ..Default::default()
             };
 
-            let dataset = file.new_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
+            let mut dataset =
+                file.new_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
             let arr = Array::random((20, 50), Uniform::new(0, 100));
 
             // Repeatitive writes
@@ -791,7 +815,9 @@ mod tests {
             dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
 
             // Out-of-bounds writes should fail
-            assert!(dataset.write_array_slice(&arr, s![20..40, ..].as_ref()).is_err());
+            assert!(dataset
+                .write_array_slice(&arr, s![20..40, ..].as_ref())
+                .is_err());
 
             // Reshape and write
             dataset.reshape(&[40, 50].as_slice().into())?;
@@ -809,4 +835,3 @@ mod tests {
         })
     }
 }
-

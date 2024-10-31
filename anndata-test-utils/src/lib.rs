@@ -1,39 +1,40 @@
 mod common;
+use anyhow::Context;
 pub use common::*;
 
-use anndata::{*, data::CsrNonCanonical};
-use ndarray::Array2;
+use anndata::{data::CsrNonCanonical, *};
 use nalgebra_sparse::{CooMatrix, CsrMatrix};
+use ndarray::Array2;
 use proptest::prelude::*;
 
 pub fn test_basic<B: Backend>() {
     with_tmp_dir(|dir| {
-        let ann1 = AnnData::<B>::new(dir.join("test1.h5ad")).unwrap();
+        let ann1 = AnnData::<B>::new(dir.join("test1")).unwrap();
         let csc = rand_csc::<i32>(10, 5, 3, 1, 100);
         ann1.obsm().add("csc", &csc).unwrap();
         assert!(ann1.obsm().get_item::<CsrMatrix<i32>>("csc").is_err());
 
-        let ann2 = AnnData::<B>::new(dir.join("test2.h5ad")).unwrap();
+        let ann2 = AnnData::<B>::new(dir.join("test2")).unwrap();
         AnnDataSet::<B>::new(
             [("ann1", ann1), ("ann2", ann2)],
-            dir.join("dataset.h5ads"),
+            dir.join("dataset"),
             "sample",
-        ).unwrap();
-
+        )
+        .unwrap();
     })
 }
 
 pub fn test_save<B: Backend>() {
     with_tmp_dir(|dir| {
-        let input = dir.join("input.h5ad");
-        let output = dir.join("output.h5ad");
-        let anndatas = ((0 as usize ..100), (0 as usize ..100))
-            .prop_flat_map(|(n_obs, n_vars)|
-                ( anndata_strat::<B, _>(&input, n_obs, n_vars),
-                  select_strat(n_obs),
-                  select_strat(n_vars),
-                )
-            );
+        let input = dir.join("input");
+        let output = dir.join("output");
+        let anndatas = ((0 as usize..100), (0 as usize..100)).prop_flat_map(|(n_obs, n_vars)| {
+            (
+                anndata_strat::<B, _>(&input, n_obs, n_vars),
+                select_strat(n_obs),
+                select_strat(n_vars),
+            )
+        });
         proptest!(ProptestConfig::with_cases(100), |((adata, slice_obs, slice_var) in anndatas)| {
             adata.write::<B, _>(&output).unwrap();
             let adata_in = AnnData::<B>::open(B::open(&output).unwrap()).unwrap();
@@ -59,7 +60,7 @@ where
     T: AnnDataOp,
 {
     let adata = adata_gen();
-    
+
     let arr = Array2::<i32>::zeros((0, 0));
     adata.set_x(&arr).unwrap();
 
@@ -68,7 +69,7 @@ where
     assert!(adata.obsm().add("test", &arr2).is_err());
 
     // Automatical data type casting
-    adata.x().get::<Array2<f64>>().unwrap().unwrap();
+    adata.x().get::<Array2<f64>>().expect("Automatical data type casting failed").unwrap();
 }
 
 pub fn test_noncanonical<F, T>(adata_gen: F)
@@ -78,11 +79,13 @@ where
 {
     let adata = adata_gen();
     let coo: CooMatrix<i32> = CooMatrix::try_from_triplets(
-        5, 4,
-        vec![0,1,1,1,2,3,4],
-        vec![0,0,0,2,3,1,3],
-        vec![1,2,3,4,5,6,7],
-    ).unwrap();
+        5,
+        4,
+        vec![0, 1, 1, 1, 2, 3, 4],
+        vec![0, 0, 0, 2, 3, 1, 3],
+        vec![1, 2, 3, 4, 5, 6, 7],
+    )
+    .unwrap();
     adata.set_x(&CsrNonCanonical::from(&coo)).unwrap();
     assert!(adata.x().get::<CsrMatrix<i32>>().is_err());
     adata.x().get::<CsrNonCanonical<i32>>().unwrap().unwrap();
@@ -94,7 +97,8 @@ where
     F: Fn() -> T,
     T: AnnDataOp,
 {
-    let arrays = proptest::collection::vec(0 as usize ..50, 2..4).prop_flat_map(|shape| array_strat(&shape));
+    let arrays =
+        proptest::collection::vec(0 as usize..50, 2..4).prop_flat_map(|shape| array_strat(&shape));
     proptest!(ProptestConfig::with_cases(256), |(x in arrays)| {
         let adata = adata_gen();
         adata.set_x(&x).unwrap();
@@ -107,7 +111,7 @@ where
     F: Fn() -> T,
     T: AnnDataOp,
 {
-    let arrays = proptest::collection::vec(0 as usize ..50, 2..4)
+    let arrays = proptest::collection::vec(0 as usize..50, 2..4)
         .prop_flat_map(|shape| array_slice_strat(&shape));
     proptest!(ProptestConfig::with_cases(256), |((x, select) in arrays)| {
         let adata = adata_gen();
@@ -130,8 +134,8 @@ where
     F: Fn() -> T,
     T: AnnDataOp,
 {
-    let arrays = proptest::collection::vec(20 as usize ..50, 2..3)
-        .prop_flat_map(|shape| array_strat(&shape));
+    let arrays =
+        proptest::collection::vec(20 as usize..50, 2..3).prop_flat_map(|shape| array_strat(&shape));
     proptest!(ProptestConfig::with_cases(10), |(x in arrays)| {
         if let ArrayData::CscMatrix(_) = x {
         } else {

@@ -3,7 +3,7 @@ use crate::{
     data::{
         data_traits::*,
         scalar::DynScalar,
-        slice::{Shape, SelectInfoElem, BoundedSelectInfoElem},
+        slice::{Shape, SelectInfoElem, SelectInfoElemBounds},
     },
 };
 
@@ -296,7 +296,7 @@ impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
         } else {
             "array"
         };
-        let container = DataContainer::<B>::Dataset(dataset);
+        let mut container = DataContainer::<B>::Dataset(dataset);
         container.write_str_attr("encoding-type", encoding_type)?;
         container.write_str_attr("encoding-version", "0.2.0")?;
         Ok(container)
@@ -347,7 +347,7 @@ impl<T: BackendData, D: RemoveAxis> ArrayOp for Array<T, D> {
         } else {
             let shape = self.shape();
             let select: Vec<_> = info.as_ref().into_iter().zip(shape)
-                .map(|(x, n)| BoundedSelectInfoElem::new(x.as_ref(), *n)).collect();
+                .map(|(x, n)| SelectInfoElemBounds::new(x.as_ref(), *n)).collect();
             let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
             ArrayD::from_shape_fn(new_shape, |idx| {
                 let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();
@@ -435,7 +435,7 @@ impl WriteData for CategoricalArray {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let group = location.create_group(name)?;
+        let mut group = location.create_group(name)?;
         group.write_str_attr("encoding-type", "categorical")?;
         group.write_str_attr("encoding-version", "0.2.0")?;
         group.write_scalar_attr("ordered", false)?;

@@ -4,7 +4,7 @@ use crate::data::{
     data_traits::*,
     scalar::DynScalar,
     slice::{SelectInfoElem, Shape},
-    BoundedSelectInfo, BoundedSelectInfoElem,
+    SelectInfoBounds, SelectInfoElemBounds,
 };
 
 use anyhow::{bail, anyhow, Context, Result};
@@ -13,7 +13,7 @@ use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::Ix1;
 use num::FromPrimitive;
 
-use super::super::slice::BoundedSlice;
+use super::super::slice::SliceBounds;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynCsrMatrix {
@@ -308,7 +308,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
     where
         S: AsRef<SelectInfoElem>,
     {
-        let info = BoundedSelectInfo::new(&info, &self.shape());
+        let info = SelectInfoBounds::new(&info, &self.shape());
         if info.ndim() != 2 {
             panic!("index must have length 2");
         }
@@ -317,7 +317,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
         let (row_offsets, col_indices, data) = self.csr_data();
         let (new_row_offsets, new_col_indices, new_data) = if col_idx.is_full(info.in_shape()[1]) {
             match row_idx {
-                &BoundedSelectInfoElem::Slice(BoundedSlice { step, start, end }) => {
+                &SelectInfoElemBounds::Slice(SliceBounds { step, start, end }) => {
                     if step == 1 {
                         let (offsets, indices, data) =
                             cs_major_slice(start, end, row_offsets, col_indices, data);
@@ -342,16 +342,16 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                         )
                     }
                 }
-                BoundedSelectInfoElem::Index(idx) => {
+                SelectInfoElemBounds::Index(idx) => {
                     cs_major_index(idx.iter().copied(), row_offsets, col_indices, data)
                 }
             }
         } else {
             match row_idx {
-                &BoundedSelectInfoElem::Slice(BoundedSlice { start: row_start,end: row_end, step: row_step }) => {
+                &SelectInfoElemBounds::Slice(SliceBounds { start: row_start,end: row_end, step: row_step }) => {
                     if row_step < 0 {
                         match col_idx {
-                            &BoundedSelectInfoElem::Slice(col) => {
+                            &SelectInfoElemBounds::Slice(col) => {
                                 if col.step < 0 {
                                     cs_major_minor_index(
                                         (row_start..row_end).step_by(row_step.abs() as usize).rev(),
@@ -372,7 +372,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
+                            SelectInfoElemBounds::Index(idx) => cs_major_minor_index(
                                 (row_start..row_end).step_by(row_step.abs() as usize).rev(),
                                 idx.iter().copied(),
                                 self.ncols(),
@@ -383,7 +383,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                         }
                     } else {
                         match col_idx {
-                            &BoundedSelectInfoElem::Slice(col) => {
+                            &SelectInfoElemBounds::Slice(col) => {
                                 if col.step < 0 {
                                     cs_major_minor_index(
                                         (row_start..row_end).step_by(row_step as usize),
@@ -404,7 +404,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
+                            SelectInfoElemBounds::Index(idx) => cs_major_minor_index(
                                 (row_start..row_end).step_by(row_step as usize),
                                 idx.iter().copied(),
                                 self.ncols(),
@@ -415,8 +415,8 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                         }
                     }
                 }
-                BoundedSelectInfoElem::Index(i) => match col_idx {
-                    &BoundedSelectInfoElem::Slice(col) => {
+                SelectInfoElemBounds::Index(i) => match col_idx {
+                    &SelectInfoElemBounds::Slice(col) => {
                         if col.step < 0 {
                             cs_major_minor_index(
                                 i.iter().copied(),
@@ -437,7 +437,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
                             )
                         }
                     }
-                    BoundedSelectInfoElem::Index(j) => cs_major_minor_index(
+                    SelectInfoElemBounds::Index(j) => cs_major_minor_index(
                         i.iter().copied(),
                         j.iter().copied(),
                         self.ncols(),
@@ -491,7 +491,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let group = location.create_group(name)?;
+        let mut group = location.create_group(name)?;
         let shape = self.shape();
 
         group.write_str_attr("encoding-type", "csr_matrix")?;

@@ -1,14 +1,12 @@
 use anndata::*;
 
 use anndata::data::index::Interval;
-use anndata::data::{BoundedSelectInfoElem, DataFrameIndex, SelectInfoElem};
+use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anyhow::Result;
 use itertools::Itertools;
 use nalgebra::base::DMatrix;
 use nalgebra::{ClosedAddAssign, Scalar};
-use nalgebra_sparse::{
-    coo::CooMatrix, csr::CsrMatrix, csc::CscMatrix,
-};
+use nalgebra_sparse::{coo::CooMatrix, csc::CscMatrix, csr::CsrMatrix};
 use ndarray::{Array, Axis, Dimension, RemoveAxis};
 use ndarray_rand::rand_distr::uniform::SampleUniform;
 use ndarray_rand::rand_distr::Uniform;
@@ -472,8 +470,8 @@ fn csr_select<T: Scalar + Zero + Copy>(
     csr: &CsrMatrix<T>,
     select: &[SelectInfoElem],
 ) -> CsrMatrix<T> {
-    let i = BoundedSelectInfoElem::new(&select[0], csr.nrows()).to_vec();
-    let j = BoundedSelectInfoElem::new(&select[1], csr.ncols()).to_vec();
+    let i = SelectInfoElemBounds::new(&select[0], csr.nrows()).to_vec();
+    let j = SelectInfoElemBounds::new(&select[1], csr.ncols()).to_vec();
     let mut dm = DMatrix::<T>::zeros(csr.nrows(), csr.ncols());
     csr.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
     CsrMatrix::from(&dm.select_rows(&i).select_columns(&j))
@@ -496,8 +494,8 @@ fn csc_select<T: Scalar + Zero + Copy>(
     csc: &CscMatrix<T>,
     select: &[SelectInfoElem],
 ) -> CscMatrix<T> {
-    let i = BoundedSelectInfoElem::new(&select[0], csc.nrows()).to_vec();
-    let j = BoundedSelectInfoElem::new(&select[1], csc.ncols()).to_vec();
+    let i = SelectInfoElemBounds::new(&select[0], csc.nrows()).to_vec();
+    let j = SelectInfoElemBounds::new(&select[1], csc.ncols()).to_vec();
     let mut dm = DMatrix::<T>::zeros(csc.nrows(), csc.ncols());
     csc.triplet_iter().for_each(|(r, c, v)| dm[(r, c)] = *v);
     CscMatrix::from(&dm.select_rows(&i).select_columns(&j))
@@ -509,7 +507,7 @@ fn dense_array_select<T: Clone, D: Dimension + RemoveAxis>(
 ) -> Array<T, D> {
     let mut result = array.clone();
     array.shape().into_iter().enumerate().for_each(|(i, &dim)| {
-        let idx = BoundedSelectInfoElem::new(&select[i], dim).to_vec();
+        let idx = SelectInfoElemBounds::new(&select[i], dim).to_vec();
         result = result.select(Axis(i), idx.as_slice());
     });
     result

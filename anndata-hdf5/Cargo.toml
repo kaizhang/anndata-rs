@@ -11,7 +11,7 @@ repository = "https://github.com/kaizhang/anndata-rs"
 homepage = "https://github.com/kaizhang/anndata-rs"
 
 [dependencies]
-anndata = { version = "0.5", workspace = true }
+anndata = { workspace = true }
 anyhow = "1.0"
 hdf5 = { package = "hdf5-metno", version = "0.9" }
 hdf5-sys = { package = "hdf5-metno-sys", version = "0.9", features = ["static", "zlib", "threadsafe"] }

@@ -4,7 +4,7 @@ use crate::data::{
     data_traits::*,
     scalar::DynScalar,
     slice::{SelectInfoElem, Shape},
-    BoundedSelectInfo, BoundedSelectInfoElem,
+    SelectInfoBounds, SelectInfoElemBounds,
 };
 
 use anyhow::{bail, Context, Result};
@@ -13,7 +13,7 @@ use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::Ix1;
 use num::FromPrimitive;
 
-use super::super::slice::BoundedSlice;
+use super::super::slice::SliceBounds;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynCscMatrix {
@@ -317,7 +317,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
     where
         S: AsRef<SelectInfoElem>,
     {
-        let info = BoundedSelectInfo::new(&info, &self.shape());
+        let info = SelectInfoBounds::new(&info, &self.shape());
         if info.ndim() != 2 {
             panic!("index must have length 2");
         }
@@ -326,7 +326,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         let (col_offsets, row_indices, data) = self.csc_data();
         let (new_col_offsets, new_row_indices, new_data) = if row_idx.is_full(info.in_shape()[0]) {
             match col_idx {
-                &BoundedSelectInfoElem::Slice(BoundedSlice { step, start, end }) => {
+                &SelectInfoElemBounds::Slice(SliceBounds { step, start, end }) => {
                     if step == 1 {
                         let (offsets, indices, data) =
                             cs_major_slice(start, end, col_offsets, row_indices, data);
@@ -351,18 +351,18 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                         )
                     }
                 }
-                BoundedSelectInfoElem::Index(idx) => {
+                SelectInfoElemBounds::Index(idx) => {
                     cs_major_index(idx.iter().copied(), col_offsets, row_indices, data)
                 }
             }
         } else {
             // row_idx not full
             match col_idx {
-                &BoundedSelectInfoElem::Slice(BoundedSlice { start: col_start,end: col_end, step: col_step }) => {
+                &SelectInfoElemBounds::Slice(SliceBounds { start: col_start,end: col_end, step: col_step }) => {
                     if col_step < 0 {
                         // col_idx is major, row_idx is minor
                         match row_idx {
-                            &BoundedSelectInfoElem::Slice(row) => {
+                            &SelectInfoElemBounds::Slice(row) => {
                                 if row.step < 0 {
                                     cs_major_minor_index(
                                         (col_start..col_end).step_by(col_step.abs() as usize).rev(),
@@ -383,7 +383,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
+                            SelectInfoElemBounds::Index(idx) => cs_major_minor_index(
                                 (col_start..col_end).step_by(col_step.abs() as usize).rev(),
                                 idx.iter().copied(),
                                 self.nrows(),
@@ -395,7 +395,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                     } else {
                         // col_step >0, col_idx is major, row_idx is minor
                         match row_idx {
-                            &BoundedSelectInfoElem::Slice(row) => {
+                            &SelectInfoElemBounds::Slice(row) => {
                                 if row.step < 0 {
                                     cs_major_minor_index(
                                         (col_start..col_end).step_by(col_step as usize),
@@ -416,7 +416,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                                     )
                                 }
                             }
-                            BoundedSelectInfoElem::Index(idx) => cs_major_minor_index(
+                            SelectInfoElemBounds::Index(idx) => cs_major_minor_index(
                                 (col_start..col_end).step_by(col_step as usize),
                                 idx.iter().copied(),
                                 self.nrows(),
@@ -427,8 +427,8 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                         }
                     }
                 }
-                BoundedSelectInfoElem::Index(i) => match row_idx {
-                    &BoundedSelectInfoElem::Slice(row) => {
+                SelectInfoElemBounds::Index(i) => match row_idx {
+                    &SelectInfoElemBounds::Slice(row) => {
                         if row.step < 0 {
                             cs_major_minor_index(
                                 i.iter().copied(),
@@ -449,7 +449,7 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
                             )
                         }
                     }
-                    BoundedSelectInfoElem::Index(j) => cs_major_minor_index(
+                    SelectInfoElemBounds::Index(j) => cs_major_minor_index(
                         i.iter().copied(),
                         j.iter().copied(),
                         self.nrows(),
@@ -487,7 +487,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let group = location.create_group(name)?;
+        let mut group = location.create_group(name)?;
         let shape = self.shape();
 
         group.write_str_attr("encoding-type", "csc_matrix")?;

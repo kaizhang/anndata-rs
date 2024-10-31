@@ -15,7 +15,7 @@ use polars::datatypes::{CategoricalChunkedBuilder, DataType};
 use polars::prelude::IntoSeries;
 use polars::prelude::{DataFrame, Series};
 
-use super::{BoundedSelectInfo, BoundedSelectInfoElem};
+use super::{SelectInfoBounds, SelectInfoElemBounds};
 
 impl WriteData for DataFrame {
     fn data_type(&self) -> crate::backend::DataType {
@@ -26,7 +26,7 @@ impl WriteData for DataFrame {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let group = if location.exists(name)? {
+        let mut group = if location.exists(name)? {
             location.open_group(name)?
         } else {
             location.create_group(name)?
@@ -105,8 +105,8 @@ impl HasShape for DataFrame {
 }
 
 impl ArrayOp for DataFrame {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        self[index[1]].get(&[index[0]])
+    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
+        todo!()
     }
 
     fn select<S>(&self, info: &[S]) -> Self
@@ -117,7 +117,7 @@ impl ArrayOp for DataFrame {
             panic!("DataFrame only support 2D selection");
         }
         let columns = self.get_column_names();
-        let select = BoundedSelectInfo::new(&info, &HasShape::shape(self));
+        let select = SelectInfoBounds::new(&info, &HasShape::shape(self));
         let ridx = select.as_ref()[0].iter().map(|x| x as u32).collect();
         self.select(select.as_ref()[1].to_vec().into_iter().map(|i| columns[i].as_str()))
             .unwrap()
@@ -150,7 +150,7 @@ impl ReadArrayData for DataFrame {
         S: AsRef<SelectInfoElem>,
     {
         let columns: Vec<String> = container.read_array_attr("column-order")?.to_vec();
-        BoundedSelectInfoElem::new(&info.as_ref()[1], columns.len())
+        SelectInfoElemBounds::new(&info.as_ref()[1], columns.len())
             .iter()
             .map(|i| {
                 let name = &columns[i];
@@ -319,7 +319,7 @@ impl ArrayOp for Series {
     where
         S: AsRef<SelectInfoElem>,
     {
-        let i = BoundedSelectInfoElem::new(info.as_ref()[0].as_ref(), self.len())
+        let i = SelectInfoElemBounds::new(info.as_ref()[0].as_ref(), self.len())
             .iter().map(|x| x as u32).collect::<Vec<_>>();
         self.take(&ChunkedArray::from_vec("idx".into(), i)).unwrap()
     }
@@ -414,14 +414,14 @@ impl WriteData for DataFrameIndex {
         self.overwrite(DataContainer::Group(group))
     }
 
-    fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
+    fn overwrite<B: Backend>(&self, mut container: DataContainer<B>) -> Result<DataContainer<B>> {
         if let Ok(index_name) = container.read_str_attr("_index") {
             container.as_group()?.delete(&index_name)?;
         }
         container.write_str_attr("_index", &self.index_name)?;
         let group = container.as_group()?;
         let arr: Array1<String> = self.clone().into_iter().collect();
-        let data = group.create_array_data(&self.index_name, &arr, Default::default())?;
+        let mut data = group.create_array_data(&self.index_name, &arr, Default::default())?;
         match &self.index {
             Index::List(_) => { data.write_str_attr("index_type", "list")?; },
             Index::Intervals(intervals) => {

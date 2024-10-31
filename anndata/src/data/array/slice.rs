@@ -4,10 +4,18 @@ use itertools::Itertools;
 use std::ops::{RangeFull, Range, Index, IndexMut, RangeFrom, RangeTo};
 use smallvec::{SmallVec, smallvec};
 
+/// A structure that represents a shape, internally represented as a small vector.
+/// 
+/// # Examples
+/// ```
+/// let shape = Shape::from(vec![3, 4, 5]);
+/// assert_eq!(shape.ndim(), 3);
+/// ```
 #[derive(Clone, Debug)]
 pub struct Shape(SmallVec<[usize; 3]>);
 
 impl Shape {
+    /// Returns the number of dimensions in the shape.
     pub fn ndim(&self) -> usize {
         self.0.len()
     }
@@ -20,12 +28,14 @@ impl std::fmt::Display for Shape {
 }
 
 impl AsRef<[usize]> for Shape {
+    /// Provides a reference to the underlying shape data as a slice of `usize`.
     fn as_ref(&self) -> &[usize] {
         &self.0
     }
 }
 
 impl AsMut<[usize]> for Shape {
+    /// Provides a mutable reference to the underlying shape data as a slice of `usize`.
     fn as_mut(&mut self) -> &mut [usize] {
         &mut self.0
     }
@@ -75,7 +85,7 @@ impl FromIterator<usize> for Shape {
     }
 }
 
-/// A multi-dimensional selection used for reading and writing to a Container.
+/// A structure that represents a multidimensional selection, used for reading and writing to a container.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SelectInfo(pub Vec<SelectInfoElem>);
 
@@ -86,12 +96,14 @@ impl AsRef<[SelectInfoElem]> for SelectInfo {
 }
 
 impl FromIterator<SelectInfoElem> for SelectInfo {
+    /// Constructs `SelectInfo` from an iterator of `SelectInfoElem`.
     fn from_iter<T: IntoIterator<Item = SelectInfoElem>>(iter: T) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
 impl FromIterator<Slice> for SelectInfo {
+    /// Constructs `SelectInfo` from an iterator of slices.
     fn from_iter<T: IntoIterator<Item = Slice>>(iter: T) -> Self {
         Self(iter.into_iter().map(SelectInfoElem::Slice).collect())
     }
@@ -107,6 +119,7 @@ impl<'a> FromIterator<&'a Slice> for SelectInfo {
 impl TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for SelectInfo {
     type Error = anyhow::Error;
 
+    /// Attempts to convert `SelectInfo` into a `SliceInfo` object. Returns an error if conversion fails.
     fn try_into(self) -> Result<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> {
         let elems: Result<Vec<_>> = self.0.into_iter().map(|e| match e {
             SelectInfoElem::Slice(s) => Ok(SliceInfoElem::from(s)),
@@ -118,14 +131,19 @@ impl TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for SelectInfo {
 }
 
 impl SelectInfo {
-    pub fn all(n: usize) -> Self {
+    /// Creates a new `SelectInfo` with a specified number of full slices.
+    ///
+    /// # Parameters
+    /// - `n`: The number of full slices to include.
+    ///
+    /// # Returns
+    /// `SelectInfo` with `n` full slices.
+    pub fn full_slice(n: usize) -> Self {
         Self(vec![SelectInfoElem::Slice(SLICE_FULL); n])
     }
 }
 
-
-
-/// A selection used for reading and writing to a Container.
+/// Enum representing different types of selection elements for indexing and slicing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectInfoElem {
     Index(Vec<usize>),
@@ -258,15 +276,11 @@ impl SelectInfoElem {
                 }
             ),
             SelectInfoElem::Slice(slice) => {
-                if let Some(end) = slice.end {
-                    if end > bound as isize {
-                        bail!("slice end out of bounds: {} >= {}", end, bound)
-                    } else {
-                        Ok(())
-                    }
+                slice.end.map_or(Ok(()), |end| if end > bound as isize {
+                    bail!("slice end out of bounds: {} >= {}", end, bound)
                 } else {
                     Ok(())
-                }
+                })
             }
         }
     }
@@ -304,23 +318,35 @@ impl SelectInfoElem {
         )
     }
 }
-pub struct BoundedSelectInfo<'a> {
+
+/// `SelectInfoBounds` represents bounds-aware selection information. 
+/// It includes an input shape and a list of selection elements with bound information for each axis.
+/// 
+/// # Example
+/// ```
+/// let shape = Shape::from(vec![5, 10]);
+/// let select = SelectInfoBounds::new(&[SelectInfoElem::Slice(Slice { start: 0, end: Some(5), step: 1 })], &shape);
+/// assert_eq!(select.in_shape(), shape);
+/// ```
+pub struct SelectInfoBounds<'a> {
     input_shape: Shape,
-    select: Vec<BoundedSelectInfoElem<'a>>,
+    select: Vec<SelectInfoElemBounds<'a>>,
 }
 
-impl<'a> AsRef<[BoundedSelectInfoElem<'a>]> for BoundedSelectInfo<'a> {
-    fn as_ref(&self) -> &[BoundedSelectInfoElem<'a>] {
+impl<'a> AsRef<[SelectInfoElemBounds<'a>]> for SelectInfoBounds<'a> {
+    /// Provides a reference to the selection elements with bounds.
+    fn as_ref(&self) -> &[SelectInfoElemBounds<'a>] {
         &self.select
     }
 }
 
-impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for BoundedSelectInfo<'a>{
+impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for SelectInfoBounds<'a>{
     type Error = anyhow::Error;
 
+    /// Attempts to convert `SelectInfoBounds` into a `SliceInfo`, retaining the bounded selection elements.
     fn try_into(self) -> Result<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> {
         let elems: Result<Vec<_>> = self.select.into_iter().map(|e| match e {
-            BoundedSelectInfoElem::Slice(s) => Ok(s.into()),
+            SelectInfoElemBounds::Slice(s) => Ok(s.into()),
             _ => bail!("Cannot convert SelectInfo to SliceInfo"),
         }).collect();
         let slice = SliceInfo::try_from(elems?)?;
@@ -329,14 +355,19 @@ impl<'a> TryInto<SliceInfo<Vec<SliceInfoElem>, IxDyn, IxDyn>> for BoundedSelectI
 }
 
 
-impl<'a> BoundedSelectInfo<'a> {
+impl<'a> SelectInfoBounds<'a> {
+    /// Constructs a new `SelectInfoBounds` with a given selection and shape.
+    ///
+    /// # Parameters
+    /// - `select`: Reference to a selection, which may include indices and slices.
+    /// - `shape`: Shape of the container being indexed.
     pub fn new<S, E>(select: &'a S, shape: &Shape) -> Self
     where
         S: AsRef<[E]>,
         E: AsRef<SelectInfoElem> + 'a,
     {
         let res: Vec<_> = select.as_ref().iter().zip(shape.as_ref()).map(|(sel, dim)|
-            BoundedSelectInfoElem::new(sel.as_ref(), *dim)
+            SelectInfoElemBounds::new(sel.as_ref(), *dim)
         ).collect();
         Self {
             input_shape: shape.clone(),
@@ -344,18 +375,22 @@ impl<'a> BoundedSelectInfo<'a> {
         }
     }
 
+    /// Returns the input shape.
     pub fn in_shape(&self) -> Shape {
         self.input_shape.clone()
     }
 
+    /// Calculates and returns the output shape based on the selection bounds.
     pub fn out_shape(&self) -> Shape {
         Shape::from(self.select.iter().map(|x| x.len()).collect::<Vec<_>>())
     }
 
-    pub fn size(&self) -> usize {
+    /// Returns the total number of elements in the output shape.
+    pub fn out_size(&self) -> usize {
         self.out_shape().as_ref().iter().product()
     }
 
+    /// Returns the number of dimensions in the selection.
     pub fn ndim(&self) -> usize {
         self.select.len()
     }
@@ -367,38 +402,41 @@ impl<'a> BoundedSelectInfo<'a> {
         let out_shape = self.out_shape();
         let (unique, mapping): (Vec<_>, Vec<_>) = self.select.iter().zip(out_shape.as_ref())
             .map(|(sel, dim)| match sel {
-                BoundedSelectInfoElem::Index(x) => {
+                SelectInfoElemBounds::Index(x) => {
                     let (unique, mapping) = unique_indices(x, *dim);
                     (unique.into(), mapping.into())
             }
-            BoundedSelectInfoElem::Slice(x) => todo!(),
+            SelectInfoElemBounds::Slice(x) => todo!(),
         }).unzip();
         todo!()
     }
     */
 
-    /// Convert into indices. Fail if elements are all slices.
+    /// Attempts to convert the selection into indices. Fail if elements are all slices.
+    /// 
+    /// # Returns
+    /// An optional `Array2` of indices if conversion is possible.
     pub fn try_into_indices(&self) -> Option<Array2<usize>> {
-        if self.select.iter().all(|e| matches!(e, BoundedSelectInfoElem::Slice(_))) {
+        if self.select.iter().all(|e| matches!(e, SelectInfoElemBounds::Slice(_))) {
             return None;
         }
 
         let shape = self.out_shape();
         let ncols = self.ndim();
-        let nrows = self.size();
+        let nrows = self.out_size();
 
         let mut result: Array2<usize> = Array2::zeros((nrows, ncols));
 
         for c in 0..ncols {
             let n_repeat = shape.as_ref()[(c+1)..].iter().product();
             match self.select[c] {
-                BoundedSelectInfoElem::Index(ref x) => {
+                SelectInfoElemBounds::Index(ref x) => {
                     let mut values = x.iter().flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
                     for r in 0..nrows {
                         result[[r, c]] = *values.next().unwrap();
                     }
                 },
-                BoundedSelectInfoElem::Slice(BoundedSlice { start, end, step }) => {
+                SelectInfoElemBounds::Slice(SliceBounds { start, end, step }) => {
                     if step > 0 {
                         let mut values = (start..end).step_by(step as usize).flat_map(|x| std::iter::repeat(x).take(n_repeat)).cycle();
                         for r in 0..nrows {
@@ -415,21 +453,28 @@ impl<'a> BoundedSelectInfo<'a> {
         }
         Some(result)
     }
+
+    pub fn iter(&self) -> impl ExactSizeIterator<Item=&SelectInfoElemBounds<'a>> + '_ {
+        self.select.iter()
+    }
 }
 
-pub enum BoundedSelectInfoElem<'a> {
+/// Enum representing selection elements with bounds awareness.
+pub enum SelectInfoElemBounds<'a> {
     Index(&'a [usize]),
-    Slice(BoundedSlice),
+    Slice(SliceBounds),
 }
 
-impl<'a> BoundedSelectInfoElem<'a> {
+impl<'a> SelectInfoElemBounds<'a> {
+    /// Creates a new bound-aware selection element from a selection element and an axis bound.
     pub fn new<S: AsRef<SelectInfoElem>>(select: &'a S, bound: usize) -> Self {
         match select.as_ref() {
             SelectInfoElem::Index(idx) => Self::Index(idx.as_slice()),
-            SelectInfoElem::Slice(slice) => Self::Slice(BoundedSlice::new(slice, bound)),
+            SelectInfoElem::Slice(slice) => Self::Slice(SliceBounds::new(slice, bound)),
         }
     }
 
+    /// Returns the length of the selection element.
     pub fn len(&self) -> usize {
         match self {
             Self::Index(idx) => idx.len(),
@@ -437,6 +482,7 @@ impl<'a> BoundedSelectInfoElem<'a> {
         }
     }
 
+    /// Retrieves the index at the specified position.
     pub fn index(&self, i: usize) -> usize {
         match self {
             Self::Index(idx) => idx[i],
@@ -444,6 +490,7 @@ impl<'a> BoundedSelectInfoElem<'a> {
         }
     }
 
+    /// Checks if the selection element represents a full slice of the axis.
     pub fn is_full(&self, bound: usize) -> bool {
         match self {
             Self::Slice(slice) => slice.start == 0 && slice.end == bound && slice.step == 1,
@@ -451,6 +498,7 @@ impl<'a> BoundedSelectInfoElem<'a> {
         }
     }
 
+    /// Converts the selection element into a vector of indices.
     pub fn to_vec(&self) -> Vec<usize> {
         match self {
             Self::Index(idx) => idx.iter().copied().collect(),
@@ -462,6 +510,7 @@ impl<'a> BoundedSelectInfoElem<'a> {
         }
     }
 
+    /// Returns an iterator over the indices represented by the selection element.
     pub fn iter(&self) -> Box<dyn ExactSizeIterator<Item=usize> + 'a> {
         match self {
             Self::Index(idx) => Box::new(idx.iter().copied()),
@@ -475,14 +524,16 @@ impl<'a> BoundedSelectInfoElem<'a> {
 }
 
 
+/// `SliceBounds` represents bounds-aware slicing information, holding the start, end, and step values.
 #[derive(Debug, Copy, Clone)]
-pub struct BoundedSlice {
+pub struct SliceBounds {
     pub start: usize,
     pub end: usize,
     pub step: isize,
 }
 
-impl Into<SliceInfoElem> for BoundedSlice {
+impl Into<SliceInfoElem> for SliceBounds {
+    /// Converts `SliceBounds` into a `SliceInfoElem`.
     fn into(self) -> SliceInfoElem {
         Slice {
             start: self.start as isize,
@@ -493,7 +544,8 @@ impl Into<SliceInfoElem> for BoundedSlice {
 }
 
 
-impl BoundedSlice {
+impl SliceBounds {
+    /// Constructs a new `SliceBounds` from a `Slice` and an axis bound.
     pub(crate) fn new(slice: &Slice, bound: usize) -> Self {
         fn convert(x: isize, d: usize) -> usize {
             if x < 0 {
@@ -523,6 +575,7 @@ impl BoundedSlice {
     }
 }
 
+/// Constant for a full slice, covering all indices from 0 to the bound.
 pub const SLICE_FULL: Slice = Slice {
     start: 0,
     end: None,

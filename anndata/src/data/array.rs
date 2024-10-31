@@ -6,7 +6,7 @@ mod sparse;
 mod chunks;
 
 pub use self::ndarray::{CategoricalArray, DynArray};
-pub use slice::{BoundedSelectInfo, BoundedSelectInfoElem, SelectInfo, SelectInfoElem, Shape};
+pub use slice::{SelectInfoBounds, SelectInfoElemBounds, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 pub use dataframe::DataFrameIndex;
 pub use chunks::ArrayChunk;

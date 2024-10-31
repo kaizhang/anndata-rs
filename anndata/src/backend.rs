@@ -1,9 +1,9 @@
 mod datatype;
-pub use datatype::{DataType, ScalarType, BackendData, DynArrayView};
 use crate::data::{SelectInfo, SelectInfoElem, Shape};
+pub use datatype::{BackendData, DataType, DynArrayView, ScalarType};
 
 use anyhow::{bail, Result};
-use core::fmt::{Formatter, Debug};
+use core::fmt::{Debug, Formatter};
 use ndarray::{arr0, Array, ArrayView, Dimension, Ix0};
 use std::path::{Path, PathBuf};
 
@@ -92,10 +92,12 @@ pub trait GroupOp<B: Backend + ?Sized> {
     {
         let arr_view = arr.into();
         let shape = arr_view.shape();
-        let block_size = config.block_size.unwrap_or_else(|| if shape.len() == 1 {
-            shape[0].min(10000).into()
-        } else {
-            shape.iter().map(|&x| x.min(100)).collect()
+        let block_size = config.block_size.unwrap_or_else(|| {
+            if shape.len() == 1 {
+                shape[0].min(10000).into()
+            } else {
+                shape.iter().map(|&x| x.min(100)).collect()
+            }
         });
         let compression = if arr_view.len() > 100 {
             config.compression
@@ -111,11 +113,7 @@ pub trait GroupOp<B: Backend + ?Sized> {
         Ok(dataset)
     }
 
-    fn create_scalar_data<D: BackendData>(
-        &self,
-        name: &str,
-        data: &D,
-    ) -> Result<B::Dataset> {
+    fn create_scalar_data<D: BackendData>(&self, name: &str, data: &D) -> Result<B::Dataset> {
         self.create_array_data(name, &arr0(data.clone()), WriteConfig::default())
     }
 }
@@ -128,17 +126,19 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     fn path(&self) -> PathBuf;
 
     /// Write a array-like attribute at a given location.
-    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension;
+
     /// Write a scalar attribute at a given location. This function should be able to
     /// overwrite existing attributes.
-    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         self.write_array_attr(name, &arr0(value.clone()))
     }
-    fn write_str_attr(&self, name: &str, value: &str) -> Result<()> {
+
+    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
         self.write_scalar_attr(name, value.to_string())
     }
 
@@ -146,7 +146,6 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         self.read_array_attr::<T, Ix0>(name)
             .map(|x| x.into_scalar())
-
     }
     fn read_str_attr(&self, name: &str) -> Result<String> {
         self.read_scalar_attr(name)
@@ -156,7 +155,7 @@ pub trait AttributeOp<B: Backend + ?Sized> {
 pub trait DatasetOp<B: Backend + ?Sized> {
     fn dtype(&self) -> Result<ScalarType>;
     fn shape(&self) -> Shape;
-    fn reshape(&self, shape: &Shape) -> Result<()>;
+    fn reshape(&mut self, shape: &Shape) -> Result<()>;
 
     fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
@@ -166,27 +165,19 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     where
         D: Dimension,
     {
-        self.read_array_slice(SelectInfo::all(self.shape().ndim()).as_ref())
+        self.read_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
     }
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
-        self.read_array::<T, Ix0>()
-            .map(|x| x.into_scalar())
+        self.read_array::<T, Ix0>().map(|x| x.into_scalar())
     }
 
-    fn write_array_slice<'a, A, S, T, D>(
-        &self,
-        data: A,
-        selection: &[S],
-    ) -> Result<()>
+    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
     where
         A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
         D: Dimension;
-    fn write_array<'a, A, D, Dim>(
-        &self,
-        data: A,
-    ) -> Result<()>
+    fn write_array<'a, A, D, Dim>(&self, data: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -194,7 +185,7 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     {
         let arr = data.into();
         let ndim = arr.ndim();
-        self.write_array_slice(arr, SelectInfo::all(ndim).as_ref())
+        self.write_array_slice(arr, SelectInfo::full_slice(ndim).as_ref())
     }
 }
 
@@ -226,7 +217,7 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         }
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&self, name: &str, value: A) -> Result<()>
+    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -237,7 +228,7 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
             DataContainer::Dataset(d) => d.write_array_attr(name, value),
         }
     }
-    fn write_scalar_attr<D: BackendData>(&self, name: &str, value: D) -> Result<()> {
+    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         match self {
             DataContainer::Group(g) => g.write_scalar_attr(name, value),
             DataContainer::Dataset(d) => d.write_scalar_attr(name, value),
@@ -271,7 +262,9 @@ impl<B: Backend> DataContainer<B> {
     }
 
     pub fn delete(container: DataContainer<B>) -> Result<()> {
-        container.store()?.delete(&container.path().to_string_lossy())
+        container
+            .store()?
+            .delete(&container.path().to_string_lossy())
     }
 
     pub fn encoding_type(&self) -> Result<DataType> {
@@ -292,11 +285,11 @@ impl<B: Backend> DataContainer<B> {
             "csc_matrix" => {
                 let ty = self.as_group()?.open_dataset("data")?.dtype()?;
                 DataType::CscMatrix(ty)
-            },
+            }
             "csr_matrix" => {
                 let ty = self.as_group()?.open_dataset("data")?.dtype()?;
                 DataType::CsrMatrix(ty)
-            },
+            }
             "dataframe" => DataType::DataFrame,
             "mapping" | "dict" => DataType::Mapping,
             ty => bail!("Unsupported type '{}'", ty),

@@ -19,7 +19,7 @@ itertools = "0.13"
 
 [dev-dependencies]
 anndata-hdf5 = { workspace = true }
-#anndata-zarr = { workspace = true }
+anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"

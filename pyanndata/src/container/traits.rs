@@ -178,7 +178,7 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
     fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(PySeries(self.inner().column(key)?.clone()).into_py(py))
+            Ok(PySeries(self.inner().column(key)?.clone().take_materialized_series()).into_py(py))
         } else {
             let width = self.inner().width();
             let height = self.inner().height();
@@ -210,7 +210,7 @@ impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
     fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(PySeries(self.column(key)?.clone()).into_py(py))
+            Ok(PySeries(self.column(key)?.clone().take_materialized_series()).into_py(py))
         } else {
             let width = self.width();
             let height = self.height();

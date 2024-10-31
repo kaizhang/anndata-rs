@@ -90,7 +90,7 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
         Ok(())
     }
 
-    pub fn finish(self) -> Result<B::Dataset> {
+    pub fn finish(mut self) -> Result<B::Dataset> {
         self.dataset.reshape(&self.size)?;
         Ok(self.dataset)
     }

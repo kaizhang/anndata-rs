@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
-use polars::prelude::{DataFrame, NamedFrom, Series};
+use polars::{df, prelude::{Column, DataFrame}};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::{collections::{HashMap, HashSet}, path::{Path, PathBuf}};
 
@@ -145,10 +145,7 @@ impl<B: Backend> AnnDataSet<B> {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
                 .unzip();
-            let data = DataFrame::new(vec![
-                Series::new("keys".into(), keys),
-                Series::new("file_path".into(), filenames),
-            ])?;
+            let data = df!("keys" => keys, "file_path" => filenames)?;
             annotation.uns().add("AnnDataSet", data)?;
 
             // Add shared uns elements.
@@ -168,15 +165,12 @@ impl<B: Backend> AnnDataSet<B> {
             if !obs_names.is_empty() && obs_names.len() == n_obs {
                 annotation.set_obs_names(obs_names)?;
             }
-            let keys = Series::new(
-                add_key.into(),
-                anndatas
-                    .iter()
-                    .map(|(k, v)| vec![k.clone(); v.n_obs()])
-                    .flatten()
-                    .collect::<Series>(),
-            );
-            annotation.set_obs(DataFrame::new(vec![keys])?)?;
+            let keys = anndatas
+                .iter()
+                .map(|(k, v)| vec![k.clone(); v.n_obs()])
+                .flatten()
+                .collect::<Vec<_>>();
+            annotation.set_obs(df!(add_key => keys)?)?;
         }
         { // Set VAR.
             let adata = anndatas.values().next().unwrap();
@@ -250,7 +244,7 @@ impl<B: Backend> AnnDataSet<B> {
                 .write_select::<O, _, _>(&selection, &anndata_dir, ".h5ad")?;
 
         if let Some(order) = obs_idx_order.as_ref() {
-            let idx = BoundedSelectInfoElem::new(&selection.as_ref()[0], self.n_obs()).to_vec();
+            let idx = SelectInfoElemBounds::new(&selection.as_ref()[0], self.n_obs()).to_vec();
             let new_idx = order.iter().map(|i| idx[*i]).collect::<SelectInfoElem>();
             self.annotation
                 .write_select::<O, _, _>([new_idx, selection.as_ref()[1].clone()], &file)?;
@@ -270,10 +264,7 @@ impl<B: Backend> AnnDataSet<B> {
             .into_iter()
             .map(|(k, v)| (k, parent_dir.join(v.as_str()).to_str().unwrap().to_string()))
             .unzip();
-        let file_loc = DataFrame::new(vec![
-            Series::new("keys".into(), keys),
-            Series::new("file_path".into(), filenames),
-        ])?;
+        let file_loc = df!("keys" => keys, "file_path" => filenames)?;
         adata.uns().add("AnnDataSet", file_loc)?;
         adata.close()?;
         Ok(obs_idx_order)
@@ -355,7 +346,7 @@ fn update_anndata_locations_by_map<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Column::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     if !new_locations.is_empty() {
         ann.uns().add("AnnDataSet", data)?;
@@ -393,7 +384,7 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Column::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     ann.uns().add("AnnDataSet", data)?;
     Ok(new_files)

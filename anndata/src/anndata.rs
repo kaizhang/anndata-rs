@@ -448,10 +448,10 @@ impl<B: Backend> AnnData<B> {
             .transpose()?;
 
         if !obs_lock.is_empty() {
-            obs_lock.set(BoundedSelectInfoElem::new(obs_ix, obs_lock.get()).len());
+            obs_lock.set(SelectInfoElemBounds::new(obs_ix, obs_lock.get()).len());
         }
         if !vars_lock.is_empty() {
-            vars_lock.set(BoundedSelectInfoElem::new(var_ix, vars_lock.get()).len());
+            vars_lock.set(SelectInfoElemBounds::new(var_ix, vars_lock.get()).len());
         }
 
         Ok(())

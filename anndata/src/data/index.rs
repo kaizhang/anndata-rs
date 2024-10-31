@@ -1,4 +1,4 @@
-use crate::data::array::slice::{SelectInfoElem, BoundedSlice};
+use crate::data::array::slice::{SelectInfoElem, SliceBounds};
 
 use ndarray::Slice;
 use std::ops::Deref;
@@ -10,7 +10,7 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::cmp::Eq;
 
-use super::BoundedSelectInfoElem;
+use super::SelectInfoElemBounds;
 
 #[derive(Clone, Debug)]
 pub enum Index {
@@ -66,9 +66,9 @@ impl Index {
     }
 
     pub fn select(&self, select: &SelectInfoElem) -> Self {
-        match BoundedSelectInfoElem::new(select, self.len()) {
-            BoundedSelectInfoElem::Slice(slice) => self.slice(slice.start, slice.end),
-            BoundedSelectInfoElem::Index(index) => {
+        match SelectInfoElemBounds::new(select, self.len()) {
+            SelectInfoElemBounds::Slice(slice) => self.slice(slice.start, slice.end),
+            SelectInfoElemBounds::Index(index) => {
                 let vec = self.clone().into_vec();
                 index.into_iter().map(|i| vec[*i].clone()).collect()
             },
@@ -325,7 +325,7 @@ impl VecVecIndex {
     }
 
     pub fn split_slice(&self, slice: &Slice) -> HashMap<usize, SelectInfoElem> {
-        let bounded = BoundedSlice::new(slice, self.len());
+        let bounded = SliceBounds::new(slice, self.len());
         let (outer_start, inner_start) = self.ix(&bounded.start);
         let (outer_end, inner_end) = self.ix(&bounded.end);
         let mut res = HashMap::new();
@@ -505,7 +505,7 @@ mod tests {
 
             prop_assert!(i.iter().enumerate().all(|(idx, x)| i.get_index(&x).unwrap() == idx));
 
-            let out_len = BoundedSelectInfoElem::new(&slice, n).len();
+            let out_len = SelectInfoElemBounds::new(&slice, n).len();
             let i_slice = i.select(&slice);
             prop_assert_eq!(i_slice.len(), out_len);
             prop_assert_eq!(i_slice.len(), i_slice.into_vec().len());

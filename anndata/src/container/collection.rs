@@ -459,7 +459,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                 self.values()
                     .try_for_each(|x| x.inner().subset_axis(0, selection[0]))?;
                 if let Some(mut lock) = self.dim1.try_lock() {
-                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                    lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
             }
             Axis::RowColumn => {
@@ -469,10 +469,10 @@ impl<B: Backend> InnerAxisArrays<B> {
                 self.values()
                     .try_for_each(|x| x.inner().subset(selection))?;
                 if let Some(mut lock) = self.dim1.try_lock() {
-                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                    lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
                 if let Some(mut lock) = self.dim2.as_ref().unwrap().try_lock() {
-                    lock.set(BoundedSelectInfoElem::new(selection[1], lock.get()).len());
+                    lock.set(SelectInfoElemBounds::new(selection[1], lock.get()).len());
                 }
             }
             Axis::Pairwise => {
@@ -487,7 +487,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                     x.inner().subset(slice.as_slice())
                 })?;
                 if let Some(mut lock) = self.dim1.try_lock() {
-                    lock.set(BoundedSelectInfoElem::new(selection[0], lock.get()).len());
+                    lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
             }
         }
