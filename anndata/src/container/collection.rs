@@ -75,7 +75,7 @@ impl<B: Backend> InnerElemCollection<B> {
         location: &G,
         name: &str,
     ) -> Result<()> {
-        let group = location.create_group(name)?;
+        let group = location.new_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
         }
@@ -399,7 +399,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         location: &G,
         name: &str,
     ) -> Result<()> {
-        let group = location.create_group(name)?;
+        let group = location.new_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
         }
@@ -419,7 +419,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         if selection.into_iter().all(|x| x.as_ref().is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            let group = location.create_group(name)?;
+            let group = location.new_group(name)?;
             match self.axis {
                 Axis::Row => {
                     if selection.len() != 1 {

@@ -14,7 +14,7 @@ pyanndata = { workspace = true }
 pyo3-log = "0.11"
 
 [dependencies.pyo3]
-version = "0.22.4"
+version = "0.21.2"
 features = ["extension-module", "multiple-pymethods"]
 
 [lib]

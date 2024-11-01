@@ -180,32 +180,32 @@ impl<B: Backend> AnnData<B> {
             Slot::none()
         };
 
-        let obsm = match file.open_group("obsm").or(file.create_group("obsm")) {
+        let obsm = match file.open_group("obsm").or(file.new_group("obsm")) {
             Ok(group) => new_obsm(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
-        let obsp = match file.open_group("obsp").or(file.create_group("obsp")) {
+        let obsp = match file.open_group("obsp").or(file.new_group("obsp")) {
             Ok(group) => new_obsp(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
-        let varm = match file.open_group("varm").or(file.create_group("varm")) {
+        let varm = match file.open_group("varm").or(file.new_group("varm")) {
             Ok(group) => new_varm(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
-        let varp = match file.open_group("varp").or(file.create_group("varp")) {
+        let varp = match file.open_group("varp").or(file.new_group("varp")) {
             Ok(group) => new_varp(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
-        let uns = match file.open_group("uns").or(file.create_group("uns")) {
+        let uns = match file.open_group("uns").or(file.new_group("uns")) {
             Ok(group) => ElemCollection::new(group)?,
             _ => ElemCollection::empty(),
         };
 
-        let layers = match file.open_group("layers").or(file.create_group("layers")) {
+        let layers = match file.open_group("layers").or(file.new_group("layers")) {
             Ok(group) => new_layers(group, &n_obs, &n_vars)?,
             _ => AxisArrays::empty(),
         };
@@ -228,19 +228,19 @@ impl<B: Backend> AnnData<B> {
 
     /// Create a new AnnData file.
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self> {
-        let file = B::create(filename)?;
+        let file = B::new(filename)?;
         let n_obs = Dim::empty();
         let n_vars = Dim::empty();
         Ok(Self {
             x: Slot::none(),
             obs: Slot::none(),
             var: Slot::none(),
-            obsm: new_obsm(file.create_group("obsm")?, &n_obs)?,
-            obsp: new_obsp(file.create_group("obsp")?, &n_obs)?,
-            varm: new_varm(file.create_group("varm")?, &n_vars)?,
-            varp: new_varp(file.create_group("varp")?, &n_vars)?,
-            uns: ElemCollection::new(file.create_group("uns")?)?,
-            layers: new_layers(file.create_group("layers")?, &n_obs, &n_vars)?,
+            obsm: new_obsm(file.new_group("obsm")?, &n_obs)?,
+            obsp: new_obsp(file.new_group("obsp")?, &n_obs)?,
+            varm: new_varm(file.new_group("varm")?, &n_vars)?,
+            varp: new_varp(file.new_group("varp")?, &n_vars)?,
+            uns: ElemCollection::new(file.new_group("uns")?)?,
+            layers: new_layers(file.new_group("layers")?, &n_obs, &n_vars)?,
             file,
             n_obs,
             n_vars,
@@ -249,7 +249,7 @@ impl<B: Backend> AnnData<B> {
 
     /// Write the AnnData object to a new file.
     pub fn write<O: Backend, P: AsRef<Path>>(&self, filename: P) -> Result<()> {
-        let file = O::create(filename)?;
+        let file = O::new(filename)?;
         let _obs_lock = self.n_obs.lock();
         let _vars_lock = self.n_vars.lock();
         self.get_x()
@@ -313,7 +313,7 @@ impl<B: Backend> AnnData<B> {
         selection.as_ref()[1].bound_check(self.n_vars())
             .map_err(|e| anyhow!("AnnData var {}", e))?;
         let slice: SmallVec<[_; 3]> = selection.as_ref().iter().collect();
-        let file = O::create(filename)?;
+        let file = O::new(filename)?;
         let _obs_lock = self.n_obs.lock();
         let _vars_lock = self.n_vars.lock();
         self.get_x()
@@ -668,7 +668,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn uns(&self) -> Self::ElemCollectionRef<'_> {
         if self.uns.is_none() {
-            let elems = self.file.create_group("uns").and_then(|g| ElemCollection::new(g));
+            let elems = self.file.new_group("uns").and_then(|g| ElemCollection::new(g));
             if let Ok(uns) = elems {
                 self.uns.swap(&uns);
             }
@@ -677,7 +677,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsm(&self) -> Self::AxisArraysRef<'_> {
         if self.obsm.is_none() {
-            let arrays = self.file.create_group("obsm")
+            let arrays = self.file.new_group("obsm")
                 .and_then(|g| new_obsm(g, &self.n_obs));
             if let Ok(obsm) = arrays {
                 self.obsm.swap(&obsm);
@@ -687,7 +687,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
         if self.obsp.is_none() {
-            let arrays = self.file.create_group("obsp")
+            let arrays = self.file.new_group("obsp")
                 .and_then(|g| new_obsp(g, &self.n_obs));
             if let Ok(obsp) = arrays {
                 self.obsp.swap(&obsp);
@@ -697,7 +697,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varm(&self) -> Self::AxisArraysRef<'_> {
         if self.varm.is_none() {
-            let arrays = self.file.create_group("varm")
+            let arrays = self.file.new_group("varm")
                 .and_then(|g| new_varm(g, &self.n_vars));
             if let Ok(varm) = arrays {
                 self.varm.swap(&varm);
@@ -707,7 +707,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         if self.varp.is_none() {
-            let arrays = self.file.create_group("varp")
+            let arrays = self.file.new_group("varp")
                 .and_then(|g| new_varp(g, &self.n_vars));
             if let Ok(varp) = arrays {
                 self.varp.swap(&varp);
@@ -717,7 +717,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn layers(&self) -> Self::AxisArraysRef<'_> {
         if self.layers.is_none() {
-            let arrays = self.file.create_group("layers")
+            let arrays = self.file.new_group("layers")
                 .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
             if let Ok(layers) = arrays {
                 self.layers.swap(&layers);

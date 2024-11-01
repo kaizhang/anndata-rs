@@ -52,7 +52,7 @@ impl Backend for Zarr {
     /// datasets contain arrays.
     type Dataset = ZarrDataset;
 
-    fn create<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
+    fn new<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         let inner = Arc::new(FilesystemStore::new(path.as_ref())?);
         zarrs::group::GroupBuilder::new().build(inner.clone(), "/")?.store_metadata()?;
         Ok(ZarrStore {
@@ -98,7 +98,7 @@ impl GroupOp<Zarr> for ZarrStore {
     }
 
     /// Create a new group.
-    fn create_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
+    fn new_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
         let path = if name.starts_with("/") {
             name.to_string()
         } else {
@@ -122,7 +122,7 @@ impl GroupOp<Zarr> for ZarrStore {
     }
 
     /// Create an empty dataset holding an array value.
-    fn new_dataset<T: BackendData>(
+    fn new_empty_dataset<T: BackendData>(
         &self,
         name: &str,
         shape: &Shape,
@@ -216,7 +216,7 @@ impl GroupOp<Zarr> for ZarrGroup {
     }
 
     /// Create a new group.
-    fn create_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
+    fn new_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
         let path = format!("{}/{}", self.group.path().as_str(), name);
         let group = zarrs::group::GroupBuilder::new().build(self.store.inner.clone(), &path)?;
         group.store_metadata()?;
@@ -237,7 +237,7 @@ impl GroupOp<Zarr> for ZarrGroup {
     }
 
     /// Create an empty dataset holding an array value.
-    fn new_dataset<T: BackendData>(
+    fn new_empty_dataset<T: BackendData>(
         &self,
         name: &str,
         shape: &Shape,
@@ -332,7 +332,7 @@ impl AttributeOp<Zarr> for ZarrGroup {
     }
 
     /// Write a array-like attribute at a given location.
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -344,7 +344,7 @@ impl AttributeOp<Zarr> for ZarrGroup {
         Ok(())
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         let attr = self
             .group
             .attributes()
@@ -367,7 +367,7 @@ impl AttributeOp<Zarr> for ZarrDataset {
     }
 
     /// Write a array-like attribute at a given location.
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -381,7 +381,7 @@ impl AttributeOp<Zarr> for ZarrDataset {
         Ok(())
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         let attr = self
             .dataset
             .attributes()
@@ -595,11 +595,11 @@ mod tests {
     #[test]
     fn test_basic() -> Result<()> {
         with_tmp_path(|path| {
-            let store = Zarr::create(&path)?;
-            let group = store.create_group("group")?;
-            let subgroup = group.create_group("group")?;
-            let subsubgroup = subgroup.create_group("group")?;
-            let data = subsubgroup.create_scalar_data("group", &4)?;
+            let store = Zarr::new(&path)?;
+            let group = store.new_group("group")?;
+            let subgroup = group.new_group("group")?;
+            let subsubgroup = subgroup.new_group("group")?;
+            let data = subsubgroup.new_scalar_dataset("group", &4)?;
 
             assert_eq!(group.path(), PathBuf::from("/group"));
             assert_eq!(subgroup.path(), PathBuf::from("/group/group"));
@@ -612,14 +612,14 @@ mod tests {
     #[test]
     fn test_write_empty() -> Result<()> {
         with_tmp_path(|path| {
-            let store = Zarr::create(&path)?;
-            let group = store.create_group("group")?;
+            let store = Zarr::new(&path)?;
+            let group = store.new_group("group")?;
             let config = WriteConfig {
                 ..Default::default()
             };
 
             let empty = Array1::<u8>::from_vec(Vec::new());
-            let dataset = group.create_array_data("test", &empty, config)?;
+            let dataset = group.new_array_dataset("test", &empty, config)?;
             assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
             Ok(())
         })
@@ -627,14 +627,14 @@ mod tests {
 
     #[test]
     fn test_write_slice() -> Result<()> {
-        let store = Zarr::create("test_zarr")?;
+        let store = Zarr::new("test_zarr")?;
         let config = WriteConfig {
             block_size: Some(vec![2, 2].as_slice().into()),
             ..Default::default()
         };
 
-        let group = store.create_group("group")?;
-        let mut dataset = group.new_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
+        let group = store.new_group("group")?;
+        let mut dataset = group.new_empty_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
 
         let arr = Array::random((10, 10), Uniform::new(0, 100));
         dataset.write_array_slice(&arr, s![5..15, 10..20].as_ref())?;

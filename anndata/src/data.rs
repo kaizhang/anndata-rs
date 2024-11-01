@@ -1,13 +1,11 @@
 pub mod array;
 pub mod data_traits;
 pub mod mapping;
-pub mod scalar;
 pub mod index;
 
 pub use array::*;
 pub use data_traits::*;
 pub use mapping::*;
-pub use scalar::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 

@@ -27,7 +27,7 @@ pub trait Backend: 'static {
     /// The name of the backend.
     const NAME: &'static str;
 
-    /// File represents the root of the hierarchy.
+    /// Data store
     type Store: StoreOp<Self> + GroupOp<Self> + Send + Sync;
 
     /// Groups work like directories and can contain groups or datasets.
@@ -37,7 +37,7 @@ pub trait Backend: 'static {
     type Dataset: DatasetOp<Self> + AttributeOp<Self> + Send + Sync;
 
     /// Create a new file at the given path.
-    fn create<P: AsRef<Path>>(path: P) -> Result<Self::Store>;
+    fn new<P: AsRef<Path>>(path: P) -> Result<Self::Store>;
 
     /// Opens a file as read-only, file must exist.
     fn open<P: AsRef<Path>>(path: P) -> Result<Self::Store>;
@@ -59,13 +59,13 @@ pub trait GroupOp<B: Backend + ?Sized> {
     fn list(&self) -> Result<Vec<String>>;
 
     /// Create a new group.
-    fn create_group(&self, name: &str) -> Result<B::Group>;
+    fn new_group(&self, name: &str) -> Result<B::Group>;
 
     /// Open an existing group.
     fn open_group(&self, name: &str) -> Result<B::Group>;
 
     /// Create an empty dataset holding an array value.
-    fn new_dataset<T: BackendData>(
+    fn new_empty_dataset<T: BackendData>(
         &self,
         name: &str,
         shape: &Shape,
@@ -79,7 +79,7 @@ pub trait GroupOp<B: Backend + ?Sized> {
     /// Check if a group or dataset exists.
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn create_array_data<'a, A, D, Dim>(
+    fn new_array_dataset<'a, A, D, Dim>(
         &self,
         name: &str,
         arr: A,
@@ -108,13 +108,13 @@ pub trait GroupOp<B: Backend + ?Sized> {
             compression: compression,
             block_size: Some(block_size),
         };
-        let dataset = self.new_dataset::<D>(name, &shape.into(), new_config)?;
+        let dataset = self.new_empty_dataset::<D>(name, &shape.into(), new_config)?;
         dataset.write_array(arr_view)?;
         Ok(dataset)
     }
 
-    fn create_scalar_data<D: BackendData>(&self, name: &str, data: &D) -> Result<B::Dataset> {
-        self.create_array_data(name, &arr0(data.clone()), WriteConfig::default())
+    fn new_scalar_dataset<D: BackendData>(&self, name: &str, data: &D) -> Result<B::Dataset> {
+        self.new_array_dataset(name, &arr0(data.clone()), WriteConfig::default())
     }
 }
 
@@ -126,7 +126,7 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     fn path(&self) -> PathBuf;
 
     /// Write a array-like attribute at a given location.
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -134,21 +134,20 @@ pub trait AttributeOp<B: Backend + ?Sized> {
 
     /// Write a scalar attribute at a given location. This function should be able to
     /// overwrite existing attributes.
-    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
-        self.write_array_attr(name, &arr0(value.clone()))
+    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
+        self.new_array_attr(name, &arr0(value.clone()))
     }
 
-    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
-        self.write_scalar_attr(name, value.to_string())
+    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
+        self.new_scalar_attr(name, value.to_string())
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
-    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
-        self.read_array_attr::<T, Ix0>(name)
-            .map(|x| x.into_scalar())
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+        self.get_array_attr::<T, Ix0>(name).map(|x| x.into_scalar())
     }
-    fn read_str_attr(&self, name: &str) -> Result<String> {
-        self.read_scalar_attr(name)
+    fn get_str_attr(&self, name: &str) -> Result<String> {
+        self.get_scalar_attr(name)
     }
 }
 
@@ -217,34 +216,34 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         }
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
         match self {
-            DataContainer::Group(g) => g.write_array_attr(name, value),
-            DataContainer::Dataset(d) => d.write_array_attr(name, value),
+            DataContainer::Group(g) => g.new_array_attr(name, value),
+            DataContainer::Dataset(d) => d.new_array_attr(name, value),
         }
     }
-    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
+    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         match self {
-            DataContainer::Group(g) => g.write_scalar_attr(name, value),
-            DataContainer::Dataset(d) => d.write_scalar_attr(name, value),
+            DataContainer::Group(g) => g.new_scalar_attr(name, value),
+            DataContainer::Dataset(d) => d.new_scalar_attr(name, value),
         }
     }
 
-    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         match self {
-            DataContainer::Group(g) => g.read_scalar_attr(name),
-            DataContainer::Dataset(d) => d.read_scalar_attr(name),
+            DataContainer::Group(g) => g.get_scalar_attr(name),
+            DataContainer::Dataset(d) => d.get_scalar_attr(name),
         }
     }
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
-            DataContainer::Group(g) => g.read_array_attr(name),
-            DataContainer::Dataset(d) => d.read_array_attr(name),
+            DataContainer::Group(g) => g.get_array_attr(name),
+            DataContainer::Dataset(d) => d.get_array_attr(name),
         }
     }
 }
@@ -270,10 +269,10 @@ impl<B: Backend> DataContainer<B> {
     pub fn encoding_type(&self) -> Result<DataType> {
         let enc = match self {
             DataContainer::Group(group) => group
-                .read_str_attr("encoding-type")
+                .get_str_attr("encoding-type")
                 .unwrap_or("mapping".to_string()),
             DataContainer::Dataset(dataset) => dataset
-                .read_str_attr("encoding-type")
+                .get_str_attr("encoding-type")
                 .unwrap_or("numeric-scalar".to_string()),
         };
         let ty = match enc.as_str() {

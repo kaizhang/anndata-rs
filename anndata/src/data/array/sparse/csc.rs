@@ -1,8 +1,8 @@
 use crate::backend::*;
 use crate::data::{
-    array::utils::{cs_major_minor_index, cs_major_index, cs_major_slice},
+    array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
     data_traits::*,
-    scalar::DynScalar,
+    array::DynScalar,
     slice::{SelectInfoElem, Shape},
     SelectInfoBounds, SelectInfoElemBounds,
 };
@@ -44,7 +44,11 @@ macro_rules! impl_into_dyn_csc {
             fn try_from(data: DynCscMatrix) -> Result<Self> {
                 match data {
                     DynCscMatrix::$to_type(data) => Ok(data),
-                    _ => bail!("Cannot convert {:?} to {} CscMatrix", data.data_type(), stringify!($from_type)),
+                    _ => bail!(
+                        "Cannot convert {:?} to {} CscMatrix",
+                        data.data_type(),
+                        stringify!($from_type)
+                    ),
                 }
             }
         }
@@ -77,7 +81,6 @@ impl TryFrom<DynCscMatrix> for CscMatrix<u32> {
         }
     }
 }
-
 
 impl From<CscMatrix<f64>> for DynCscMatrix {
     fn from(data: CscMatrix<f64>) -> Self {
@@ -231,19 +234,45 @@ impl ArrayOp for DynCscMatrix {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
-            DynCscMatrix::U8(_) => Ok(DynCscMatrix::U8(CscMatrix::<u8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U16(_) => Ok(DynCscMatrix::U16(CscMatrix::<u16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U32(_) => Ok(DynCscMatrix::U32(CscMatrix::<u32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::U64(_) => Ok(DynCscMatrix::U64(CscMatrix::<u64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::Usize(_) => Ok(DynCscMatrix::Usize(CscMatrix::<usize>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I8(_) => Ok(DynCscMatrix::I8(CscMatrix::<i8>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I16(_) => Ok(DynCscMatrix::I16(CscMatrix::<i16>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I32(_) => Ok(DynCscMatrix::I32(CscMatrix::<i32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::I64(_) => Ok(DynCscMatrix::I64(CscMatrix::<i64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::F32(_) => Ok(DynCscMatrix::F32(CscMatrix::<f32>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::F64(_) => Ok(DynCscMatrix::F64(CscMatrix::<f64>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::Bool(_) => Ok(DynCscMatrix::Bool(CscMatrix::<bool>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
-            DynCscMatrix::String(_) => Ok(DynCscMatrix::String(CscMatrix::<String>::vstack(iter.map(|x| x.try_into().unwrap()))?)),
+            DynCscMatrix::U8(_) => Ok(DynCscMatrix::U8(CscMatrix::<u8>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::U16(_) => Ok(DynCscMatrix::U16(CscMatrix::<u16>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::U32(_) => Ok(DynCscMatrix::U32(CscMatrix::<u32>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::U64(_) => Ok(DynCscMatrix::U64(CscMatrix::<u64>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::Usize(_) => Ok(DynCscMatrix::Usize(CscMatrix::<usize>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::I8(_) => Ok(DynCscMatrix::I8(CscMatrix::<i8>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::I16(_) => Ok(DynCscMatrix::I16(CscMatrix::<i16>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::I32(_) => Ok(DynCscMatrix::I32(CscMatrix::<i32>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::I64(_) => Ok(DynCscMatrix::I64(CscMatrix::<i64>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::F32(_) => Ok(DynCscMatrix::F32(CscMatrix::<f32>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::F64(_) => Ok(DynCscMatrix::F64(CscMatrix::<f64>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::Bool(_) => Ok(DynCscMatrix::Bool(CscMatrix::<bool>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
+            DynCscMatrix::String(_) => Ok(DynCscMatrix::String(CscMatrix::<String>::vstack(
+                iter.map(|x| x.try_into().unwrap()),
+            )?)),
         }
     }
 }
@@ -253,7 +282,7 @@ impl ReadArrayData for DynCscMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .read_array_attr("shape")?
+            .get_array_attr("shape")?
             .to_vec()
             .into())
     }
@@ -265,32 +294,23 @@ impl ReadArrayData for DynCscMatrix {
     {
         if let DataType::CscMatrix(ty) = container.encoding_type()? {
             match ty {
-                ScalarType::I8 => CscMatrix::<i8>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::I16 => CscMatrix::<i16>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::I32 => CscMatrix::<i32>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::I64 => CscMatrix::<i64>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::U8 => CscMatrix::<u8>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::U16 => CscMatrix::<u16>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::U32 => CscMatrix::<u32>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::U64 => CscMatrix::<u64>::read_select(container, info) 
-                    .map(Into::into),
-                ScalarType::Usize => CscMatrix::<usize>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::F32 => CscMatrix::<f32>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::F64 => CscMatrix::<f64>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::Bool => CscMatrix::<bool>::read_select(container, info)
-                    .map(Into::into),
-                ScalarType::String => CscMatrix::<String>::read_select(container, info)
-                    .map(Into::into),
+                ScalarType::I8 => CscMatrix::<i8>::read_select(container, info).map(Into::into),
+                ScalarType::I16 => CscMatrix::<i16>::read_select(container, info).map(Into::into),
+                ScalarType::I32 => CscMatrix::<i32>::read_select(container, info).map(Into::into),
+                ScalarType::I64 => CscMatrix::<i64>::read_select(container, info).map(Into::into),
+                ScalarType::U8 => CscMatrix::<u8>::read_select(container, info).map(Into::into),
+                ScalarType::U16 => CscMatrix::<u16>::read_select(container, info).map(Into::into),
+                ScalarType::U32 => CscMatrix::<u32>::read_select(container, info).map(Into::into),
+                ScalarType::U64 => CscMatrix::<u64>::read_select(container, info).map(Into::into),
+                ScalarType::Usize => {
+                    CscMatrix::<usize>::read_select(container, info).map(Into::into)
+                }
+                ScalarType::F32 => CscMatrix::<f32>::read_select(container, info).map(Into::into),
+                ScalarType::F64 => CscMatrix::<f64>::read_select(container, info).map(Into::into),
+                ScalarType::Bool => CscMatrix::<bool>::read_select(container, info).map(Into::into),
+                ScalarType::String => {
+                    CscMatrix::<String>::read_select(container, info).map(Into::into)
+                }
             }
         } else {
             bail!("the container does not contain a csc matrix");
@@ -358,7 +378,11 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         } else {
             // row_idx not full
             match col_idx {
-                &SelectInfoElemBounds::Slice(SliceBounds { start: col_start,end: col_end, step: col_step }) => {
+                &SelectInfoElemBounds::Slice(SliceBounds {
+                    start: col_start,
+                    end: col_end,
+                    step: col_step,
+                }) => {
                     if col_step < 0 {
                         // col_idx is major, row_idx is minor
                         match row_idx {
@@ -472,11 +496,13 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         CscMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
     }
 
-    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> where Self: Sized {
+    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self>
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }
-
 
 impl<T: BackendData> WriteData for CscMatrix<T> {
     fn data_type(&self) -> DataType {
@@ -487,14 +513,14 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let mut group = location.create_group(name)?;
+        let mut group = location.new_group(name)?;
         let shape = self.shape();
 
-        group.write_str_attr("encoding-type", "csc_matrix")?;
-        group.write_str_attr("encoding-version", "0.1.0")?;
-        group.write_array_attr("shape", shape.as_ref())?;
+        group.new_str_attr("encoding-type", "csc_matrix")?;
+        group.new_str_attr("encoding-version", "0.1.0")?;
+        group.new_array_attr("shape", shape.as_ref())?;
 
-        group.create_array_data("data", &self.values(), Default::default())?;
+        group.new_array_dataset("data", &self.values(), Default::default())?;
 
         let num_rows = shape[0];
         // Use i32 or i64 as indices type in order to be compatible with scipy
@@ -505,8 +531,8 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
                 .map(|x| (*x).try_into().ok())
                 .collect();
             if let Some(indptr_i32) = try_convert_indptr {
-                group.create_array_data("indptr", &indptr_i32, Default::default())?;
-                group.create_array_data(
+                group.new_array_dataset("indptr", &indptr_i32, Default::default())?;
+                group.new_array_dataset(
                     "indices",
                     self.row_indices()
                         .iter()
@@ -516,7 +542,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
                     Default::default(),
                 )?;
             } else {
-                group.create_array_data(
+                group.new_array_dataset(
                     "indptr",
                     self.col_offsets()
                         .iter()
@@ -525,7 +551,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
                         .as_slice(),
                     Default::default(),
                 )?;
-                group.create_array_data(
+                group.new_array_dataset(
                     "indices",
                     self.row_indices()
                         .iter()
@@ -536,7 +562,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
                 )?;
             }
         } else if TryInto::<i64>::try_into(num_rows.saturating_sub(1)).is_ok() {
-            group.create_array_data(
+            group.new_array_dataset(
                 "indptr",
                 self.col_offsets()
                     .iter()
@@ -545,7 +571,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
                     .as_slice(),
                 Default::default(),
             )?;
-            group.create_array_data(
+            group.new_array_dataset(
                 "indices",
                 self.row_indices()
                     .iter()
@@ -570,15 +596,29 @@ impl<T: BackendData> ReadData for CscMatrix<T> {
         let data_type = container.encoding_type()?;
         if let DataType::CscMatrix(_) = data_type {
             let group = container.as_group()?;
-            let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
-            let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-            let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-            let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-            CscMatrix::try_from_csc_data(
-                shape[0], shape[1], indptr, indices, data
-            ).map_err(|e| anyhow::anyhow!("{}", e))
+            let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
+            let data = group
+                .open_dataset("data")?
+                .read_array::<_, Ix1>()?
+                .into_raw_vec_and_offset()
+                .0;
+            let indptr: Vec<usize> = group
+                .open_dataset("indptr")?
+                .read_array::<_, Ix1>()?
+                .into_raw_vec_and_offset()
+                .0;
+            let indices: Vec<usize> = group
+                .open_dataset("indices")?
+                .read_array::<_, Ix1>()?
+                .into_raw_vec_and_offset()
+                .0;
+            CscMatrix::try_from_csc_data(shape[0], shape[1], indptr, indices, data)
+                .map_err(|e| anyhow::anyhow!("{}", e))
         } else {
-            bail!("cannot read csc matrix from container with data type {:?}", data_type)
+            bail!(
+                "cannot read csc matrix from container with data type {:?}",
+                data_type
+            )
         }
     }
 }
@@ -587,7 +627,7 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .read_array_attr("shape")?
+            .get_array_attr("shape")?
             .to_vec()
             .into())
     }
@@ -608,21 +648,27 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
                 return Self::read(container);
             }
 
-            let data = if let SelectInfoElem::Slice(s) = info[1].as_ref()  {
+            let data = if let SelectInfoElem::Slice(s) = info[1].as_ref() {
                 let group = container.as_group()?;
                 let indptr_slice = if let Some(end) = s.end {
-                    SelectInfoElem::from(s.start .. end + 1)
+                    SelectInfoElem::from(s.start..end + 1)
                 } else {
-                    SelectInfoElem::from(s.start ..)
+                    SelectInfoElem::from(s.start..)
                 };
-                let mut indptr: Vec<usize> = group 
+                let mut indptr: Vec<usize> = group
                     .open_dataset("indptr")?
                     .read_array_slice(&[indptr_slice])?
                     .to_vec();
                 let lo = indptr[0];
-                let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
-                let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
-                let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
+                let slice = SelectInfoElem::from(lo..indptr[indptr.len() - 1]);
+                let data: Vec<T> = group
+                    .open_dataset("data")?
+                    .read_array_slice(&[&slice])?
+                    .to_vec();
+                let indices: Vec<usize> = group
+                    .open_dataset("indices")?
+                    .read_array_slice(&[&slice])?
+                    .to_vec();
                 indptr.iter_mut().for_each(|x| *x -= lo);
                 CscMatrix::try_from_csc_data(
                     Self::get_shape(container)?[0],
@@ -630,20 +676,24 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
                     indptr,
                     indices,
                     data,
-                ).unwrap().select_axis(0, info[0].as_ref()) // selct axis 1, then select axis 0 elements
+                )
+                .unwrap()
+                .select_axis(0, info[0].as_ref()) // selct axis 1, then select axis 0 elements
             } else {
                 Self::read(container)?.select(info)
             };
             Ok(data)
         } else {
-            bail!("cannot read csc matrix from container with data type {:?}", data_type)
+            bail!(
+                "cannot read csc matrix from container with data type {:?}",
+                data_type
+            )
         }
     }
 }
 
 impl<T: BackendData> WriteArrayData for &CscMatrix<T> {}
 impl<T: BackendData> WriteArrayData for CscMatrix<T> {}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
@@ -657,18 +707,25 @@ where
     let (pattern, values) = csc.into_pattern_and_values();
     let out = CscMatrix::try_from_pattern_and_values(
         pattern,
-        values.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?,
-    ).unwrap();
+        values
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<_, _>>()?,
+    )
+    .unwrap();
     Ok(out)
 }
 
-fn from_i64_csc<U: FromPrimitive>(csc: CscMatrix<i64>) -> Result<CscMatrix<U>>
-{
+fn from_i64_csc<U: FromPrimitive>(csc: CscMatrix<i64>) -> Result<CscMatrix<U>> {
     let (pattern, values) = csc.into_pattern_and_values();
     let out = CscMatrix::try_from_pattern_and_values(
         pattern,
-        values.into_iter().map(|x| U::from_i64(x).context("cannot convert from i64")).collect::<Result<_>>()?,
-    ).unwrap();
+        values
+            .into_iter()
+            .map(|x| U::from_i64(x).context("cannot convert from i64"))
+            .collect::<Result<_>>()?,
+    )
+    .unwrap();
     Ok(out)
 }
 
@@ -682,11 +739,7 @@ mod csc_matrix_index_tests {
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
 
-    fn csc_select<I1, I2>(
-        csc: &CscMatrix<i64>,
-        row_indices: I1,
-        col_indices: I2,
-    ) -> CscMatrix<i64>
+    fn csc_select<I1, I2>(csc: &CscMatrix<i64>, row_indices: I1, col_indices: I2) -> CscMatrix<i64>
     where
         I1: Iterator<Item = usize>,
         I2: Iterator<Item = usize>,

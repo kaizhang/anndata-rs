@@ -1,6 +1,7 @@
 use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, BackendData, ScalarType};
 use crate::ArrayOp;
 use crate::data::{
+    array::DynArray,
     ArrayData,
     array::utils::ExtendableDataset,
 };
@@ -9,7 +10,7 @@ use anyhow::{bail, Result, Context};
 use ndarray::{Array, ArrayView1, ArrayD, RemoveAxis};
 use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
-use super::{DynCsrMatrix, DynCscMatrix, DynArray, DynCsrNonCanonical, CsrNonCanonical};
+use super::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 
 pub trait ArrayChunk: ArrayOp {
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
@@ -90,8 +91,8 @@ impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
             "array"
         };
         let mut container = DataContainer::<B>::Dataset(dataset);
-        container.write_str_attr("encoding-type", encoding_type)?;
-        container.write_str_attr("encoding-version", "0.2.0")?;
+        container.new_str_attr("encoding-type", encoding_type)?;
+        container.new_str_attr("encoding-version", "0.2.0")?;
         Ok(container)
     }
 }
@@ -130,10 +131,10 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         B: Backend,
         G: GroupOp<B>,
     {
-        let mut group = location.create_group(name)?;
-        group.write_str_attr("encoding-type", "csr_matrix")?;
-        group.write_str_attr("encoding-version", "0.1.0")?;
-        group.write_str_attr("h5sparse_format", "csr")?;
+        let mut group = location.new_group(name)?;
+        group.new_str_attr("encoding-type", "csr_matrix")?;
+        group.new_str_attr("encoding-version", "0.1.0")?;
+        group.new_str_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
             &group, "data", 1000.into(),
@@ -168,8 +169,8 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         indices.finish()?;
         data.finish()?;
         indptr.push(nnz);
-        group.create_array_data("indptr", &indptr, Default::default())?;
-        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.new_array_dataset("indptr", &indptr, Default::default())?;
+        group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
     }
 }
@@ -207,10 +208,10 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         B: Backend,
         G: GroupOp<B>,
     {
-        let mut group = location.create_group(name)?;
-        group.write_str_attr("encoding-type", "csr_matrix")?;
-        group.write_str_attr("encoding-version", "0.1.0")?;
-        group.write_str_attr("h5sparse_format", "csr")?;
+        let mut group = location.new_group(name)?;
+        group.new_str_attr("encoding-type", "csr_matrix")?;
+        group.new_str_attr("encoding-version", "0.1.0")?;
+        group.new_str_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
             &group, "data", 1000.into(),
@@ -245,8 +246,8 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         indices.finish()?;
         data.finish()?;
         indptr.push(nnz);
-        group.create_array_data("indptr", &indptr, Default::default())?;
-        group.write_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.new_array_dataset("indptr", &indptr, Default::default())?;
+        group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
     }
 }

@@ -23,7 +23,7 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
         G: GroupOp<B>,
     {
         let block_size = vec![1000; capacity.ndim()].into();
-        let dataset = group.new_dataset::<T>(name, &capacity, WriteConfig { block_size: Some(block_size), ..Default::default() })?;
+        let dataset = group.new_empty_dataset::<T>(name, &capacity, WriteConfig { block_size: Some(block_size), ..Default::default() })?;
         Ok(Self {
             dataset,
             size: std::iter::repeat(0).take(capacity.ndim()).collect(),

@@ -306,7 +306,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
                 //let grp = container.as_group()?;
                 let index = DataFrameIndex::read(&container)?;
                 let column_names = container
-                    .read_array_attr::<String, Ix1>("column-order")?
+                    .get_array_attr::<String, Ix1>("column-order")?
                     .into_raw_vec_and_offset().0
                     .into_iter()
                     .collect();

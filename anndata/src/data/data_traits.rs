@@ -1,7 +1,7 @@
 use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, DataType};
 use crate::data::{
     array::slice::{SelectInfoElem, Shape},
-    scalar::DynScalar,
+    array::DynScalar,
 };
 
 use anyhow::Result;

@@ -33,7 +33,7 @@ impl WriteData for Mapping {
         DataType::Mapping
     }
     fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-        let group = location.create_group(name)?;
+        let group = location.new_group(name)?;
         self.0
             .iter()
             .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;

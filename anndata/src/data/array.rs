@@ -1,19 +1,21 @@
 mod ndarray;
+mod dynamic;
 pub mod slice;
 pub mod dataframe;
 pub mod utils;
 mod sparse;
 mod chunks;
 
-pub use self::ndarray::{CategoricalArray, DynArray};
+pub use self::ndarray::CategoricalArray;
 pub use slice::{SelectInfoBounds, SelectInfoElemBounds, SelectInfo, SelectInfoElem, Shape};
 pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 pub use dataframe::DataFrameIndex;
 pub use chunks::ArrayChunk;
+pub use dynamic::{DynScalar, DynArray};
 
 use crate::backend::*;
 use crate::data::utils::from_csr_data;
-use crate::data::{data_traits::*, scalar::DynScalar, DataType};
+use crate::data::{data_traits::*, DataType};
 
 use polars::prelude::DataFrame;
 use ::ndarray::{Array, RemoveAxis, Ix1};
@@ -316,7 +318,7 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
         CsrNonCanonical<T>: Into<ArrayData>,
     {
         let group = container.as_group()?;
-        let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+        let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
         let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
         let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
         let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
@@ -364,7 +366,7 @@ where
 
         let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
             let group = container.as_group()?;
-            let shape: Vec<usize> = group.read_array_attr("shape")?.to_vec();
+            let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
             let indptr_slice = if let Some(end) = s.end {
                 SelectInfoElem::from(s.start .. end + 1)
             } else {

@@ -62,7 +62,7 @@ impl Backend for H5 {
     type Group = H5Group;
     type Dataset = H5Dataset;
 
-    fn create<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
+    fn new<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         Ok(H5File(File::create(path)?))
     }
 
@@ -566,7 +566,7 @@ impl GroupOp<H5> for H5File {
         list(self)
     }
 
-    fn create_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
+    fn new_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         create_group(self, name)
     }
 
@@ -574,7 +574,7 @@ impl GroupOp<H5> for H5File {
         open_group(self, name)
     }
 
-    fn new_dataset<T: BackendData>(
+    fn new_empty_dataset<T: BackendData>(
         &self,
         name: &str,
         shape: &Shape,
@@ -595,7 +595,7 @@ impl GroupOp<H5> for H5File {
         exists(self, name)
     }
 
-    fn create_scalar_data<D: BackendData>(
+    fn new_scalar_dataset<D: BackendData>(
         &self,
         name: &str,
         data: &D,
@@ -609,7 +609,7 @@ impl GroupOp<H5> for H5Group {
         list(self)
     }
 
-    fn create_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
+    fn new_group(&self, name: &str) -> Result<<H5 as Backend>::Group> {
         create_group(self, name)
     }
 
@@ -617,7 +617,7 @@ impl GroupOp<H5> for H5Group {
         open_group(self, name)
     }
 
-    fn new_dataset<T: BackendData>(
+    fn new_empty_dataset<T: BackendData>(
         &self,
         name: &str,
         shape: &Shape,
@@ -638,7 +638,7 @@ impl GroupOp<H5> for H5Group {
         exists(self, name)
     }
 
-    fn create_scalar_data<D: BackendData>(
+    fn new_scalar_dataset<D: BackendData>(
         &self,
         name: &str,
         data: &D,
@@ -656,7 +656,7 @@ impl AttributeOp<H5> for H5Group {
         path(self)
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -665,19 +665,19 @@ impl AttributeOp<H5> for H5Group {
         write_array_attr(self, name, value)
     }
 
-    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
+    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         write_scalar_attr(self, name, value)
     }
 
-    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
+    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
         write_str_attr(self, name, value)
     }
 
-    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }
@@ -691,7 +691,7 @@ impl AttributeOp<H5> for H5Dataset {
         path(self)
     }
 
-    fn write_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
     where
         A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
@@ -700,19 +700,19 @@ impl AttributeOp<H5> for H5Dataset {
         write_array_attr(self, name, value)
     }
 
-    fn write_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
+    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         write_scalar_attr(self, name, value)
     }
 
-    fn write_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
+    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
         write_str_attr(self, name, value)
     }
 
-    fn read_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
+    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         read_scalar_attr(self, name)
     }
 
-    fn read_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
+    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         read_array_attr(self, name)
     }
 }
@@ -773,9 +773,9 @@ mod tests {
     #[test]
     fn test_basic() -> Result<()> {
         with_tmp_path(|path| {
-            let file = H5::create(path.clone())?;
-            let group = file.create_group("group")?;
-            let subgroup = group.create_group("subgroup")?;
+            let file = H5::new(path.clone())?;
+            let group = file.new_group("group")?;
+            let subgroup = group.new_group("subgroup")?;
 
             assert_eq!(subgroup.path(), PathBuf::from("/group/subgroup"));
             Ok(())
@@ -785,14 +785,14 @@ mod tests {
     #[test]
     fn test_write_empty() -> Result<()> {
         with_tmp_path(|path| {
-            let file = H5::create(&path)?;
-            let group = file.create_group("group")?;
+            let file = H5::new(&path)?;
+            let group = file.new_group("group")?;
             let config = WriteConfig {
                 ..Default::default()
             };
 
             let empty = Array1::<u8>::from_vec(Vec::new());
-            let dataset = group.create_array_data("test", &empty, config)?;
+            let dataset = group.new_array_dataset("test", &empty, config)?;
             assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
             Ok(())
         })
@@ -801,13 +801,13 @@ mod tests {
     #[test]
     fn test_write_slice() -> Result<()> {
         with_tmp_path(|path| -> Result<()> {
-            let file = H5::create(&path)?;
+            let file = H5::new(&path)?;
             let config = WriteConfig {
                 ..Default::default()
             };
 
             let mut dataset =
-                file.new_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
+                file.new_empty_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
             let arr = Array::random((20, 50), Uniform::new(0, 100));
 
             // Repeatitive writes
