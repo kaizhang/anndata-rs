@@ -1,8 +1,8 @@
-use crate::data::{DynArray, DynScalar};
+use crate::data::{DynArray, DynCowArray, DynScalar};
 
 use anyhow::{bail, Result};
 use core::fmt::{Display, Formatter, Debug};
-use ndarray::{ArrayD, ArrayView};
+use ndarray::{ArrayD, ArrayView, CowArray, IxDyn};
 use serde::{Serialize, Deserialize};
 
 /// All data types that can be stored in an AnnData object.
@@ -77,7 +77,7 @@ pub trait BackendData: Serialize + for<'a> Deserialize<'a> + Send + Sync + Clone
     fn into_dyn(&self) -> DynScalar;
 
     /// Convert to opaque array representation.
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D>;
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a>;
 
     /// Convert from opaque representation.
     fn from_dyn(x: DynScalar) -> Result<Self>;
@@ -93,8 +93,8 @@ impl BackendData for i8 {
         DynScalar::I8(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::I8(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::I8(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -121,8 +121,8 @@ impl BackendData for i16 {
         DynScalar::I16(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::I16(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::I16(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -149,8 +149,8 @@ impl BackendData for i32 {
         DynScalar::I32(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::I32(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::I32(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -177,8 +177,8 @@ impl BackendData for i64 {
         DynScalar::I64(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::I64(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::I64(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -205,8 +205,8 @@ impl BackendData for u8 {
         DynScalar::U8(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::U8(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::U8(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -233,8 +233,8 @@ impl BackendData for u16 {
         DynScalar::U16(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::U16(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::U16(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -261,8 +261,8 @@ impl BackendData for u32 {
         DynScalar::U32(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::U32(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::U32(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -289,8 +289,8 @@ impl BackendData for u64 {
         DynScalar::U64(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::U64(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::U64(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -317,8 +317,8 @@ impl BackendData for usize {
         DynScalar::Usize(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::Usize(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::Usize(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -345,8 +345,8 @@ impl BackendData for f32 {
         DynScalar::F32(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::F32(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::F32(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -373,8 +373,8 @@ impl BackendData for f64 {
         DynScalar::F64(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::F64(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::F64(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -401,8 +401,8 @@ impl BackendData for String {
         DynScalar::String(self.clone())
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::String(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::String(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {
@@ -429,8 +429,8 @@ impl BackendData for bool {
         DynScalar::Bool(*self)
     }
 
-    fn into_dyn_arr<'a, D>(arr: ArrayView<'a, Self, D>) -> DynArrayView<'a, D> {
-        DynArrayView::Bool(arr)
+    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
+        DynCowArray::Bool(arr)
     }
 
     fn from_dyn(x: DynScalar) -> Result<Self> {

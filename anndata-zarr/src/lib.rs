@@ -1,10 +1,10 @@
 use anndata::{
     backend::*,
-    data::{DynArray, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape},
+    data::{DynArray, DynCowArray, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape},
 };
 
 use anyhow::{bail, Context, Result};
-use ndarray::{Array, ArrayD, ArrayView, Dimension, SliceInfoElem};
+use ndarray::{Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfoElem};
 use std::{
     ops::{Deref, Index},
     path::{Path, PathBuf},
@@ -464,21 +464,19 @@ impl DatasetOp<Zarr> for ZarrDataset {
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
-    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
+    fn write_array_slice<S, T, D>(&self, arr: CowArray<'_, T, D>, selection: &[S]) -> Result<()>
     where
-        A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        fn write_array_impl<'a, T, D, S>(
+        fn write_array_impl<T, S>(
             container: &ZarrDataset,
-            arr: ArrayView<'a, T, D>,
+            arr: CowArray<'_, T, IxDyn>,
             selection: &[S],
         ) -> Result<()>
         where
             T: Element + 'static,
-            D: Dimension,
             S: AsRef<SelectInfoElem>,
         {
             let selection = SelectInfoBounds::new(&selection, &container.shape());
@@ -506,20 +504,20 @@ impl DatasetOp<Zarr> for ZarrDataset {
             Ok(())
         }
 
-        match BackendData::into_dyn_arr(data.into()) {
-            DynArrayView::U8(x) => write_array_impl(self, x, selection),
-            DynArrayView::U16(x) => write_array_impl(self, x, selection),
-            DynArrayView::U32(x) => write_array_impl(self, x, selection),
-            DynArrayView::U64(x) => write_array_impl(self, x, selection),
-            DynArrayView::Usize(x) => write_array_impl(self, x.map(|e| *e as u64).view(), selection),
-            DynArrayView::I8(x) => write_array_impl(self, x, selection),
-            DynArrayView::I16(x) => write_array_impl(self, x, selection),
-            DynArrayView::I32(x) => write_array_impl(self, x, selection),
-            DynArrayView::I64(x) => write_array_impl(self, x, selection),
-            DynArrayView::F32(x) => write_array_impl(self, x, selection),
-            DynArrayView::F64(x) => write_array_impl(self, x, selection),
-            DynArrayView::Bool(x) => write_array_impl(self, x, selection),
-            DynArrayView::String(x) => write_array_impl(self, x, selection),
+        match BackendData::into_dyn_arr(arr.into_dyn()) {
+            DynCowArray::U8(x) => write_array_impl(self, x, selection),
+            DynCowArray::U16(x) => write_array_impl(self, x, selection),
+            DynCowArray::U32(x) => write_array_impl(self, x, selection),
+            DynCowArray::U64(x) => write_array_impl(self, x, selection),
+            DynCowArray::Usize(x) => todo!(),
+            DynCowArray::I8(x) => write_array_impl(self, x, selection),
+            DynCowArray::I16(x) => write_array_impl(self, x, selection),
+            DynCowArray::I32(x) => write_array_impl(self, x, selection),
+            DynCowArray::I64(x) => write_array_impl(self, x, selection),
+            DynCowArray::F32(x) => write_array_impl(self, x, selection),
+            DynCowArray::F64(x) => write_array_impl(self, x, selection),
+            DynCowArray::Bool(x) => write_array_impl(self, x, selection),
+            DynCowArray::String(x) => write_array_impl(self, x, selection),
         }
     }
 }
@@ -619,7 +617,7 @@ mod tests {
             };
 
             let empty = Array1::<u8>::from_vec(Vec::new());
-            let dataset = group.new_array_dataset("test", &empty, config)?;
+            let dataset = group.new_array_dataset("test", empty.view().into(), config)?;
             assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
             Ok(())
         })
@@ -637,7 +635,7 @@ mod tests {
         let mut dataset = group.new_empty_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
 
         let arr = Array::random((10, 10), Uniform::new(0, 100));
-        dataset.write_array_slice(&arr, s![5..15, 10..20].as_ref())?;
+        dataset.write_array_slice(arr.view().into(), s![5..15, 10..20].as_ref())?;
         assert_eq!(
             arr,
             dataset.read_array_slice::<i32, _, _>(s![5..15, 10..20].as_ref())?
@@ -645,15 +643,15 @@ mod tests {
 
         // Repeatitive writes
         let arr = Array::random((20, 50), Uniform::new(0, 100));
-        dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
-        dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
+        dataset.write_array_slice(arr.view().into(), s![.., ..].as_ref())?;
+        dataset.write_array_slice(arr.view().into(), s![.., ..].as_ref())?;
 
         // Out-of-bounds writes should fail
         //assert!(dataset.write_array_slice(&arr, s![20..40, ..].as_ref()).is_err());
 
         // Reshape and write
         dataset.reshape(&[40, 50].as_slice().into())?;
-        dataset.write_array_slice(&arr, s![20..40, ..].as_ref())?;
+        dataset.write_array_slice(arr.view().into(), s![20..40, ..].as_ref())?;
 
         // Read back is OK
         let merged = concatenate(Axis(0), &[arr.view(), arr.view()])?;

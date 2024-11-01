@@ -8,7 +8,7 @@ use crate::{
 };
 
 use anyhow::{bail, ensure, Result};
-use ndarray::{Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn};
+use ndarray::{arr0, Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynScalar {
@@ -465,9 +465,8 @@ impl ReadArrayData for DynArray {
     }
 }
 
-/// A dynamic-typed array.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DynArrayCow<'a> {
+pub enum DynCowArray<'a> {
     I8(CowArray<'a, i8, IxDyn>),
     I16(CowArray<'a, i16, IxDyn>),
     I32(CowArray<'a, i32, IxDyn>),
@@ -483,25 +482,108 @@ pub enum DynArrayCow<'a> {
     String(CowArray<'a, String, IxDyn>),
 }
 
-macro_rules! impl_dyn_cow_array_convert {
+impl From<DynScalar> for DynCowArray<'_> {
+    fn from(scalar: DynScalar) -> Self {
+        match scalar {
+            DynScalar::I8(val) => DynCowArray::I8(arr0(val).into_dyn().into()),
+            DynScalar::I16(val) => DynCowArray::I16(arr0(val).into_dyn().into()),
+            DynScalar::I32(val) => DynCowArray::I32(arr0(val).into_dyn().into()),
+            DynScalar::I64(val) => DynCowArray::I64(arr0(val).into_dyn().into()),
+            DynScalar::U8(val) => DynCowArray::U8(arr0(val).into_dyn().into()),
+            DynScalar::U16(val) => DynCowArray::U16(arr0(val).into_dyn().into()),
+            DynScalar::U32(val) => DynCowArray::U32(arr0(val).into_dyn().into()),
+            DynScalar::U64(val) => DynCowArray::U64(arr0(val).into_dyn().into()),
+            DynScalar::Usize(val) => DynCowArray::Usize(arr0(val).into_dyn().into()),
+            DynScalar::F32(val) => DynCowArray::F32(arr0(val).into_dyn().into()),
+            DynScalar::F64(val) => DynCowArray::F64(arr0(val).into_dyn().into()),
+            DynScalar::Bool(val) => DynCowArray::Bool(arr0(val).into_dyn().into()),
+            DynScalar::String(val) => DynCowArray::String(arr0(val).into_dyn().into()),
+        }
+    }
+}
+
+impl DynCowArray<'_> {
+    pub fn ndim(&self) -> usize {
+        match self {
+            DynCowArray::I8(arr) => arr.ndim(),
+            DynCowArray::I16(arr) => arr.ndim(),
+            DynCowArray::I32(arr) => arr.ndim(),
+            DynCowArray::I64(arr) => arr.ndim(),
+            DynCowArray::U8(arr) => arr.ndim(),
+            DynCowArray::U16(arr) => arr.ndim(),
+            DynCowArray::U32(arr) => arr.ndim(),
+            DynCowArray::U64(arr) => arr.ndim(),
+            DynCowArray::Usize(arr) => arr.ndim(),
+            DynCowArray::F32(arr) => arr.ndim(),
+            DynCowArray::F64(arr) => arr.ndim(),
+            DynCowArray::Bool(arr) => arr.ndim(),
+            DynCowArray::String(arr) => arr.ndim(),
+        }
+    }
+
+    pub fn shape(&self) -> Shape {
+        match self {
+            DynCowArray::I8(arr) => arr.shape().to_vec(),
+            DynCowArray::I16(arr) => arr.shape().to_vec(),
+            DynCowArray::I32(arr) => arr.shape().to_vec(),
+            DynCowArray::I64(arr) => arr.shape().to_vec(),
+            DynCowArray::U8(arr) => arr.shape().to_vec(),
+            DynCowArray::U16(arr) => arr.shape().to_vec(),
+            DynCowArray::U32(arr) => arr.shape().to_vec(),
+            DynCowArray::U64(arr) => arr.shape().to_vec(),
+            DynCowArray::Usize(arr) => arr.shape().to_vec(),
+            DynCowArray::F32(arr) => arr.shape().to_vec(),
+            DynCowArray::F64(arr) => arr.shape().to_vec(),
+            DynCowArray::Bool(arr) => arr.shape().to_vec(),
+            DynCowArray::String(arr) => arr.shape().to_vec(),
+        }
+        .into()
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            DynCowArray::I8(arr) => arr.len(),
+            DynCowArray::I16(arr) => arr.len(),
+            DynCowArray::I32(arr) => arr.len(),
+            DynCowArray::I64(arr) => arr.len(),
+            DynCowArray::U8(arr) => arr.len(),
+            DynCowArray::U16(arr) => arr.len(),
+            DynCowArray::U32(arr) => arr.len(),
+            DynCowArray::U64(arr) => arr.len(),
+            DynCowArray::Usize(arr) => arr.len(),
+            DynCowArray::F32(arr) => arr.len(),
+            DynCowArray::F64(arr) => arr.len(),
+            DynCowArray::Bool(arr) => arr.len(),
+            DynCowArray::String(arr) => arr.len(),
+        }
+    }
+}
+
+macro_rules! impl_dyn_cowarray_convert {
     ($from_type:ty, $to_type:ident) => {
-        impl<D: Dimension> From<Array<$from_type, D>> for DynArrayCow<'_> {
+        impl<D: Dimension> From<Array<$from_type, D>> for DynCowArray<'_> {
             fn from(data: Array<$from_type, D>) -> Self {
-                DynArrayCow::$to_type(data.into_dyn().into())
+                DynCowArray::$to_type(data.into_dyn().into())
             }
         }
 
-        impl<'a, D: Dimension> From<ArrayView<'a, $from_type, D>> for DynArrayCow<'a> {
+        impl<'a, D: Dimension> From<ArrayView<'a, $from_type, D>> for DynCowArray<'a> {
             fn from(data: ArrayView<'a, $from_type, D>) -> Self {
-                DynArrayCow::$to_type(data.into_dyn().into())
+                DynCowArray::$to_type(data.into_dyn().into())
             }
         }
 
-        impl<D: Dimension> TryFrom<DynArrayCow<'_>> for Array<$from_type, D> {
+        impl<'a, D: Dimension> From<CowArray<'a, $from_type, D>> for DynCowArray<'a> {
+            fn from(data: CowArray<'a, $from_type, D>) -> Self {
+                DynCowArray::$to_type(data.into_dyn())
+            }
+        }
+
+        impl<D: Dimension> TryFrom<DynCowArray<'_>> for Array<$from_type, D> {
             type Error = anyhow::Error;
-            fn try_from(v: DynArrayCow) -> Result<Self, Self::Error> {
+            fn try_from(v: DynCowArray) -> Result<Self, Self::Error> {
                 match v {
-                    DynArrayCow::$to_type(data) => {
+                    DynCowArray::$to_type(data) => {
                         let arr: ArrayD<$from_type> = data.into_owned();
                         if let Some(n) = D::NDIM {
                             ensure!(
@@ -512,8 +594,7 @@ macro_rules! impl_dyn_cow_array_convert {
                         Ok(arr.into_dimensionality::<D>()?)
                     }
                     _ => bail!(
-                        "Cannot convert {:?} to {} ArrayD",
-                        v.data_type(),
+                        "Cannot convert to {} ArrayD",
                         stringify!($from_type)
                     ),
                 }
@@ -522,47 +603,16 @@ macro_rules! impl_dyn_cow_array_convert {
     };
 }
 
-impl_dyn_cow_array_convert!(i8, I8);
-
-impl WriteData for DynArrayCow<'_> {
-    fn data_type(&self) -> DataType {
-        match self {
-            Self::I8(arr) => arr.view().data_type(),
-            Self::I16(arr) => arr.view().data_type(),
-            Self::I32(arr) => arr.view().data_type(),
-            Self::I64(arr) => arr.view().data_type(),
-            Self::U8(arr) => arr.view().data_type(),
-            Self::U16(arr) => arr.view().data_type(),
-            Self::U32(arr) => arr.view().data_type(),
-            Self::U64(arr) => arr.view().data_type(),
-            Self::Usize(arr) => arr.view().data_type(),
-            Self::F32(arr) => arr.view().data_type(),
-            Self::F64(arr) => arr.view().data_type(),
-            Self::Bool(arr) => arr.view().data_type(),
-            Self::String(arr) => arr.view().data_type(),
-        }
-    }
-    fn write<B: Backend, G: GroupOp<B>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<DataContainer<B>> {
-        match self {
-            Self::I8(array) => array.view().write(location, name),
-            Self::I16(array) => array.view().write(location, name),
-            Self::I32(array) => array.view().write(location, name),
-            Self::I64(array) => array.view().write(location, name),
-            Self::U8(array) => array.view().write(location, name),
-            Self::U16(array) => array.view().write(location, name),
-            Self::U32(array) => array.view().write(location, name),
-            Self::U64(array) => array.view().write(location, name),
-            Self::Usize(array) => array.view().write(location, name),
-            Self::F32(array) => array.view().write(location, name),
-            Self::F64(array) => array.view().write(location, name),
-            Self::Bool(array) => array.view().write(location, name),
-            Self::String(array) => array.view().write(location, name),
-        }
-    }
-}
-
-
+impl_dyn_cowarray_convert!(i8, I8);
+impl_dyn_cowarray_convert!(i16, I16);
+impl_dyn_cowarray_convert!(i32, I32);
+impl_dyn_cowarray_convert!(i64, I64);
+impl_dyn_cowarray_convert!(u8, U8);
+impl_dyn_cowarray_convert!(u16, U16);
+impl_dyn_cowarray_convert!(u32, U32);
+impl_dyn_cowarray_convert!(u64, U64);
+impl_dyn_cowarray_convert!(usize, Usize);
+impl_dyn_cowarray_convert!(f32, F32);
+impl_dyn_cowarray_convert!(f64, F64);
+impl_dyn_cowarray_convert!(bool, Bool);
+impl_dyn_cowarray_convert!(String, String);

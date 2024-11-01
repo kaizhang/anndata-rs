@@ -1,6 +1,6 @@
 use anndata::{
     backend::*,
-    data::{DynArray, DynScalar, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape},
+    data::{DynArray, DynCowArray, DynScalar, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape},
 };
 
 use anyhow::{bail, Ok, Result};
@@ -10,7 +10,7 @@ use hdf5::{
     types::{FloatSize, TypeDescriptor, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
-use ndarray::{Array, ArrayBase, ArrayD, ArrayView, Dimension, SliceInfo, SliceInfoElem};
+use ndarray::{Array, ArrayBase, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfo, SliceInfoElem};
 use std::ops::Deref;
 use std::ops::Index;
 use std::path::{Path, PathBuf};
@@ -389,21 +389,19 @@ impl DatasetOp<H5> for H5Dataset {
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
 
-    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
+    fn write_array_slice<S, T, D>(&self, data: CowArray<'_, T, D>, selection: &[S]) -> Result<()>
     where
-        A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
         D: Dimension,
     {
-        fn write_array_impl<'a, T, D, S>(
+        fn write_array_impl<T, S>(
             container: &H5Dataset,
-            arr: ArrayView<'a, T, D>,
+            arr: CowArray<'_, T, IxDyn>,
             selection: &[S],
         ) -> Result<()>
         where
             T: H5Type + Clone,
-            D: Dimension,
             S: AsRef<SelectInfoElem>,
         {
             let (select, _) = into_selection(selection, container.shape());
@@ -413,22 +411,22 @@ impl DatasetOp<H5> for H5Dataset {
             Ok(())
         }
 
-        match BackendData::into_dyn_arr(data.into()) {
-            DynArrayView::U8(x) => write_array_impl(self, x, selection),
-            DynArrayView::U16(x) => write_array_impl(self, x, selection),
-            DynArrayView::U32(x) => write_array_impl(self, x, selection),
-            DynArrayView::U64(x) => write_array_impl(self, x, selection),
-            DynArrayView::Usize(x) => write_array_impl(self, x, selection),
-            DynArrayView::I8(x) => write_array_impl(self, x, selection),
-            DynArrayView::I16(x) => write_array_impl(self, x, selection),
-            DynArrayView::I32(x) => write_array_impl(self, x, selection),
-            DynArrayView::I64(x) => write_array_impl(self, x, selection),
-            DynArrayView::F32(x) => write_array_impl(self, x, selection),
-            DynArrayView::F64(x) => write_array_impl(self, x, selection),
-            DynArrayView::Bool(x) => write_array_impl(self, x, selection),
-            DynArrayView::String(x) => {
-                let data: Array<VarLenUnicode, D> = x.map(|x| x.parse().unwrap());
-                write_array_impl(self, data.view(), selection)
+        match BackendData::into_dyn_arr(data.into_dyn()) {
+            DynCowArray::U8(x) => write_array_impl(self, x, selection),
+            DynCowArray::U16(x) => write_array_impl(self, x, selection),
+            DynCowArray::U32(x) => write_array_impl(self, x, selection),
+            DynCowArray::U64(x) => write_array_impl(self, x, selection),
+            DynCowArray::Usize(x) => write_array_impl(self, x, selection),
+            DynCowArray::I8(x) => write_array_impl(self, x, selection),
+            DynCowArray::I16(x) => write_array_impl(self, x, selection),
+            DynCowArray::I32(x) => write_array_impl(self, x, selection),
+            DynCowArray::I64(x) => write_array_impl(self, x, selection),
+            DynCowArray::F32(x) => write_array_impl(self, x, selection),
+            DynCowArray::F64(x) => write_array_impl(self, x, selection),
+            DynCowArray::Bool(x) => write_array_impl(self, x, selection),
+            DynCowArray::String(x) => {
+                let data: Array<VarLenUnicode, _> = x.map(|x| x.parse().unwrap());
+                write_array_impl(self, data.into(), selection)
             }
         }
     }
@@ -451,21 +449,22 @@ where
     Dim: Dimension,
 {
     del_attr(loc, name);
-    match BackendData::into_dyn_arr(value.into()) {
-        DynArrayView::U8(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::U16(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::U32(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::U64(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::Usize(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::I8(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::I16(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::I32(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::I64(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::F32(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::F64(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::Bool(x) => loc.new_attr_builder().with_data(x).create(name)?,
-        DynArrayView::String(x) => {
-            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap());
+    let value = value.into().into_dyn().into();
+    match BackendData::into_dyn_arr(value) {
+        DynCowArray::U8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::Usize(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::F32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::F64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::Bool(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::String(x) => {
+            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap()).into_dimensionality()?;
             loc.new_attr_builder().with_data(data.view()).create(name)?
         }
     };
@@ -792,7 +791,7 @@ mod tests {
             };
 
             let empty = Array1::<u8>::from_vec(Vec::new());
-            let dataset = group.new_array_dataset("test", &empty, config)?;
+            let dataset = group.new_array_dataset("test", empty.view().into(), config)?;
             assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
             Ok(())
         })
@@ -811,17 +810,17 @@ mod tests {
             let arr = Array::random((20, 50), Uniform::new(0, 100));
 
             // Repeatitive writes
-            dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
-            dataset.write_array_slice(&arr, s![.., ..].as_ref())?;
+            dataset.write_array_slice(arr.view().into(), s![.., ..].as_ref())?;
+            dataset.write_array_slice(arr.view().into(), s![.., ..].as_ref())?;
 
             // Out-of-bounds writes should fail
             assert!(dataset
-                .write_array_slice(&arr, s![20..40, ..].as_ref())
+                .write_array_slice(arr.view().into(), s![20..40, ..].as_ref())
                 .is_err());
 
             // Reshape and write
             dataset.reshape(&[40, 50].as_slice().into())?;
-            dataset.write_array_slice(&arr, s![20..40, ..].as_ref())?;
+            dataset.write_array_slice(arr.view().into(), s![20..40, ..].as_ref())?;
 
             // Read back is OK
             let merged = concatenate(Axis(0), &[arr.view(), arr.view()])?;

@@ -84,7 +84,7 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
                 }).unzip();
             let new_size = new_size.into();
             self.check_or_grow(&new_size, 10000)?;
-            self.dataset.write_array_slice(data, slice.as_ref())?;
+            self.dataset.write_array_slice(data.into(), slice.as_ref())?;
             self.size = new_size;
         }
         Ok(())

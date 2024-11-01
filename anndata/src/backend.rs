@@ -1,10 +1,10 @@
 mod datatype;
-use crate::data::{SelectInfo, SelectInfoElem, Shape};
+use crate::data::{DynArray, SelectInfo, SelectInfoElem, Shape};
 pub use datatype::{BackendData, DataType, DynArrayView, ScalarType};
 
 use anyhow::{bail, Result};
 use core::fmt::{Debug, Formatter};
-use ndarray::{arr0, Array, ArrayView, Dimension, Ix0};
+use ndarray::{arr0, Array, ArrayView, CowArray, Dimension, Ix0, IxDyn};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -79,19 +79,17 @@ pub trait GroupOp<B: Backend + ?Sized> {
     /// Check if a group or dataset exists.
     fn exists(&self, name: &str) -> Result<bool>;
 
-    fn new_array_dataset<'a, A, D, Dim>(
+    fn new_array_dataset<'a, D, Dim>(
         &self,
         name: &str,
-        arr: A,
+        arr: CowArray<'a, D, Dim>,
         config: WriteConfig,
     ) -> Result<B::Dataset>
     where
-        A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        let arr_view = arr.into();
-        let shape = arr_view.shape();
+        let shape = arr.shape();
         let block_size = config.block_size.unwrap_or_else(|| {
             if shape.len() == 1 {
                 shape[0].min(10000).into()
@@ -99,7 +97,7 @@ pub trait GroupOp<B: Backend + ?Sized> {
                 shape.iter().map(|&x| x.min(100)).collect()
             }
         });
-        let compression = if arr_view.len() > 100 {
+        let compression = if arr.len() > 100 {
             config.compression
         } else {
             None
@@ -109,12 +107,12 @@ pub trait GroupOp<B: Backend + ?Sized> {
             block_size: Some(block_size),
         };
         let dataset = self.new_empty_dataset::<D>(name, &shape.into(), new_config)?;
-        dataset.write_array(arr_view)?;
+        dataset.write_array(arr)?;
         Ok(dataset)
     }
 
     fn new_scalar_dataset<D: BackendData>(&self, name: &str, data: &D) -> Result<B::Dataset> {
-        self.new_array_dataset(name, &arr0(data.clone()), WriteConfig::default())
+        self.new_array_dataset(name, arr0(data.clone()).into(), WriteConfig::default())
     }
 }
 
@@ -160,29 +158,55 @@ pub trait DatasetOp<B: Backend + ?Sized> {
     where
         S: AsRef<SelectInfoElem>,
         D: Dimension;
+
+    fn read_dyn_array_slice<S>(&self, selection: &[S]) -> Result<DynArray>
+    where
+        S: AsRef<SelectInfoElem>
+    {
+        let arr = match self.dtype()? {
+            ScalarType::I8 => self.read_array_slice::<i8, _, IxDyn>(selection)?.into(),
+            ScalarType::I16 => self.read_array_slice::<i16, _, IxDyn>(selection)?.into(),
+            ScalarType::I32 => self.read_array_slice::<i32, _, IxDyn>(selection)?.into(),
+            ScalarType::I64 => self.read_array_slice::<i64, _, IxDyn>(selection)?.into(),
+            ScalarType::U8 => self.read_array_slice::<u8, _, IxDyn>(selection)?.into(),
+            ScalarType::U16 => self.read_array_slice::<u16, _, IxDyn>(selection)?.into(),
+            ScalarType::U32 => self.read_array_slice::<u32, _, IxDyn>(selection)?.into(),
+            ScalarType::U64 => self.read_array_slice::<u64, _, IxDyn>(selection)?.into(),
+            ScalarType::Usize => self.read_array_slice::<usize, _, IxDyn>(selection)?.into(),
+            ScalarType::F32 => self.read_array_slice::<f32, _, IxDyn>(selection)?.into(),
+            ScalarType::F64 => self.read_array_slice::<f64, _, IxDyn>(selection)?.into(),
+            ScalarType::Bool => self.read_array_slice::<bool, _, IxDyn>(selection)?.into(),
+            ScalarType::String => self.read_array_slice::<String, _, IxDyn>(selection)?.into(),
+        };
+        Ok(arr)
+    }
+
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
     where
         D: Dimension,
     {
         self.read_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
     }
+
+    fn read_dyn_array<S>(&self) -> Result<DynArray> {
+        self.read_dyn_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
+    }
+
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
         self.read_array::<T, Ix0>().map(|x| x.into_scalar())
     }
 
-    fn write_array_slice<'a, A, S, T, D>(&self, data: A, selection: &[S]) -> Result<()>
+    fn write_array_slice<S, T, D>(&self, arr: CowArray<'_, T, D>, selection: &[S]) -> Result<()>
     where
-        A: Into<ArrayView<'a, T, D>>,
         T: BackendData,
         S: AsRef<SelectInfoElem>,
         D: Dimension;
-    fn write_array<'a, A, D, Dim>(&self, data: A) -> Result<()>
+
+    fn write_array<D, Dim>(&self, arr: CowArray<'_, D, Dim>) -> Result<()>
     where
-        A: Into<ArrayView<'a, D, Dim>>,
         D: BackendData,
         Dim: Dimension,
     {
-        let arr = data.into();
         let ndim = arr.ndim();
         self.write_array_slice(arr, SelectInfo::full_slice(ndim).as_ref())
     }

@@ -523,7 +523,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
         group.new_str_attr("encoding-version", "0.1.0")?;
         group.new_array_attr("shape", shape.as_ref())?;
 
-        group.new_array_dataset("data", &self.values(), Default::default())?;
+        group.new_array_dataset("data", self.values().into(), Default::default())?;
 
         let num_cols = shape[1];
         // Use i32 or i64 as indices type in order to be compatible with scipy
@@ -534,14 +534,14 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
                 .map(|x| (*x).try_into().ok())
                 .collect();
             if let Some(indptr_i32) = try_convert_indptr {
-                group.new_array_dataset("indptr", &indptr_i32, Default::default())?;
+                group.new_array_dataset("indptr", indptr_i32.into(), Default::default())?;
                 group.new_array_dataset(
                     "indices",
                     self.col_indices()
                         .iter()
                         .map(|x| (*x) as i32)
                         .collect::<Vec<_>>()
-                        .as_slice(),
+                        .into(),
                     Default::default(),
                 )?;
             } else {
@@ -551,7 +551,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
                         .iter()
                         .map(|x| TryInto::<i64>::try_into(*x).unwrap())
                         .collect::<Vec<_>>()
-                        .as_slice(),
+                        .into(),
                     Default::default(),
                 )?;
                 group.new_array_dataset(
@@ -560,7 +560,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
                         .iter()
                         .map(|x| (*x) as i64)
                         .collect::<Vec<_>>()
-                        .as_slice(),
+                        .into(),
                     Default::default(),
                 )?;
             }
@@ -571,7 +571,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
                     .iter()
                     .map(|x| TryInto::<i64>::try_into(*x).unwrap())
                     .collect::<Vec<_>>()
-                    .as_slice(),
+                    .into(),
                 Default::default(),
             )?;
             group.new_array_dataset(
@@ -580,7 +580,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
                     .iter()
                     .map(|x| (*x) as i64)
                     .collect::<Vec<_>>()
-                    .as_slice(),
+                    .into(),
                 Default::default(),
             )?;
         } else {

@@ -325,8 +325,16 @@ pub fn anndata_eq<B1: Backend, B2: Backend>(
         && adata1.n_vars() == adata2.n_vars()
         && adata1.obs_names() == adata2.obs_names()
         && adata1.var_names() == adata2.var_names()
-        && adata1.read_obs()? == adata2.read_obs()?
-        && adata1.read_var()? == adata2.read_var()?
+        && {
+            let a = adata1.read_obs()?; 
+            let b = adata2.read_obs()?;
+            a == b || (a.is_empty() && b.is_empty())
+        }
+        && {
+            let a = adata1.read_var()?; 
+            let b = adata2.read_var()?;
+            a == b || (a.is_empty() && b.is_empty())
+        }
         && adata1.x().get::<ArrayData>()? == adata2.x().get()?
         && adata1.obsm().keys().iter().all(|k| {
             adata1.obsm().get_item::<ArrayData>(k).unwrap() == adata2.obsm().get_item(k).unwrap()
@@ -342,10 +350,10 @@ pub fn anndata_eq<B1: Backend, B2: Backend>(
         })
         && adata1.uns().keys().iter().all(|k| {
             adata1.uns().get_item::<Data>(k).unwrap() == adata2.uns().get_item(k).unwrap()
+        })
+        && adata1.layers().keys().iter().all(|k| {
+            adata1.layers().get_item::<ArrayData>(k).unwrap() == adata2.layers().get_item(k).unwrap()
         });
-    adata1.layers().keys().iter().all(|k| {
-        adata1.layers().get_item::<ArrayData>(k).unwrap() == adata2.layers().get_item(k).unwrap()
-    });
     Ok(is_equal)
 }
 

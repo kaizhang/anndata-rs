@@ -11,7 +11,7 @@ pub use slice::{SelectInfoBounds, SelectInfoElemBounds, SelectInfo, SelectInfoEl
 pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 pub use dataframe::DataFrameIndex;
 pub use chunks::ArrayChunk;
-pub use dynamic::{DynScalar, DynArray};
+pub use dynamic::{DynScalar, DynArray, DynCowArray};
 
 use crate::backend::*;
 use crate::data::utils::from_csr_data;

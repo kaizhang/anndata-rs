@@ -431,7 +431,7 @@ impl WriteData for DataFrameIndex {
         container.new_str_attr("_index", &self.index_name)?;
         let group = container.as_group()?;
         let arr: Array1<String> = self.clone().into_iter().collect();
-        let mut data = group.new_array_dataset(&self.index_name, &arr, Default::default())?;
+        let mut data = group.new_array_dataset(&self.index_name, arr.into(), Default::default())?;
         match &self.index {
             Index::List(_) => {
                 data.new_str_attr("index_type", "list")?;

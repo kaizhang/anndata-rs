@@ -169,7 +169,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         indices.finish()?;
         data.finish()?;
         indptr.push(nnz);
-        group.new_array_dataset("indptr", &indptr, Default::default())?;
+        group.new_array_dataset("indptr", indptr.into(), Default::default())?;
         group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
     }
@@ -246,7 +246,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         indices.finish()?;
         data.finish()?;
         indptr.push(nnz);
-        group.new_array_dataset("indptr", &indptr, Default::default())?;
+        group.new_array_dataset("indptr", indptr.into(), Default::default())?;
         group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
         Ok(DataContainer::Group(group))
     }
