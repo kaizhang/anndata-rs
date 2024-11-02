@@ -342,78 +342,44 @@ pub enum DynCowArray<'a> {
 
 impl From<DynScalar> for DynCowArray<'_> {
     fn from(scalar: DynScalar) -> Self {
-        match scalar {
-            DynScalar::I8(val) => DynCowArray::I8(arr0(val).into_dyn().into()),
-            DynScalar::I16(val) => DynCowArray::I16(arr0(val).into_dyn().into()),
-            DynScalar::I32(val) => DynCowArray::I32(arr0(val).into_dyn().into()),
-            DynScalar::I64(val) => DynCowArray::I64(arr0(val).into_dyn().into()),
-            DynScalar::U8(val) => DynCowArray::U8(arr0(val).into_dyn().into()),
-            DynScalar::U16(val) => DynCowArray::U16(arr0(val).into_dyn().into()),
-            DynScalar::U32(val) => DynCowArray::U32(arr0(val).into_dyn().into()),
-            DynScalar::U64(val) => DynCowArray::U64(arr0(val).into_dyn().into()),
-            DynScalar::Usize(val) => DynCowArray::Usize(arr0(val).into_dyn().into()),
-            DynScalar::F32(val) => DynCowArray::F32(arr0(val).into_dyn().into()),
-            DynScalar::F64(val) => DynCowArray::F64(arr0(val).into_dyn().into()),
-            DynScalar::Bool(val) => DynCowArray::Bool(arr0(val).into_dyn().into()),
-            DynScalar::String(val) => DynCowArray::String(arr0(val).into_dyn().into()),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                DynCowArray::$variant(arr0($exp).into_dyn().into())
+            };
         }
+        crate::macros::dyn_map1!(scalar, DynScalar, fun)
     }
 }
 
 impl DynCowArray<'_> {
     pub fn ndim(&self) -> usize {
-        match self {
-            DynCowArray::I8(arr) => arr.ndim(),
-            DynCowArray::I16(arr) => arr.ndim(),
-            DynCowArray::I32(arr) => arr.ndim(),
-            DynCowArray::I64(arr) => arr.ndim(),
-            DynCowArray::U8(arr) => arr.ndim(),
-            DynCowArray::U16(arr) => arr.ndim(),
-            DynCowArray::U32(arr) => arr.ndim(),
-            DynCowArray::U64(arr) => arr.ndim(),
-            DynCowArray::Usize(arr) => arr.ndim(),
-            DynCowArray::F32(arr) => arr.ndim(),
-            DynCowArray::F64(arr) => arr.ndim(),
-            DynCowArray::Bool(arr) => arr.ndim(),
-            DynCowArray::String(arr) => arr.ndim(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.ndim()
+            };
         }
+        
+        crate::macros::dyn_map1!(self, DynCowArray, fun)
     }
 
     pub fn shape(&self) -> Shape {
-        match self {
-            DynCowArray::I8(arr) => arr.shape().to_vec(),
-            DynCowArray::I16(arr) => arr.shape().to_vec(),
-            DynCowArray::I32(arr) => arr.shape().to_vec(),
-            DynCowArray::I64(arr) => arr.shape().to_vec(),
-            DynCowArray::U8(arr) => arr.shape().to_vec(),
-            DynCowArray::U16(arr) => arr.shape().to_vec(),
-            DynCowArray::U32(arr) => arr.shape().to_vec(),
-            DynCowArray::U64(arr) => arr.shape().to_vec(),
-            DynCowArray::Usize(arr) => arr.shape().to_vec(),
-            DynCowArray::F32(arr) => arr.shape().to_vec(),
-            DynCowArray::F64(arr) => arr.shape().to_vec(),
-            DynCowArray::Bool(arr) => arr.shape().to_vec(),
-            DynCowArray::String(arr) => arr.shape().to_vec(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.shape().to_vec()
+            };
         }
-        .into()
+
+        crate::macros::dyn_map1!(self, DynCowArray, fun).into()
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            DynCowArray::I8(arr) => arr.len(),
-            DynCowArray::I16(arr) => arr.len(),
-            DynCowArray::I32(arr) => arr.len(),
-            DynCowArray::I64(arr) => arr.len(),
-            DynCowArray::U8(arr) => arr.len(),
-            DynCowArray::U16(arr) => arr.len(),
-            DynCowArray::U32(arr) => arr.len(),
-            DynCowArray::U64(arr) => arr.len(),
-            DynCowArray::Usize(arr) => arr.len(),
-            DynCowArray::F32(arr) => arr.len(),
-            DynCowArray::F64(arr) => arr.len(),
-            DynCowArray::Bool(arr) => arr.len(),
-            DynCowArray::String(arr) => arr.len(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.len()
+            };
         }
+
+        crate::macros::dyn_map1!(self, DynCowArray, fun)
     }
 }
 

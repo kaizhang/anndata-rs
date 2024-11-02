@@ -1,6 +1,6 @@
 mod datatype;
 use crate::data::{DynArray, SelectInfo, SelectInfoElem, Shape};
-pub use datatype::{BackendData, DataType, DynArrayView, ScalarType};
+pub use datatype::{BackendData, DataType, ScalarType};
 
 use anyhow::{bail, Result};
 use core::fmt::{Debug, Formatter};

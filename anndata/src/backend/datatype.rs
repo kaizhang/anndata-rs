@@ -2,7 +2,7 @@ use crate::data::{DynArray, DynCowArray, DynScalar};
 
 use anyhow::{bail, Result};
 use core::fmt::{Display, Formatter, Debug};
-use ndarray::{ArrayD, ArrayView, CowArray, IxDyn};
+use ndarray::{ArrayD, CowArray, IxDyn};
 use serde::{Serialize, Deserialize};
 
 /// All data types that can be stored in an AnnData object.
@@ -448,20 +448,4 @@ impl BackendData for bool {
             bail!("Expecting bool array")
         }
     }
-}
-
-pub enum DynArrayView<'a, D> {
-    I8(ArrayView<'a, i8, D>),
-    I16(ArrayView<'a, i16, D>),
-    I32(ArrayView<'a, i32, D>),
-    I64(ArrayView<'a, i64, D>),
-    U8(ArrayView<'a, u8, D>),
-    U16(ArrayView<'a, u16, D>),
-    U32(ArrayView<'a, u32, D>),
-    U64(ArrayView<'a, u64, D>),
-    Usize(ArrayView<'a, usize, D>),
-    F32(ArrayView<'a, f32, D>),
-    F64(ArrayView<'a, f64, D>),
-    String(ArrayView<'a, String, D>),
-    Bool(ArrayView<'a, bool, D>),
 }
