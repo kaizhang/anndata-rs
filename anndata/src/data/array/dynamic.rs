@@ -1,7 +1,6 @@
 use crate::{
     backend::*,
     data::{
-        CategoricalArray,
         data_traits::*,
         slice::{SelectInfoElem, Shape},
     },
@@ -9,6 +8,7 @@ use crate::{
 
 use anyhow::{bail, ensure, Result};
 use ndarray::{arr0, Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn};
+use polars::series::Series;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynScalar {
@@ -75,21 +75,12 @@ impl_from_dynscalar!(
 
 impl WriteData for DynScalar {
     fn data_type(&self) -> DataType {
-        match self {
-            DynScalar::I8(_) => DataType::Scalar(ScalarType::I8),
-            DynScalar::I16(_) => DataType::Scalar(ScalarType::I16),
-            DynScalar::I32(_) => DataType::Scalar(ScalarType::I32),
-            DynScalar::I64(_) => DataType::Scalar(ScalarType::I64),
-            DynScalar::U8(_) => DataType::Scalar(ScalarType::U8),
-            DynScalar::U16(_) => DataType::Scalar(ScalarType::U16),
-            DynScalar::U32(_) => DataType::Scalar(ScalarType::U32),
-            DynScalar::U64(_) => DataType::Scalar(ScalarType::U64),
-            DynScalar::Usize(_) => DataType::Scalar(ScalarType::Usize),
-            DynScalar::F32(_) => DataType::Scalar(ScalarType::F32),
-            DynScalar::F64(_) => DataType::Scalar(ScalarType::F64),
-            DynScalar::Bool(_) => DataType::Scalar(ScalarType::Bool),
-            DynScalar::String(_) => DataType::Scalar(ScalarType::String),
+        macro_rules! dtype {
+            ($variant:ident, $exp:expr) => {
+                DataType::Scalar(ScalarType::$variant)
+            };
         }
+        crate::macros::dyn_map1!(self, DynScalar, dtype)
     }
 
     fn write<B: Backend, G: GroupOp<B>>(
@@ -97,42 +88,26 @@ impl WriteData for DynScalar {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        match self {
-            DynScalar::I8(data) => data.write(location, name),
-            DynScalar::I16(data) => data.write(location, name),
-            DynScalar::I32(data) => data.write(location, name),
-            DynScalar::I64(data) => data.write(location, name),
-            DynScalar::U8(data) => data.write(location, name),
-            DynScalar::U16(data) => data.write(location, name),
-            DynScalar::U32(data) => data.write(location, name),
-            DynScalar::U64(data) => data.write(location, name),
-            DynScalar::Usize(data) => data.write(location, name),
-            DynScalar::F32(data) => data.write(location, name),
-            DynScalar::F64(data) => data.write(location, name),
-            DynScalar::Bool(data) => data.write(location, name),
-            DynScalar::String(data) => data.write(location, name),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.write(location, name)
+            };
         }
+        crate::macros::dyn_map1!(self, DynScalar, fun)
     }
 }
 
 impl ReadData for DynScalar {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let dataset = container.as_dataset()?;
-        match dataset.dtype()? {
-            ScalarType::I8 => Ok(DynScalar::I8(dataset.read_scalar()?)),
-            ScalarType::I16 => Ok(DynScalar::I16(dataset.read_scalar()?)),
-            ScalarType::I32 => Ok(DynScalar::I32(dataset.read_scalar()?)),
-            ScalarType::I64 => Ok(DynScalar::I64(dataset.read_scalar()?)),
-            ScalarType::U8 => Ok(DynScalar::U8(dataset.read_scalar()?)),
-            ScalarType::U16 => Ok(DynScalar::U16(dataset.read_scalar()?)),
-            ScalarType::U32 => Ok(DynScalar::U32(dataset.read_scalar()?)),
-            ScalarType::U64 => Ok(DynScalar::U64(dataset.read_scalar()?)),
-            ScalarType::Usize => Ok(DynScalar::Usize(dataset.read_scalar()?)),
-            ScalarType::F32 => Ok(DynScalar::F32(dataset.read_scalar()?)),
-            ScalarType::F64 => Ok(DynScalar::F64(dataset.read_scalar()?)),
-            ScalarType::Bool => Ok(DynScalar::Bool(dataset.read_scalar()?)),
-            ScalarType::String => Ok(DynScalar::String(dataset.read_scalar()?)),
+
+        macro_rules! fun {
+            ($variant:ident) => {
+                DynScalar::I8(dataset.read_scalar()?)
+            };
         }
+
+        Ok(crate::macros::dyn_map0!(dataset.dtype()?, ScalarType, fun))
     }
 }
 
@@ -152,24 +127,6 @@ pub enum DynArray {
     F64(ArrayD<f64>),
     Bool(ArrayD<bool>),
     String(ArrayD<String>),
-    Categorical(CategoricalArray),
-}
-
-impl From<CategoricalArray> for DynArray {
-    fn from(cat: CategoricalArray) -> Self {
-        Self::Categorical(cat)
-    }
-}
-
-impl TryFrom<DynArray> for CategoricalArray {
-    type Error = anyhow::Error;
-
-    fn try_from(v: DynArray) -> Result<Self> {
-        match v {
-            DynArray::Categorical(cat) => Ok(cat),
-            _ => bail!("Cannot convert {:?} to CategoricalArray", v.data_type()),
-        }
-    }
 }
 
 macro_rules! impl_dyn_array_convert {
@@ -213,175 +170,96 @@ impl_dyn_array_convert!(u8, U8);
 impl_dyn_array_convert!(u16, U16);
 impl_dyn_array_convert!(u32, U32);
 impl_dyn_array_convert!(u64, U64);
+impl_dyn_array_convert!(usize, Usize);
 impl_dyn_array_convert!(f32, F32);
 impl_dyn_array_convert!(f64, F64);
 impl_dyn_array_convert!(bool, Bool);
 impl_dyn_array_convert!(String, String);
 
-impl<D: Dimension> From<Array<usize, D>> for DynArray {
-    fn from(data: Array<usize, D>) -> Self {
-        DynArray::Usize(data.into_dyn())
-    }
-}
-
-impl<D: Dimension> TryFrom<DynArray> for Array<usize, D> {
-    type Error = anyhow::Error;
-    fn try_from(v: DynArray) -> Result<Self, Self::Error> {
-        match v {
-            DynArray::Usize(data) => {
-                let arr: ArrayD<usize> = data.try_into()?;
-                if let Some(n) = D::NDIM {
-                    ensure!(
-                        arr.ndim() == n,
-                        format!("Dimension mismatch: {} (in) != {} (out)", arr.ndim(), n)
-                    );
-                }
-                Ok(arr.into_dimensionality::<D>()?)
-            }
-            _ => bail!(
-                "Cannot convert {:?} to {} ArrayD",
-                v.data_type(),
-                stringify!(usize)
-            ),
+impl Into<Series> for DynArray {
+    fn into(self) -> Series {
+        match self {
+            DynArray::I8(x) => x.iter().collect(),
+            DynArray::I16(x) => x.iter().collect(),
+            DynArray::I32(x) => x.iter().collect(),
+            DynArray::I64(x) => x.iter().collect(),
+            DynArray::U8(x) => x.iter().collect(),
+            DynArray::U16(x) => x.iter().collect(),
+            DynArray::U32(x) => x.iter().collect(),
+            DynArray::U64(x) => x.iter().collect(),
+            DynArray::Usize(x) => x.iter().map(|x| *x as u64).collect(),
+            DynArray::F32(x) => x.iter().collect(),
+            DynArray::F64(x) => x.iter().collect(),
+            DynArray::Bool(x) => x.iter().collect(),
+            DynArray::String(x) => x.iter().map(|x| x.as_str()).collect(),
         }
     }
 }
 
 impl WriteData for DynArray {
     fn data_type(&self) -> DataType {
-        match self {
-            Self::I8(arr) => arr.data_type(),
-            Self::I16(arr) => arr.data_type(),
-            Self::I32(arr) => arr.data_type(),
-            Self::I64(arr) => arr.data_type(),
-            Self::U8(arr) => arr.data_type(),
-            Self::U16(arr) => arr.data_type(),
-            Self::U32(arr) => arr.data_type(),
-            Self::U64(arr) => arr.data_type(),
-            Self::Usize(arr) => arr.data_type(),
-            Self::F32(arr) => arr.data_type(),
-            Self::F64(arr) => arr.data_type(),
-            Self::Bool(arr) => arr.data_type(),
-            Self::String(arr) => arr.data_type(),
-            Self::Categorical(arr) => arr.data_type(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.data_type()
+            };
         }
+        crate::macros::dyn_map1!(self, Self, fun)
     }
+
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        match self {
-            Self::I8(array) => array.write(location, name),
-            Self::I16(array) => array.write(location, name),
-            Self::I32(array) => array.write(location, name),
-            Self::I64(array) => array.write(location, name),
-            Self::U8(array) => array.write(location, name),
-            Self::U16(array) => array.write(location, name),
-            Self::U32(array) => array.write(location, name),
-            Self::U64(array) => array.write(location, name),
-            Self::Usize(array) => array.write(location, name),
-            Self::F32(array) => array.write(location, name),
-            Self::F64(array) => array.write(location, name),
-            Self::Bool(array) => array.write(location, name),
-            Self::String(array) => array.write(location, name),
-            Self::Categorical(array) => array.write(location, name),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.write(location, name)
+            };
         }
+
+        crate::macros::dyn_map1!(self, Self, fun)
     }
 }
 
 impl ReadData for DynArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        match container {
-            DataContainer::Dataset(dataset) => match dataset.dtype()? {
-                ScalarType::I8 => Ok(Self::I8(dataset.read_array()?)),
-                ScalarType::I16 => Ok(Self::I16(dataset.read_array()?)),
-                ScalarType::I32 => Ok(Self::I32(dataset.read_array()?)),
-                ScalarType::I64 => Ok(Self::I64(dataset.read_array()?)),
-                ScalarType::U8 => Ok(Self::U8(dataset.read_array()?)),
-                ScalarType::U16 => Ok(Self::U16(dataset.read_array()?)),
-                ScalarType::U32 => Ok(Self::U32(dataset.read_array()?)),
-                ScalarType::U64 => Ok(Self::U64(dataset.read_array()?)),
-                ScalarType::Usize => Ok(Self::Usize(dataset.read_array()?)),
-                ScalarType::F32 => Ok(Self::F32(dataset.read_array()?)),
-                ScalarType::F64 => Ok(Self::F64(dataset.read_array()?)),
-                ScalarType::Bool => Ok(Self::Bool(dataset.read_array()?)),
-                ScalarType::String => Ok(Self::String(dataset.read_array()?)),
-            },
-            DataContainer::Group(_) => Ok(Self::Categorical(CategoricalArray::read(container)?)),
-        }
+        container.as_dataset()?.read_dyn_array()
     }
 }
 
 impl HasShape for DynArray {
     fn shape(&self) -> Shape {
-        match self {
-            DynArray::I8(array) => array.shape().to_vec(),
-            DynArray::I16(array) => array.shape().to_vec(),
-            DynArray::I32(array) => array.shape().to_vec(),
-            DynArray::I64(array) => array.shape().to_vec(),
-            DynArray::U8(array) => array.shape().to_vec(),
-            DynArray::U16(array) => array.shape().to_vec(),
-            DynArray::U32(array) => array.shape().to_vec(),
-            DynArray::U64(array) => array.shape().to_vec(),
-            DynArray::Usize(array) => array.shape().to_vec(),
-            DynArray::F32(array) => array.shape().to_vec(),
-            DynArray::F64(array) => array.shape().to_vec(),
-            DynArray::Bool(array) => array.shape().to_vec(),
-            DynArray::String(array) => array.shape().to_vec(),
-            DynArray::Categorical(array) => array.codes.shape().to_vec(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.shape().to_vec()
+            };
         }
-        .into()
+
+        crate::macros::dyn_map1!(self, DynArray, fun).into()
     }
 }
 
 impl ArrayOp for DynArray {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        match self {
-            DynArray::I8(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::I16(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::I32(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::I64(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::U8(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::U16(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::U32(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::U64(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::Usize(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::F32(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::F64(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::Bool(array) => array.get(index).map(|x| (*x).into()),
-            DynArray::String(array) => array.get(index).map(|x| x.clone().into()),
-            DynArray::Categorical(array) => array
-                .codes
-                .get(index)
-                .map(|x| array.categories[*x as usize].clone().into()),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                $exp.get(index).map(|x| x.clone().into())
+            };
         }
+
+        crate::macros::dyn_map1!(self, DynArray, fun)
     }
 
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
     {
-        match self {
-            DynArray::I8(array) => ArrayOp::select(array, info).into(),
-            DynArray::I16(array) => ArrayOp::select(array, info).into(),
-            DynArray::I32(array) => ArrayOp::select(array, info).into(),
-            DynArray::I64(array) => ArrayOp::select(array, info).into(),
-            DynArray::U8(array) => ArrayOp::select(array, info).into(),
-            DynArray::U16(array) => ArrayOp::select(array, info).into(),
-            DynArray::U32(array) => ArrayOp::select(array, info).into(),
-            DynArray::U64(array) => ArrayOp::select(array, info).into(),
-            DynArray::Usize(array) => ArrayOp::select(array, info).into(),
-            DynArray::F32(array) => ArrayOp::select(array, info).into(),
-            DynArray::F64(array) => ArrayOp::select(array, info).into(),
-            DynArray::Bool(array) => ArrayOp::select(array, info).into(),
-            DynArray::String(array) => ArrayOp::select(array, info).into(),
-            DynArray::Categorical(array) => CategoricalArray {
-                codes: ArrayOp::select(&array.codes, info),
-                categories: array.categories.clone(),
-            }
-            .into(),
+        macro_rules! fun {
+            ($variant:ident, $exp:expr) => {
+                ArrayOp::select($exp, info).into()
+            };
         }
+        crate::macros::dyn_map1!(self, DynArray, fun)
     }
 
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
@@ -426,7 +304,6 @@ impl ArrayOp for DynArray {
             DynArray::String(_) => {
                 ArrayD::<String>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
             }
-            DynArray::Categorical(_) => todo!(),
         }
     }
 }
@@ -442,26 +319,7 @@ impl ReadArrayData for DynArray {
         B: Backend,
         S: AsRef<SelectInfoElem>,
     {
-        match container {
-            DataContainer::Dataset(dataset) => match dataset.dtype()? {
-                ScalarType::I8 => Ok(Self::I8(dataset.read_array_slice(info)?)),
-                ScalarType::I16 => Ok(Self::I16(dataset.read_array_slice(info)?)),
-                ScalarType::I32 => Ok(Self::I32(dataset.read_array_slice(info)?)),
-                ScalarType::I64 => Ok(Self::I64(dataset.read_array_slice(info)?)),
-                ScalarType::U8 => Ok(Self::U8(dataset.read_array_slice(info)?)),
-                ScalarType::U16 => Ok(Self::U16(dataset.read_array_slice(info)?)),
-                ScalarType::U32 => Ok(Self::U32(dataset.read_array_slice(info)?)),
-                ScalarType::U64 => Ok(Self::U64(dataset.read_array_slice(info)?)),
-                ScalarType::Usize => Ok(Self::Usize(dataset.read_array_slice(info)?)),
-                ScalarType::F32 => Ok(Self::F32(dataset.read_array_slice(info)?)),
-                ScalarType::F64 => Ok(Self::F64(dataset.read_array_slice(info)?)),
-                ScalarType::Bool => Ok(Self::Bool(dataset.read_array_slice(info)?)),
-                ScalarType::String => Ok(Self::String(dataset.read_array_slice(info)?)),
-            },
-            DataContainer::Group(_) => Ok(Self::Categorical(CategoricalArray::read_select(
-                container, info,
-            )?)),
-        }
+        container.as_dataset()?.read_dyn_array_slice(info)
     }
 }
 

@@ -446,20 +446,20 @@ impl DatasetOp<Zarr> for ZarrDataset {
             Ok(select(arr.view(), selection))
         }
 
-        let array: DynArray = match self.dataset.data_type() {
-            DataType::UInt8 => read_arr::<u8, _, D>(self, selection)?.into(),
-            DataType::UInt16 => read_arr::<u16, _, D>(self, selection)?.into(),
-            DataType::UInt32 => read_arr::<u32, _, D>(self, selection)?.into(),
-            DataType::UInt64 => read_arr::<u64, _, D>(self, selection)?.into(),
-            DataType::Int8 => read_arr::<i8, _, D>(self, selection)?.into(),
-            DataType::Int16 => read_arr::<i16, _, D>(self, selection)?.into(),
-            DataType::Int32 => read_arr::<i32, _, D>(self, selection)?.into(),
-            DataType::Int64 => read_arr::<i64, _, D>(self, selection)?.into(),
-            DataType::Float32 => read_arr::<f32, _, D>(self, selection)?.into(),
-            DataType::Float64 => read_arr::<f64, _, D>(self, selection)?.into(),
-            DataType::Bool => read_arr::<bool, _, D>(self, selection)?.into(),
-            DataType::String => read_arr::<String, _, D>(self, selection)?.into(),
-            ty => bail!("Unsupported type: {:?}", ty),
+        let array: DynArray = match T::DTYPE {
+            ScalarType::U8 => read_arr::<u8, _, D>(self, selection)?.into(),
+            ScalarType::U16 => read_arr::<u16, _, D>(self, selection)?.into(),
+            ScalarType::U32 => read_arr::<u32, _, D>(self, selection)?.into(),
+            ScalarType::U64 => read_arr::<u64, _, D>(self, selection)?.into(),
+            ScalarType::Usize => read_arr::<u64, _, D>(self, selection)?.map(|x| *x as usize).into(),
+            ScalarType::I8 => read_arr::<i8, _, D>(self, selection)?.into(),
+            ScalarType::I16 => read_arr::<i16, _, D>(self, selection)?.into(),
+            ScalarType::I32 => read_arr::<i32, _, D>(self, selection)?.into(),
+            ScalarType::I64 => read_arr::<i64, _, D>(self, selection)?.into(),
+            ScalarType::F32 => read_arr::<f32, _, D>(self, selection)?.into(),
+            ScalarType::F64 => read_arr::<f64, _, D>(self, selection)?.into(),
+            ScalarType::Bool => read_arr::<bool, _, D>(self, selection)?.into(),
+            ScalarType::String => read_arr::<String, _, D>(self, selection)?.into(),
         };
         Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
     }
@@ -509,7 +509,7 @@ impl DatasetOp<Zarr> for ZarrDataset {
             DynCowArray::U16(x) => write_array_impl(self, x, selection),
             DynCowArray::U32(x) => write_array_impl(self, x, selection),
             DynCowArray::U64(x) => write_array_impl(self, x, selection),
-            DynCowArray::Usize(x) => todo!(),
+            DynCowArray::Usize(x) => write_array_impl(self, x.map(|x| *x as u64).into(), selection),
             DynCowArray::I8(x) => write_array_impl(self, x, selection),
             DynCowArray::I16(x) => write_array_impl(self, x, selection),
             DynCowArray::I32(x) => write_array_impl(self, x, selection),

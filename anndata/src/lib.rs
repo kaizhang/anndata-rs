@@ -4,6 +4,7 @@ pub mod backend;
 pub mod data;
 pub mod container;
 pub mod reader;
+mod macros;
 
 pub use traits::{AnnDataOp, AxisArraysOp, ElemCollectionOp, ArrayElemOp};
 pub use crate::anndata::{AnnData, AnnDataSet, StackedAnnData};

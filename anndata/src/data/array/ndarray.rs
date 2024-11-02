@@ -1,14 +1,15 @@
 use crate::{
     backend::*,
     data::{
-        data_traits::*,
         array::DynScalar,
-        slice::{Shape, SelectInfoElem, SelectInfoElemBounds},
+        data_traits::*,
+        slice::{SelectInfoElem, SelectInfoElemBounds, Shape},
     },
 };
 
 use anyhow::{anyhow, Result};
-use ndarray::{ArrayView, Array, Array1, ArrayD, RemoveAxis, SliceInfoElem, Dimension, Axis};
+use ndarray::{Array, Array1, ArrayD, ArrayView, Axis, Dimension, RemoveAxis, SliceInfoElem};
+use polars::{prelude::CategoricalChunkedBuilder, series::{IntoSeries, Series}};
 use std::collections::HashMap;
 use std::ops::Index;
 
@@ -69,29 +70,43 @@ impl<T: BackendData, D: RemoveAxis> ArrayOp for Array<T, D> {
         S: AsRef<SelectInfoElem>,
     {
         let arr = self.view().into_dyn();
-        let slices = info.as_ref().into_iter().map(|x| match x.as_ref() {
-            SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
-            _ => None,
-        }).collect::<Option<Vec<_>>>();
+        let slices = info
+            .as_ref()
+            .into_iter()
+            .map(|x| match x.as_ref() {
+                SelectInfoElem::Slice(slice) => Some(SliceInfoElem::from(slice.clone())),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>();
         if let Some(slices) = slices {
             arr.slice(slices.as_slice()).into_owned()
         } else {
             let shape = self.shape();
-            let select: Vec<_> = info.as_ref().into_iter().zip(shape)
-                .map(|(x, n)| SelectInfoElemBounds::new(x.as_ref(), *n)).collect();
+            let select: Vec<_> = info
+                .as_ref()
+                .into_iter()
+                .zip(shape)
+                .map(|(x, n)| SelectInfoElemBounds::new(x.as_ref(), *n))
+                .collect();
             let new_shape = select.iter().map(|x| x.len()).collect::<Vec<_>>();
             ArrayD::from_shape_fn(new_shape, |idx| {
-                let new_idx: Vec<_> = (0..idx.ndim()).into_iter().map(|i| select[i].index(idx[i])).collect();
+                let new_idx: Vec<_> = (0..idx.ndim())
+                    .into_iter()
+                    .map(|i| select[i].index(idx[i]))
+                    .collect();
                 arr.index(new_idx.as_slice()).clone()
             })
-        }.into_dimensionality::<D>().unwrap()
+        }
+        .into_dimensionality::<D>()
+        .unwrap()
     }
 
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         iter.reduce(|mut this, other| {
             this.append(Axis(0), other.view()).unwrap();
             this
-        }).ok_or_else(|| anyhow!("Cannot vstack empty iterator"))
+        })
+        .ok_or_else(|| anyhow!("Cannot vstack empty iterator"))
     }
 }
 
@@ -107,14 +122,13 @@ impl<T: BackendData, D: RemoveAxis> ReadArrayData for Array<T, D> {
     }
 
     fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
-        where
-            B: Backend,
-            S: AsRef<SelectInfoElem>,
+    where
+        B: Backend,
+        S: AsRef<SelectInfoElem>,
     {
         container.as_dataset()?.read_array_slice(info)
     }
 }
-
 
 impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
 impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
@@ -124,6 +138,22 @@ impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
 pub struct CategoricalArray {
     pub codes: ArrayD<u32>,
     pub categories: Array1<String>,
+}
+
+impl Into<Series> for CategoricalArray {
+    fn into(self) -> Series {
+        CategoricalChunkedBuilder::new(
+            "".into(),
+            self.codes.len(),
+            polars::datatypes::CategoricalOrdering::Lexical,
+        )
+        .drain_iter_and_finish(
+            self.codes
+                .into_iter()
+                .map(|i| Some(self.categories[i as usize].as_str())),
+        )
+        .into_series()
+    }
 }
 
 impl<'a> FromIterator<&'a str> for CategoricalArray {
@@ -172,7 +202,11 @@ impl WriteData for CategoricalArray {
         group.new_scalar_attr("ordered", false)?;
 
         group.new_array_dataset("codes", self.codes.view().into(), Default::default())?;
-        group.new_array_dataset("categories", self.categories.view().into(), Default::default())?;
+        group.new_array_dataset(
+            "categories",
+            self.categories.view().into(),
+            Default::default(),
+        )?;
 
         Ok(DataContainer::Group(group))
     }
@@ -184,15 +218,35 @@ impl HasShape for CategoricalArray {
     }
 }
 
+impl ArrayOp for CategoricalArray {
+    fn get(&self, index: &[usize]) -> Option<DynScalar> {
+        self.codes
+            .get(index)
+            .map(|x| self.categories[*x as usize].clone().into())
+    }
+
+    fn select<S>(&self, info: &[S]) -> Self
+    where
+        S: AsRef<SelectInfoElem>,
+    {
+        CategoricalArray {
+            codes: ArrayOp::select(&self.codes, info),
+            categories: self.categories.clone(),
+        }
+    }
+
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
+        todo!()
+    }
+}
+
 impl WriteArrayData for CategoricalArray {}
 
 impl ReadData for CategoricalArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let codes = group.open_dataset("codes")?.read_array()?;
-        let categories = group
-            .open_dataset("categories")?
-            .read_array()?;
+        let categories = group.open_dataset("categories")?.read_array()?;
         Ok(CategoricalArray { codes, categories })
     }
 }
@@ -205,15 +259,13 @@ impl ReadArrayData for CategoricalArray {
     }
 
     fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
-        where
-            B: Backend,
-            S: AsRef<SelectInfoElem>,
+    where
+        B: Backend,
+        S: AsRef<SelectInfoElem>,
     {
         let group = container.as_group()?;
         let codes = group.open_dataset("codes")?.read_array_slice(info)?;
-        let categories = group
-            .open_dataset("categories")?
-            .read_array()?;
+        let categories = group.open_dataset("categories")?.read_array()?;
         Ok(CategoricalArray { codes, categories })
     }
 }

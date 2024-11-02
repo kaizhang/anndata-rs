@@ -10,8 +10,7 @@ use anyhow::{bail, Result};
 use log::warn;
 use ndarray::{Array1, Array2};
 use polars::chunked_array::ChunkedArray;
-use polars::datatypes::{CategoricalChunkedBuilder, DataType};
-use polars::prelude::IntoSeries;
+use polars::datatypes::DataType;
 use polars::prelude::{DataFrame, Series};
 
 use super::{SelectInfoBounds, SelectInfoElemBounds};
@@ -181,133 +180,100 @@ impl WriteData for Series {
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        let array: DynArray = match self.dtype() {
+        match self.dtype() {
             DataType::UInt8 => self
                 .u8()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::UInt16 => self
                 .u16()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::UInt32 => self
                 .u32()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::UInt64 => self
                 .u64()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Int8 => self
                 .i8()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Int16 => self
                 .i16()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Int32 => self
                 .i32()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Int64 => self
                 .i64()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Float32 => self
                 .f32()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Float64 => self
                 .f64()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Boolean => self
                 .bool()?
                 .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::String => self
                 .str()?
                 .into_iter()
                 .map(|x| x.unwrap().to_string())
                 .collect::<Array1<_>>()
-                .into_dyn()
-                .into(),
+                .write(location, name),
             DataType::Categorical(_, _) => self
                 .categorical()?
                 .iter_str()
                 .map(|x| x.unwrap())
                 .collect::<CategoricalArray>()
-                .into(),
+                .write(location, name),
             other => bail!("Unsupported series data type: {:?}", other),
-        };
-        array.write(location, name)
+        }
     }
 }
 
 impl ReadData for Series {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        match DynArray::read(container)? {
-            DynArray::I8(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::I16(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::I32(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::I64(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::U8(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::U16(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::U32(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::U64(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::Usize(x) => Ok(x.iter().map(|x| *x as u64).collect::<Series>()),
-            DynArray::F32(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::F64(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::Bool(x) => Ok(x.iter().collect::<Series>()),
-            DynArray::String(x) => Ok(x.iter().map(|x| x.as_str()).collect::<Series>()),
-            DynArray::Categorical(arr) => {
-                let result = CategoricalChunkedBuilder::new(
-                    "".into(),
-                    arr.codes.len(),
-                    polars::datatypes::CategoricalOrdering::Lexical,
-                )
-                .drain_iter_and_finish(
-                    arr.codes
-                        .into_iter()
-                        .map(|i| Some(arr.categories[i as usize].as_str())),
-                )
-                .into_series();
-                Ok(result)
-            }
+        match container.encoding_type()? {
+            crate::backend::DataType::Categorical => {
+                Ok(CategoricalArray::read(container)?.into())
+            },
+            crate::backend::DataType::Array(_) => {
+                Ok(DynArray::read(container)?.into())
+            },
+            ty => bail!("Unsupported data type: {:?}", ty),
         }
     }
 }

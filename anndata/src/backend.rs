@@ -150,14 +150,24 @@ pub trait AttributeOp<B: Backend + ?Sized> {
 }
 
 pub trait DatasetOp<B: Backend + ?Sized> {
+    /// Required methods
+
     fn dtype(&self) -> Result<ScalarType>;
     fn shape(&self) -> Shape;
     fn reshape(&mut self, shape: &Shape) -> Result<()>;
+
+    fn write_array_slice<S, T, D>(&self, arr: CowArray<'_, T, D>, selection: &[S]) -> Result<()>
+    where
+        T: BackendData,
+        S: AsRef<SelectInfoElem>,
+        D: Dimension;
 
     fn read_array_slice<T: BackendData, S, D>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
         S: AsRef<SelectInfoElem>,
         D: Dimension;
+
+    /// Optional methods
 
     fn read_dyn_array_slice<S>(&self, selection: &[S]) -> Result<DynArray>
     where
@@ -188,19 +198,13 @@ pub trait DatasetOp<B: Backend + ?Sized> {
         self.read_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
     }
 
-    fn read_dyn_array<S>(&self) -> Result<DynArray> {
+    fn read_dyn_array(&self) -> Result<DynArray> {
         self.read_dyn_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
     }
 
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
         self.read_array::<T, Ix0>().map(|x| x.into_scalar())
     }
-
-    fn write_array_slice<S, T, D>(&self, arr: CowArray<'_, T, D>, selection: &[S]) -> Result<()>
-    where
-        T: BackendData,
-        S: AsRef<SelectInfoElem>,
-        D: Dimension;
 
     fn write_array<D, Dim>(&self, arr: CowArray<'_, D, Dim>) -> Result<()>
     where
