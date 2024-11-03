@@ -53,7 +53,12 @@ impl Backend for Zarr {
 
     fn new<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
         if path.as_ref().try_exists()? {
-            std::fs::remove_dir_all(&path)?;
+            let metadata = std::fs::metadata(&path)?;
+            if metadata.is_file() {
+                std::fs::remove_file(&path)?;
+            } else {
+                std::fs::remove_dir_all(&path)?;
+            }
         }
 
         let inner = Arc::new(FilesystemStore::new(path.as_ref())?);

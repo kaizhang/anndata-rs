@@ -210,9 +210,7 @@ pub trait ArrayElemOp {
         <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
 
     /// Returns the shape of the array.
-    fn
-
- shape(&self) -> Option<Shape>;
+    fn shape(&self) -> Option<Shape>;
 
     /// Gets the data.
     fn get<D>(&self) -> Result<Option<D>>

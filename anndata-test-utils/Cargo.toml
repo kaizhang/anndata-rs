@@ -9,7 +9,6 @@ ndarray = { version = "0.16" }
 anndata = { workspace = true }
 num = "0.4"
 tempfile = "3.2"
-criterion = { version = "0.4", features = ["rayon", "plotters", "cargo_bench_support", "html_reports"] }
 proptest = "1"
 rand = "0.8.5"
 ndarray-rand = "0.15"
@@ -23,3 +22,8 @@ anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmark"
+harness = false
