@@ -9,7 +9,7 @@ use std::{
     borrow::Cow, ops::{Deref, Index}, path::{Path, PathBuf}
 };
 use std::{sync::Arc, vec};
-use zarrs::{array::{data_type::DataType, Element}, storage::StorePrefix};
+use zarrs::{array::{data_type::DataType, Element}, array_subset::ArraySubset, storage::StorePrefix};
 use zarrs::filesystem::FilesystemStore;
 use zarrs::group::Group;
 use zarrs::{array::ElementOwned, storage::ReadableWritableListableStorageTraits};
@@ -437,12 +437,21 @@ impl DatasetOp<Zarr> for ZarrDataset {
             S: AsRef<SelectInfoElem>,
             D: Dimension,
         {
-            // Read the entire array and then select the slice.
-            let arr = dataset
-                .dataset
-                .retrieve_array_subset_ndarray(&dataset.dataset.subset_all())?
-                .into_dimensionality::<D>()?;
-            Ok(select(arr.view(), selection))
+            let sel = SelectInfoBounds::new(&selection, &dataset.shape());
+            if let Some(subset) = to_array_subset(sel) {
+                let arr = dataset
+                    .dataset
+                    .retrieve_array_subset_ndarray(&subset)?
+                    .into_dimensionality::<D>()?;
+                Ok(arr)
+            } else {
+                // Read the entire array and then select the slice.
+                let arr = dataset
+                    .dataset
+                    .retrieve_array_subset_ndarray(&dataset.dataset.subset_all())?
+                    .into_dimensionality::<D>()?;
+                Ok(select(arr.view(), selection))
+            }
         }
 
         let array: DynArray = match T::DTYPE {
@@ -573,6 +582,24 @@ fn canoincalize_path<'a>(path: &'a str) -> Cow<'a, str> {
         format!("/{}", path).into()
     }
 }
+
+fn to_array_subset(info: SelectInfoBounds) -> Option<ArraySubset> {
+    let ranges = info.iter().map(|x| {
+        if let SelectInfoElemBounds::Slice(slice) = x {
+            if slice.step == 1 {
+                Some(slice.start as u64 .. slice.end as u64)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })
+    .collect::<Option<Vec<_>>>()?;
+    Some(ArraySubset::new_with_ranges(&ranges))
+}
+
+
 
 /// test module
 #[cfg(test)]
