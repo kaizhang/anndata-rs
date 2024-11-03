@@ -112,7 +112,6 @@ fn new_dataset<T: BackendData>(
         ScalarType::U16 => group.new_dataset::<u16>(),
         ScalarType::U32 => group.new_dataset::<u32>(),
         ScalarType::U64 => group.new_dataset::<u64>(),
-        ScalarType::Usize => group.new_dataset::<usize>(),
         ScalarType::I8 => group.new_dataset::<i8>(),
         ScalarType::I16 => group.new_dataset::<i16>(),
         ScalarType::I32 => group.new_dataset::<i32>(),
@@ -176,11 +175,6 @@ fn create_scalar_data<D: BackendData>(group: &Group, name: &str, data: &D) -> Re
         }
         DynScalar::U64(x) => {
             let dataset = group.new_dataset::<u64>().create(name)?;
-            dataset.write_scalar(&x)?;
-            Ok(dataset)
-        }
-        DynScalar::Usize(x) => {
-            let dataset = group.new_dataset::<usize>().create(name)?;
             dataset.write_scalar(&x)?;
             Ok(dataset)
         }
@@ -264,7 +258,6 @@ impl DatasetOp<H5> for H5Dataset {
             ScalarType::U16 => self.deref().read_scalar::<u16>()?.into_dyn(),
             ScalarType::U32 => self.deref().read_scalar::<u32>()?.into_dyn(),
             ScalarType::U64 => self.deref().read_scalar::<u64>()?.into_dyn(),
-            ScalarType::Usize => self.deref().read_scalar::<usize>()?.into_dyn(),
             ScalarType::I8 => self.deref().read_scalar::<i8>()?.into_dyn(),
             ScalarType::I16 => self.deref().read_scalar::<i16>()?.into_dyn(),
             ScalarType::I32 => self.deref().read_scalar::<i32>()?.into_dyn(),
@@ -355,7 +348,6 @@ impl DatasetOp<H5> for H5Dataset {
             ScalarType::U16 => read_arr::<u16, _, D>(self, selection)?.into(),
             ScalarType::U32 => read_arr::<u32, _, D>(self, selection)?.into(),
             ScalarType::U64 => read_arr::<u64, _, D>(self, selection)?.into(),
-            ScalarType::Usize => read_arr::<usize, _, D>(self, selection)?.into(),
             ScalarType::F32 => read_arr::<f32, _, D>(self, selection)?.into(),
             ScalarType::F64 => read_arr::<f64, _, D>(self, selection)?.into(),
             ScalarType::Bool => read_arr::<bool, _, D>(self, selection)?.into(),
@@ -416,7 +408,6 @@ impl DatasetOp<H5> for H5Dataset {
             DynCowArray::U16(x) => write_array_impl(self, x, selection),
             DynCowArray::U32(x) => write_array_impl(self, x, selection),
             DynCowArray::U64(x) => write_array_impl(self, x, selection),
-            DynCowArray::Usize(x) => write_array_impl(self, x, selection),
             DynCowArray::I8(x) => write_array_impl(self, x, selection),
             DynCowArray::I16(x) => write_array_impl(self, x, selection),
             DynCowArray::I32(x) => write_array_impl(self, x, selection),
@@ -455,7 +446,6 @@ where
         DynCowArray::U16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
         DynCowArray::U32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
         DynCowArray::U64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::Usize(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
         DynCowArray::I8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
         DynCowArray::I16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
         DynCowArray::I32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
@@ -487,7 +477,6 @@ fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Re
         DynScalar::U16(x) => loc.new_attr::<u16>().create(name)?.write_scalar(&x)?,
         DynScalar::U32(x) => loc.new_attr::<u32>().create(name)?.write_scalar(&x)?,
         DynScalar::U64(x) => loc.new_attr::<u64>().create(name)?.write_scalar(&x)?,
-        DynScalar::Usize(x) => loc.new_attr::<usize>().create(name)?.write_scalar(&x)?,
         DynScalar::I8(x) => loc.new_attr::<i8>().create(name)?.write_scalar(&x)?,
         DynScalar::I16(x) => loc.new_attr::<i16>().create(name)?.write_scalar(&x)?,
         DynScalar::I32(x) => loc.new_attr::<i32>().create(name)?.write_scalar(&x)?,
@@ -516,7 +505,6 @@ fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
         ScalarType::U16 => attr.read_scalar::<u16>()?.into_dyn(),
         ScalarType::U32 => attr.read_scalar::<u32>()?.into_dyn(),
         ScalarType::U64 => attr.read_scalar::<u64>()?.into_dyn(),
-        ScalarType::Usize => attr.read_scalar::<usize>()?.into_dyn(),
         ScalarType::F32 => attr.read_scalar::<f32>()?.into_dyn(),
         ScalarType::F64 => attr.read_scalar::<f64>()?.into_dyn(),
         ScalarType::Bool => attr.read_scalar::<bool>()?.into_dyn(),
@@ -543,7 +531,6 @@ fn read_array_attr<T: BackendData, D: Dimension>(
             ScalarType::U16 => attr.read::<u16, D>()?.into(),
             ScalarType::U32 => attr.read::<u32, D>()?.into(),
             ScalarType::U64 => attr.read::<u64, D>()?.into(),
-            ScalarType::Usize => attr.read::<usize, D>()?.into(),
             ScalarType::F32 => attr.read::<f32, D>()?.into(),
             ScalarType::F64 => attr.read::<f64, D>()?.into(),
             ScalarType::Bool => attr.read::<bool, D>()?.into(),

@@ -53,6 +53,10 @@ impl Backend for Zarr {
     type Dataset = ZarrDataset;
 
     fn new<P: AsRef<Path>>(path: P) -> Result<Self::Store> {
+        if path.as_ref().try_exists()? {
+            std::fs::remove_dir_all(&path)?;
+        }
+
         let inner = Arc::new(FilesystemStore::new(path.as_ref())?);
         zarrs::group::GroupBuilder::new().build(inner.clone(), "/")?.store_metadata()?;
         Ok(ZarrStore {
@@ -86,7 +90,8 @@ impl StoreOp<Zarr> for ZarrStore {
 
     /// Close the file.
     fn close(self) -> Result<()> {
-        todo!()
+        drop(self);
+        Ok(())
     }
 }
 
@@ -149,19 +154,18 @@ impl GroupOp<Zarr> for ZarrStore {
         );
 
         let (datatype, fill) = match T::DTYPE {
-            ScalarType::U8 => (DataType::UInt8, 0.into()),
-            ScalarType::U16 => (DataType::UInt16, 0.into()),
-            ScalarType::U32 => (DataType::UInt32, 0.into()),
-            ScalarType::U64 => (DataType::UInt64, 0.into()),
-            ScalarType::Usize => (DataType::UInt64, 0.into()),
-            ScalarType::I8 => (DataType::Int8, 0.into()),
-            ScalarType::I16 => (DataType::Int16, 0.into()),
-            ScalarType::I32 => (DataType::Int32, 0.into()),
-            ScalarType::I64 => (DataType::Int64, 0.into()),
+            ScalarType::U8 => (DataType::UInt8, 0u8.into()),
+            ScalarType::U16 => (DataType::UInt16, 0u16.into()),
+            ScalarType::U32 => (DataType::UInt32, 0u32.into()),
+            ScalarType::U64 => (DataType::UInt64, 0u64.into()),
+            ScalarType::I8 => (DataType::Int8, 0i8.into()),
+            ScalarType::I16 => (DataType::Int16, 0i16.into()),
+            ScalarType::I32 => (DataType::Int32, 0i32.into()),
+            ScalarType::I64 => (DataType::Int64, 0i64.into()),
             ScalarType::F32 => (DataType::Float32, zarrs::array::ZARR_NAN_F32.into()),
             ScalarType::F64 => (DataType::Float64, zarrs::array::ZARR_NAN_F64.into()),
             ScalarType::Bool => (DataType::Bool, false.into()),
-            ScalarType::String => todo!(),
+            ScalarType::String => (DataType::String, "".into()),
         };
 
         let array = zarrs::array::ArrayBuilder::new(
@@ -179,7 +183,7 @@ impl GroupOp<Zarr> for ZarrStore {
     }
 
     fn open_dataset(&self, name: &str) -> Result<<Zarr as Backend>::Dataset> {
-        let array = zarrs::array::Array::open(self.inner.clone(), name)?;
+        let array = zarrs::array::Array::open(self.inner.clone(), &format!("/{}", name))?;
         Ok(ZarrDataset {
             dataset: array,
             store: self.clone(),
@@ -263,7 +267,6 @@ impl GroupOp<Zarr> for ZarrGroup {
             ScalarType::U16 => (DataType::UInt16, 0u16.into()),
             ScalarType::U32 => (DataType::UInt32, 0u32.into()),
             ScalarType::U64 => (DataType::UInt64, 0u64.into()),
-            ScalarType::Usize => (DataType::UInt64, 0u64.into()),
             ScalarType::I8 => (DataType::Int8, 0i8.into()),
             ScalarType::I16 => (DataType::Int16, 0i16.into()),
             ScalarType::I32 => (DataType::Int32, 0i32.into()),
@@ -451,7 +454,6 @@ impl DatasetOp<Zarr> for ZarrDataset {
             ScalarType::U16 => read_arr::<u16, _, D>(self, selection)?.into(),
             ScalarType::U32 => read_arr::<u32, _, D>(self, selection)?.into(),
             ScalarType::U64 => read_arr::<u64, _, D>(self, selection)?.into(),
-            ScalarType::Usize => read_arr::<u64, _, D>(self, selection)?.map(|x| *x as usize).into(),
             ScalarType::I8 => read_arr::<i8, _, D>(self, selection)?.into(),
             ScalarType::I16 => read_arr::<i16, _, D>(self, selection)?.into(),
             ScalarType::I32 => read_arr::<i32, _, D>(self, selection)?.into(),
@@ -499,7 +501,7 @@ impl DatasetOp<Zarr> for ZarrDataset {
                     .dataset
                     .store_array_subset_ndarray(starts.as_slice(), arr.into_owned())?;
             } else {
-                todo!()
+                panic!("Not implemented");
             }
             Ok(())
         }
@@ -509,7 +511,6 @@ impl DatasetOp<Zarr> for ZarrDataset {
             DynCowArray::U16(x) => write_array_impl(self, x, selection),
             DynCowArray::U32(x) => write_array_impl(self, x, selection),
             DynCowArray::U64(x) => write_array_impl(self, x, selection),
-            DynCowArray::Usize(x) => write_array_impl(self, x.map(|x| *x as u64).into(), selection),
             DynCowArray::I8(x) => write_array_impl(self, x, selection),
             DynCowArray::I16(x) => write_array_impl(self, x, selection),
             DynCowArray::I32(x) => write_array_impl(self, x, selection),
@@ -565,7 +566,7 @@ fn str_to_prefix(s: &str) -> StorePrefix {
         StorePrefix::root()
     } else {
         let s = s.trim_matches('/').to_string();
-        unsafe { StorePrefix::new_unchecked((s + "/").as_str()) }
+        StorePrefix::new((s + "/").as_str()).unwrap()
     }
 }
 
@@ -574,7 +575,7 @@ fn str_to_prefix(s: &str) -> StorePrefix {
 mod tests {
     use super::*;
     use anndata::s;
-    use ndarray::{concatenate, Array1, Axis, Ix1};
+    use ndarray::{array, concatenate, Array2, Axis, Ix2};
     use ndarray_rand::rand_distr::Uniform;
     use ndarray_rand::RandomExt;
     use std::path::PathBuf;
@@ -594,10 +595,26 @@ mod tests {
     fn test_basic() -> Result<()> {
         with_tmp_path(|path| {
             let store = Zarr::new(&path)?;
+            store.new_scalar_dataset("data", &4)?;
+            store.open_dataset("data")?;
+
             let group = store.new_group("group")?;
+            assert!(store.exists("group")?);
+
             let subgroup = group.new_group("group")?;
+            assert!(group.exists("group")?);
+
             let subsubgroup = subgroup.new_group("group")?;
+            assert!(subgroup.exists("group")?);
+
             let data = subsubgroup.new_scalar_dataset("group", &4)?;
+            assert!(subsubgroup.exists("group")?);
+            subsubgroup.open_dataset("group")?;
+
+            {
+                let store = Zarr::open(&path)?;
+                DataContainer::open(&store, "group")?;
+            }
 
             assert_eq!(group.path(), PathBuf::from("/group"));
             assert_eq!(subgroup.path(), PathBuf::from("/group/group"));
@@ -616,9 +633,9 @@ mod tests {
                 ..Default::default()
             };
 
-            let empty = Array1::<u8>::from_vec(Vec::new());
+            let empty: Array2<i64> = array![[]];
             let dataset = group.new_array_dataset("test", empty.view().into(), config)?;
-            assert_eq!(empty, dataset.read_array::<u8, Ix1>()?);
+            assert_eq!(empty, dataset.read_array::<i64, Ix2>()?);
             Ok(())
         })
     }

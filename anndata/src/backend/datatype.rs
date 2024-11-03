@@ -42,7 +42,6 @@ pub enum ScalarType {
     U16,
     U32,
     U64,
-    Usize,
     F32,
     F64,
     Bool,
@@ -60,7 +59,6 @@ impl Display for ScalarType {
             ScalarType::U16 => write!(f, "u16"),
             ScalarType::U32 => write!(f, "u32"),
             ScalarType::U64 => write!(f, "u64"),
-            ScalarType::Usize => write!(f, "usize"),
             ScalarType::F32 => write!(f, "f32"),
             ScalarType::F64 => write!(f, "f64"),
             ScalarType::Bool => write!(f, "bool"),
@@ -306,34 +304,6 @@ impl BackendData for u64 {
             Ok(x)
         } else {
             bail!("Expecting u64 array")
-        }
-    }
-}
-
-impl BackendData for usize {
-    const DTYPE: ScalarType = ScalarType::Usize;
-
-    fn into_dyn(&self) -> DynScalar {
-        DynScalar::Usize(*self)
-    }
-
-    fn into_dyn_arr<'a>(arr: CowArray<'a, Self, IxDyn>) -> DynCowArray<'a> {
-        DynCowArray::Usize(arr)
-    }
-
-    fn from_dyn(x: DynScalar) -> Result<Self> {
-        if let DynScalar::Usize(x) = x {
-            Ok(x)
-        } else {
-            bail!("Expecting usize")
-        }
-    }
-
-    fn from_dyn_arr(x: DynArray) -> Result<ArrayD<Self>> {
-        if let DynArray::Usize(x) = x {
-            Ok(x)
-        } else {
-            bail!("Expecting usize array")
         }
     }
 }

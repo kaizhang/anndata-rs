@@ -11,7 +11,7 @@ pub use slice::{SelectInfoBounds, SelectInfoElemBounds, SelectInfo, SelectInfoEl
 pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 pub use dataframe::DataFrameIndex;
 pub use chunks::ArrayChunk;
-pub use dynamic::{DynScalar, DynArray, DynCowArray};
+pub use dynamic::{DynScalar, DynArray, DynCowArray, ArrayCast};
 
 use crate::backend::*;
 use crate::data::utils::from_csr_data;
@@ -183,7 +183,7 @@ macro_rules! impl_into_array_data {
     };
 }
 
-impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, usize, f32, f64, bool, String);
+impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
 
 impl WriteData for ArrayData {
     fn data_type(&self) -> DataType {
@@ -318,11 +318,11 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
         CsrNonCanonical<T>: Into<ArrayData>,
     {
         let group = container.as_group()?;
-        let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
+        let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
         let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-        from_csr_data::<T>(shape[0], shape[1], indptr, indices, data)
+        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array_cast::<_, Ix1>()?.into_raw_vec_and_offset().0;
+        let indices: Vec<usize> = group.open_dataset("indices")?.read_array_cast::<_, Ix1>()?.into_raw_vec_and_offset().0;
+        from_csr_data::<T>(shape[0] as usize, shape[1] as usize, indptr, indices, data)
     }
 
     match container {
@@ -335,7 +335,6 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
             ScalarType::U16 => _read_csr::<B, u16>(container),
             ScalarType::U32 => _read_csr::<B, u32>(container),
             ScalarType::U64 => _read_csr::<B, u64>(container),
-            ScalarType::Usize => _read_csr::<B, usize>(container),
             ScalarType::F32 => _read_csr::<B, f32>(container),
             ScalarType::F64 => _read_csr::<B, f64>(container),
             ScalarType::Bool => _read_csr::<B, bool>(container),
@@ -366,7 +365,7 @@ where
 
         let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
             let group = container.as_group()?;
-            let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
+            let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
             let indptr_slice = if let Some(end) = s.end {
                 SelectInfoElem::from(s.start .. end + 1)
             } else {
@@ -374,17 +373,17 @@ where
             };
             let mut indptr: Vec<usize> = group 
                 .open_dataset("indptr")?
-                .read_array_slice(&[indptr_slice])?
+                .read_array_slice_cast(&[indptr_slice])?
                 .to_vec();
             let lo = indptr[0];
             let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
             let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
-            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice(&[&slice])?.to_vec();
+            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice_cast(&[&slice])?.to_vec();
             indptr.iter_mut().for_each(|x| *x -= lo);
 
             from_csr_data::<T>(
                 indptr.len() - 1,
-                shape[1],
+                shape[1] as usize,
                 indptr,
                 indices,
                 data,
@@ -405,7 +404,6 @@ where
             ScalarType::U16 => _read_csr::<B, u16, _>(container, info),
             ScalarType::U32 => _read_csr::<B, u32, _>(container, info),
             ScalarType::U64 => _read_csr::<B, u64, _>(container, info),
-            ScalarType::Usize => _read_csr::<B, usize, _>(container, info),
             ScalarType::F32 => _read_csr::<B, f32, _>(container, info),
             ScalarType::F64 => _read_csr::<B, f64, _>(container, info),
             ScalarType::Bool => _read_csr::<B, bool, _>(container, info),

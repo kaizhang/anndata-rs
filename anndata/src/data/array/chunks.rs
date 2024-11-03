@@ -51,7 +51,6 @@ impl ArrayChunk for DynArray {
             DynArray::U16(_) => ArrayD::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::U32(_) => ArrayD::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::U64(_) => ArrayD::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::Usize(_) => ArrayD::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::I8(_) => ArrayD::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::I16(_) => ArrayD::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynArray::I32(_) => ArrayD::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -109,7 +108,6 @@ impl ArrayChunk for DynCsrMatrix {
             DynCsrMatrix::U16(_) => CsrMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::U32(_) => CsrMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::U64(_) => CsrMatrix::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynCsrMatrix::Usize(_) => CsrMatrix::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::I8(_) => CsrMatrix::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::I16(_) => CsrMatrix::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrMatrix::I32(_) => CsrMatrix::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -169,7 +167,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         data.finish()?;
         indptr.push(nnz);
         group.new_array_dataset("indptr", indptr.into(), Default::default())?;
-        group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.new_array_attr("shape", &[num_rows as u64, num_cols.unwrap_or(0) as u64])?;
         Ok(DataContainer::Group(group))
     }
 }
@@ -187,7 +185,6 @@ impl ArrayChunk for DynCsrNonCanonical {
             DynCsrNonCanonical::U16(_) => CsrNonCanonical::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::U32(_) => CsrNonCanonical::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::U64(_) => CsrNonCanonical::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynCsrNonCanonical::Usize(_) => CsrNonCanonical::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::I8(_) => CsrNonCanonical::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::I16(_) => CsrNonCanonical::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCsrNonCanonical::I32(_) => CsrNonCanonical::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
@@ -246,7 +243,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         data.finish()?;
         indptr.push(nnz);
         group.new_array_dataset("indptr", indptr.into(), Default::default())?;
-        group.new_array_attr("shape", &[num_rows, num_cols.unwrap_or(0)])?;
+        group.new_array_attr("shape", &[num_rows as u64, num_cols.unwrap_or(0) as u64])?;
         Ok(DataContainer::Group(group))
     }
 }
@@ -265,7 +262,6 @@ impl ArrayChunk for DynCscMatrix {
             DynCscMatrix::U16(_) => CscMatrix::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::U32(_) => CscMatrix::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::U64(_) => CscMatrix::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynCscMatrix::Usize(_) => CscMatrix::<usize>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::I8(_) => CscMatrix::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::I16(_) => CscMatrix::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
             DynCscMatrix::I32(_) => CscMatrix::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),

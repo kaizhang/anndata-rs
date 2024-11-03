@@ -10,7 +10,7 @@ use crate::data::{
 use anyhow::{bail, Result};
 use nalgebra_sparse::pattern::SparsityPattern;
 use nalgebra_sparse::{coo::CooMatrix, csr::CsrMatrix};
-use ndarray::Ix1;
+use ndarray::{Array1, Ix1};
 
 use super::super::slice::SliceBounds;
 use super::DynCsrMatrix;
@@ -25,7 +25,6 @@ pub enum DynCsrNonCanonical {
     U16(CsrNonCanonical<u16>),
     U32(CsrNonCanonical<u32>),
     U64(CsrNonCanonical<u64>),
-    Usize(CsrNonCanonical<usize>),
     F32(CsrNonCanonical<f32>),
     F64(CsrNonCanonical<f64>),
     Bool(CsrNonCanonical<bool>),
@@ -66,10 +65,6 @@ impl DynCsrNonCanonical {
             DynCsrNonCanonical::U64(data) => data
                 .canonicalize()
                 .map(DynCsrMatrix::U64)
-                .map_err(Into::into),
-            DynCsrNonCanonical::Usize(data) => data
-                .canonicalize()
-                .map(DynCsrMatrix::Usize)
                 .map_err(Into::into),
             DynCsrNonCanonical::F32(data) => data
                 .canonicalize()
@@ -122,7 +117,6 @@ impl_into_dyn_csr!(u8, U8);
 impl_into_dyn_csr!(u16, U16);
 impl_into_dyn_csr!(u32, U32);
 impl_into_dyn_csr!(u64, U64);
-impl_into_dyn_csr!(usize, Usize);
 impl_into_dyn_csr!(f32, F32);
 impl_into_dyn_csr!(f64, F64);
 impl_into_dyn_csr!(bool, Bool);
@@ -139,7 +133,6 @@ macro_rules! impl_dyn_csr_matrix {
             DynCsrNonCanonical::U16(data) => $fun!(data),
             DynCsrNonCanonical::U32(data) => $fun!(data),
             DynCsrNonCanonical::U64(data) => $fun!(data),
-            DynCsrNonCanonical::Usize(data) => $fun!(data),
             DynCsrNonCanonical::F32(data) => $fun!(data),
             DynCsrNonCanonical::F64(data) => $fun!(data),
             DynCsrNonCanonical::Bool(data) => $fun!(data),
@@ -159,7 +152,6 @@ impl From<DynCsrMatrix> for DynCsrNonCanonical {
             DynCsrMatrix::U16(data) => DynCsrNonCanonical::U16(data.into()),
             DynCsrMatrix::U32(data) => DynCsrNonCanonical::U32(data.into()),
             DynCsrMatrix::U64(data) => DynCsrNonCanonical::U64(data.into()),
-            DynCsrMatrix::Usize(data) => DynCsrNonCanonical::Usize(data.into()),
             DynCsrMatrix::F32(data) => DynCsrNonCanonical::F32(data.into()),
             DynCsrMatrix::F64(data) => DynCsrNonCanonical::F64(data.into()),
             DynCsrMatrix::Bool(data) => DynCsrNonCanonical::Bool(data.into()),
@@ -218,9 +210,6 @@ impl ReadData for DynCsrNonCanonical {
                 }
                 ScalarType::U64 => {
                     CsrNonCanonical::<u64>::read(container).map(DynCsrNonCanonical::U64)
-                }
-                ScalarType::Usize => {
-                    CsrNonCanonical::<usize>::read(container).map(DynCsrNonCanonical::Usize)
                 }
                 ScalarType::F32 => {
                     CsrNonCanonical::<f32>::read(container).map(DynCsrNonCanonical::F32)
@@ -288,9 +277,6 @@ impl ArrayOp for DynCsrNonCanonical {
             DynCsrNonCanonical::U64(_) => Ok(DynCsrNonCanonical::U64(
                 CsrNonCanonical::<u64>::vstack(iter.map(|x| x.try_into().unwrap()))?,
             )),
-            DynCsrNonCanonical::Usize(_) => Ok(DynCsrNonCanonical::Usize(
-                CsrNonCanonical::<usize>::vstack(iter.map(|x| x.try_into().unwrap()))?,
-            )),
             DynCsrNonCanonical::I8(_) => Ok(DynCsrNonCanonical::I8(CsrNonCanonical::<i8>::vstack(
                 iter.map(|x| x.try_into().unwrap()),
             )?)),
@@ -326,9 +312,10 @@ impl ReadArrayData for DynCsrNonCanonical {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .get_array_attr("shape")?
-            .to_vec()
-            .into())
+            .get_array_attr::<u64, Ix1>("shape")?
+            .into_iter()
+            .map(|x| x as usize)
+            .collect())
     }
 
     fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
@@ -361,9 +348,6 @@ impl ReadArrayData for DynCsrNonCanonical {
                 }
                 ScalarType::U64 => {
                     CsrNonCanonical::<u64>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::Usize => {
-                    CsrNonCanonical::<usize>::read_select(container, info).map(Into::into)
                 }
                 ScalarType::F32 => {
                     CsrNonCanonical::<f32>::read_select(container, info).map(Into::into)
@@ -771,7 +755,7 @@ impl<T: BackendData> WriteData for CsrNonCanonical<T> {
 
         group.new_str_attr("encoding-type", "csr_matrix")?;
         group.new_str_attr("encoding-version", "0.1.0")?;
-        group.new_array_attr("shape", shape.as_ref())?;
+        group.new_array_attr("shape", &shape.as_ref().iter().map(|x| *x as u64).collect::<Array1<_>>())?;
 
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
@@ -847,7 +831,7 @@ impl<T: BackendData> WriteData for CsrNonCanonical<T> {
 impl<T: BackendData> ReadData for CsrNonCanonical<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
-        let shape: Vec<usize> = group.get_array_attr("shape")?.to_vec();
+        let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
         let data = group
             .open_dataset("data")?
             .read_array::<_, Ix1>()?
@@ -855,16 +839,16 @@ impl<T: BackendData> ReadData for CsrNonCanonical<T> {
             .0;
         let indptr: Vec<usize> = group
             .open_dataset("indptr")?
-            .read_array::<_, Ix1>()?
+            .read_array_cast::<_, Ix1>()?
             .into_raw_vec_and_offset()
             .0;
         let indices: Vec<usize> = group
             .open_dataset("indices")?
-            .read_array::<_, Ix1>()?
+            .read_array_cast::<_, Ix1>()?
             .into_raw_vec_and_offset()
             .0;
         Ok(Self::from_csr_data(
-            shape[0], shape[1], indptr, indices, data,
+            shape[0] as usize, shape[1] as usize, indptr, indices, data,
         ))
     }
 }
@@ -873,9 +857,10 @@ impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .get_array_attr("shape")?
-            .to_vec()
-            .into())
+            .get_array_attr::<u64, Ix1>("shape")?
+            .into_iter()
+            .map(|x| x as usize)
+            .collect())
     }
 
     // TODO: efficient implementation for slice
@@ -901,7 +886,7 @@ impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
             };
             let mut indptr: Vec<usize> = group
                 .open_dataset("indptr")?
-                .read_array_slice(&[indptr_slice])?
+                .read_array_slice_cast(&[indptr_slice])?
                 .to_vec();
             let lo = indptr[0];
             let slice = SelectInfoElem::from(lo..indptr[indptr.len() - 1]);
@@ -911,7 +896,7 @@ impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
                 .to_vec();
             let indices: Vec<usize> = group
                 .open_dataset("indices")?
-                .read_array_slice(&[&slice])?
+                .read_array_slice_cast(&[&slice])?
                 .to_vec();
             indptr.iter_mut().for_each(|x| *x -= lo);
             Self::from_csr_data(

@@ -404,9 +404,9 @@ impl WriteData for DataFrameIndex {
             }
             Index::Intervals(intervals) => {
                 let keys: Array1<String> = intervals.keys().cloned().collect();
-                let vec: Vec<usize> = intervals
+                let vec: Vec<u64> = intervals
                     .values()
-                    .flat_map(|x| [x.start, x.end, x.size, x.step])
+                    .flat_map(|x| [x.start as u64, x.end as u64, x.size as u64, x.step as u64])
                     .collect();
                 let values = Array2::from_shape_vec((intervals.deref().len(), 4), vec)?;
                 if data.new_array_attr("names", &keys).is_err()
@@ -421,8 +421,8 @@ impl WriteData for DataFrameIndex {
             }
             Index::Range(range) => {
                 data.new_str_attr("index_type", "range")?;
-                data.new_scalar_attr("start", range.start)?;
-                data.new_scalar_attr("end", range.end)?;
+                data.new_scalar_attr("start", range.start as u64)?;
+                data.new_scalar_attr("end", range.end as u64)?;
             }
         }
         Ok(container)
@@ -446,21 +446,21 @@ impl ReadData for DataFrameIndex {
             }
             "intervals" => {
                 let keys: Array1<String> = dataset.get_array_attr("names")?;
-                let values: Array2<usize> = dataset.get_array_attr("intervals")?;
+                let values: Array2<u64> = dataset.get_array_attr("intervals")?;
                 Ok(keys
                     .into_iter()
                     .zip(values.rows().into_iter().map(|row| Interval {
-                        start: row[0],
-                        end: row[1],
-                        size: row[2],
-                        step: row[3],
+                        start: row[0] as usize,
+                        end: row[1] as usize,
+                        size: row[2] as usize,
+                        step: row[3] as usize,
                     }))
                     .collect())
             }
             "range" => {
-                let start = dataset.get_scalar_attr("start")?;
-                let end = dataset.get_scalar_attr("end")?;
-                Ok((start..end).into())
+                let start: u64 = dataset.get_scalar_attr("start")?;
+                let end: u64 = dataset.get_scalar_attr("end")?;
+                Ok((start as usize .. end as usize).into())
             }
             x => bail!("Unknown index type: {}", x),
         }

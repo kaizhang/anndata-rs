@@ -1,5 +1,5 @@
 mod datatype;
-use crate::data::{DynArray, SelectInfo, SelectInfoElem, Shape};
+use crate::data::{ArrayCast, DynArray, SelectInfo, SelectInfoElem, Shape};
 pub use datatype::{BackendData, DataType, ScalarType};
 
 use anyhow::{bail, Result};
@@ -141,6 +141,7 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     }
 
     fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
+
     fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
         self.get_array_attr::<T, Ix0>(name).map(|x| x.into_scalar())
     }
@@ -182,13 +183,21 @@ pub trait DatasetOp<B: Backend + ?Sized> {
             ScalarType::U16 => self.read_array_slice::<u16, _, IxDyn>(selection)?.into(),
             ScalarType::U32 => self.read_array_slice::<u32, _, IxDyn>(selection)?.into(),
             ScalarType::U64 => self.read_array_slice::<u64, _, IxDyn>(selection)?.into(),
-            ScalarType::Usize => self.read_array_slice::<usize, _, IxDyn>(selection)?.into(),
             ScalarType::F32 => self.read_array_slice::<f32, _, IxDyn>(selection)?.into(),
             ScalarType::F64 => self.read_array_slice::<f64, _, IxDyn>(selection)?.into(),
             ScalarType::Bool => self.read_array_slice::<bool, _, IxDyn>(selection)?.into(),
             ScalarType::String => self.read_array_slice::<String, _, IxDyn>(selection)?.into(),
         };
         Ok(arr)
+    }
+
+    fn read_array_slice_cast<T, D, S>(&self, selection: &[S]) -> Result<Array<T, D>>
+    where
+        DynArray: ArrayCast<T>,
+        D: Dimension,
+        S: AsRef<SelectInfoElem>
+    {
+        self.read_dyn_array_slice(selection)?.cast()
     }
 
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
@@ -200,6 +209,14 @@ pub trait DatasetOp<B: Backend + ?Sized> {
 
     fn read_dyn_array(&self) -> Result<DynArray> {
         self.read_dyn_array_slice(SelectInfo::full_slice(self.shape().ndim()).as_ref())
+    }
+
+    fn read_array_cast<T, D>(&self) -> Result<Array<T, D>>
+    where
+        DynArray: ArrayCast<T>,
+        D: Dimension,
+    {
+        ArrayCast::cast(self.read_dyn_array()?)
     }
 
     fn read_scalar<T: BackendData>(&self) -> Result<T> {
@@ -279,10 +296,17 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
 impl<B: Backend> DataContainer<B> {
     pub fn open<G: GroupOp<B>>(group: &G, name: &str) -> Result<Self> {
         if group.exists(name)? {
-            group
-                .open_dataset(name)
-                .map(DataContainer::Dataset)
-                .or(group.open_group(name).map(DataContainer::Group))
+            match group.open_dataset(name) {
+                Ok(gr) => Ok(DataContainer::Dataset(gr)),
+                Err(e1) => {
+                    group.open_group(name).map(DataContainer::Group).map_err(|e2|
+                        e2.context(e1).context(format!(
+                            "Error opening group or dataset named '{}' in group",
+                            name
+                        ))
+                    )
+                }
+            }
         } else {
             bail!("No group or dataset named '{}' in group", name);
         }
