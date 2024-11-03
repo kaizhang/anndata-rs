@@ -12,7 +12,7 @@ fn test_basic() {
 
 #[test]
 fn test_save() {
-    //utils::test_save::<H5>();
+    utils::test_save::<H5>();
     utils::test_save::<Zarr>();
 }
 

@@ -178,9 +178,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
             "cannot change the index as the lengths differ"
         );
         self.index = index;
-        replace_with::replace_with_or_abort(&mut self.container, |x| {
-            self.index.overwrite(x).unwrap()
-        });
+        let container = std::mem::take(&mut self.container);
+        let _ = std::mem::replace(&mut self.container, self.index.overwrite(container)?);
         Ok(())
     }
 
@@ -265,7 +264,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
             num_recs == 0 || self.index.len() == num_recs,
             "cannot update dataframe as lengths differ"
         );
-        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        let new = data.overwrite(std::mem::take(&mut self.container))?;
+        let _ = std::mem::replace(&mut self.container, new);
         self.column_names = data.get_column_names().into_iter().map(|x| x.to_string()).collect();
         if self.element.is_some() {
             self.element = Some(data);
@@ -278,9 +278,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
         S: AsRef<SelectInfoElem>,
     {
         self.index = self.index.select(selection[0].as_ref());
-        replace_with::replace_with_or_abort(&mut self.container, |x| {
-            self.index.overwrite(x).unwrap()
-        });
+        let new = self.index.overwrite(std::mem::take(&mut self.container))?;
+        let _ = std::mem::replace(&mut self.container, new);
         let df = self.select(selection)?;
         self.save(df)
     }
@@ -371,7 +370,8 @@ impl<B: Backend, T> InnerElem<B, T> {
     }
 
     pub(crate) fn save<D: WriteData + Into<T>>(&mut self, data: D) -> Result<()> {
-        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        let new = data.overwrite(std::mem::take(&mut self.container))?;
+        let _ = std::mem::replace(&mut self.container, new);
         self.dtype = data.data_type();
         if self.element.is_some() {
             self.element = Some(data.into());
@@ -482,7 +482,8 @@ impl<B: Backend, T> InnerArrayElem<B, T> {
     }
 
     pub(crate) fn save<D: HasShape + WriteArrayData + Into<T>>(&mut self, data: D) -> Result<()> {
-        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        let new = data.overwrite(std::mem::take(&mut self.container))?;
+        let _ = std::mem::replace(&mut self.container, new);
         self.dtype = data.data_type();
         self.shape = data.shape();
         if self.element.is_some() {
@@ -603,7 +604,8 @@ impl<B: Backend, T: ReadArrayData + WriteArrayData + ArrayOp + Clone> InnerArray
         };
 
         self.shape = data.shape();
-        replace_with::replace_with_or_abort(&mut self.container, |x| data.overwrite(x).unwrap());
+        let new = data.overwrite(std::mem::take(&mut self.container))?;
+        let _ = std::mem::replace(&mut self.container, new);
         if self.element.is_some() {
             self.element = Some(data);
         }

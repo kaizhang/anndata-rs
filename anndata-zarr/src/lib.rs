@@ -6,8 +6,7 @@ use anndata::{
 use anyhow::{bail, Context, Result};
 use ndarray::{Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfoElem};
 use std::{
-    ops::{Deref, Index},
-    path::{Path, PathBuf},
+    borrow::Cow, ops::{Deref, Index}, path::{Path, PathBuf}
 };
 use std::{sync::Arc, vec};
 use zarrs::{array::{data_type::DataType, Element}, storage::StorePrefix};
@@ -104,11 +103,7 @@ impl GroupOp<Zarr> for ZarrStore {
 
     /// Create a new group.
     fn new_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
-        let path = if name.starts_with("/") {
-            name.to_string()
-        } else {
-            format!("/{}", name)
-        };
+        let path = canoincalize_path(name);
         let group = zarrs::group::GroupBuilder::new().build(self.inner.clone(), &path)?;
         group.store_metadata()?;
         Ok(ZarrGroup {
@@ -119,7 +114,7 @@ impl GroupOp<Zarr> for ZarrStore {
 
     /// Open an existing group.
     fn open_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
-        let group = zarrs::group::Group::open(self.inner.clone(), &format!("/{}", name))?;
+        let group = zarrs::group::Group::open(self.inner.clone(), &canoincalize_path(name))?;
         Ok(ZarrGroup {
             group,
             store: self.clone(),
@@ -133,11 +128,7 @@ impl GroupOp<Zarr> for ZarrStore {
         shape: &Shape,
         config: WriteConfig,
     ) -> Result<<Zarr as Backend>::Dataset> {
-        let path = if name.starts_with("/") {
-            name.to_string()
-        } else {
-            format!("/{}", name)
-        };
+        let path = canoincalize_path(name);
         let shape = shape.as_ref();
         let sizes: Vec<u64> = match config.block_size {
             Some(s) => s.as_ref().into_iter().map(|x| (*x).max(1) as u64).collect(),
@@ -183,7 +174,7 @@ impl GroupOp<Zarr> for ZarrStore {
     }
 
     fn open_dataset(&self, name: &str) -> Result<<Zarr as Backend>::Dataset> {
-        let array = zarrs::array::Array::open(self.inner.clone(), &format!("/{}", name))?;
+        let array = zarrs::array::Array::open(self.inner.clone(), &canoincalize_path(name))?;
         Ok(ZarrDataset {
             dataset: array,
             store: self.clone(),
@@ -221,8 +212,8 @@ impl GroupOp<Zarr> for ZarrGroup {
 
     /// Create a new group.
     fn new_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
-        let path = format!("{}/{}", self.group.path().as_str(), name);
-        let group = zarrs::group::GroupBuilder::new().build(self.store.inner.clone(), &path)?;
+        let path = self.group.path().as_path().join(name);
+        let group = zarrs::group::GroupBuilder::new().build(self.store.inner.clone(), path.to_str().unwrap())?;
         group.store_metadata()?;
         Ok(ZarrGroup {
             group,
@@ -232,8 +223,8 @@ impl GroupOp<Zarr> for ZarrGroup {
 
     /// Open an existing group.
     fn open_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
-        let path = format!("{}/{}", self.group.path().as_str(), name);
-        let group = zarrs::group::Group::open(self.store.inner.clone(), &path)?;
+        let path = self.group.path().as_path().join(name);
+        let group = zarrs::group::Group::open(self.store.inner.clone(), path.to_str().unwrap())?;
         Ok(ZarrGroup {
             group,
             store: self.store.clone(),
@@ -277,14 +268,14 @@ impl GroupOp<Zarr> for ZarrGroup {
             ScalarType::String => (DataType::String, "".into()),
         };
 
-        let path = format!("{}/{}", self.group.path().as_str(), name);
+        let path = self.group.path().as_path().join(name);
         let array = zarrs::array::ArrayBuilder::new(
             shape.iter().map(|x| *x as u64).collect(),
             datatype,
             chunk_size,
             fill,
         )
-        .build(self.store.inner.clone(), &path)?;
+        .build(self.store.inner.clone(), path.to_str().unwrap())?;
         array.store_metadata()?;
         Ok(ZarrDataset {
             dataset: array,
@@ -293,8 +284,8 @@ impl GroupOp<Zarr> for ZarrGroup {
     }
 
     fn open_dataset(&self, name: &str) -> Result<<Zarr as Backend>::Dataset> {
-        let path = format!("{}/{}", self.group.path().as_str(), name);
-        let array = zarrs::array::Array::open(self.store.inner.clone(), &path)?;
+        let path = self.group.path().as_path().join(name);
+        let array = zarrs::array::Array::open(self.store.inner.clone(), path.to_str().unwrap())?;
         Ok(ZarrDataset {
             dataset: array,
             store: self.store.clone(),
@@ -570,6 +561,14 @@ fn str_to_prefix(s: &str) -> StorePrefix {
     }
 }
 
+fn canoincalize_path<'a>(path: &'a str) -> Cow<'a, str> {
+    if path.starts_with("/") {
+        path.into()
+    } else {
+        format!("/{}", path).into()
+    }
+}
+
 /// test module
 #[cfg(test)]
 mod tests {
@@ -595,6 +594,8 @@ mod tests {
     fn test_basic() -> Result<()> {
         with_tmp_path(|path| {
             let store = Zarr::new(&path)?;
+            store.open_group("/")?;
+
             store.new_scalar_dataset("data", &4)?;
             store.open_dataset("data")?;
 

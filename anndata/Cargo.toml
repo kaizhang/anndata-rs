@@ -21,7 +21,6 @@ nalgebra-sparse = "0.10"
 num = "0.4"
 polars = { version = "0.44", features = ["lazy", "decompress-fast", "ndarray", "dtype-full"] }
 parking_lot = "0.12"
-replace_with = "0.1"
 smallvec = "1.13"
 serde = "1.0"
 rayon = "1.10"

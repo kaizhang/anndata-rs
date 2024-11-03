@@ -236,6 +236,13 @@ pub trait DatasetOp<B: Backend + ?Sized> {
 pub enum DataContainer<B: Backend> {
     Group(B::Group),
     Dataset(B::Dataset),
+    Null,
+}
+
+impl<B: Backend> Default for DataContainer<B> {
+    fn default() -> Self {
+        DataContainer::Null
+    }
 }
 
 impl<B: Backend> Debug for DataContainer<B> {
@@ -243,6 +250,7 @@ impl<B: Backend> Debug for DataContainer<B> {
         match self {
             DataContainer::Group(g) => write!(f, "Group({:?})", g.path()),
             DataContainer::Dataset(d) => write!(f, "Dataset({:?})", d.path()),
+            DataContainer::Null => write!(f, "Null"),
         }
     }
 }
@@ -252,12 +260,14 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         match self {
             DataContainer::Group(g) => g.store(),
             DataContainer::Dataset(d) => d.store(),
+            DataContainer::Null => bail!("Null container"),
         }
     }
     fn path(&self) -> PathBuf {
         match self {
             DataContainer::Group(g) => g.path(),
             DataContainer::Dataset(d) => d.path(),
+            DataContainer::Null => PathBuf::new(),
         }
     }
 
@@ -270,12 +280,14 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         match self {
             DataContainer::Group(g) => g.new_array_attr(name, value),
             DataContainer::Dataset(d) => d.new_array_attr(name, value),
+            DataContainer::Null => bail!("Null container"),
         }
     }
     fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
         match self {
             DataContainer::Group(g) => g.new_scalar_attr(name, value),
             DataContainer::Dataset(d) => d.new_scalar_attr(name, value),
+            DataContainer::Null => bail!("Null container"),
         }
     }
 
@@ -283,12 +295,14 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         match self {
             DataContainer::Group(g) => g.get_scalar_attr(name),
             DataContainer::Dataset(d) => d.get_scalar_attr(name),
+            DataContainer::Null => bail!("Null container"),
         }
     }
     fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
         match self {
             DataContainer::Group(g) => g.get_array_attr(name),
             DataContainer::Dataset(d) => d.get_array_attr(name),
+            DataContainer::Null => bail!("Null container"),
         }
     }
 }
@@ -326,6 +340,7 @@ impl<B: Backend> DataContainer<B> {
             DataContainer::Dataset(dataset) => dataset
                 .get_str_attr("encoding-type")
                 .unwrap_or("numeric-scalar".to_string()),
+            DataContainer::Null => bail!("Null container"),
         };
         let ty = match enc.as_str() {
             "string" => DataType::Scalar(ScalarType::String),
