@@ -1,7 +1,10 @@
+mod dynamic;
+
+pub use dynamic::{DynScalar, DynArray, DynCowArray};
+
 use crate::{
     backend::*,
     data::{
-        array::DynScalar,
         data_traits::*,
         slice::{SelectInfoElem, SelectInfoElemBounds, Shape},
     },

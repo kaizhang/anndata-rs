@@ -1,9 +1,11 @@
 use std::ops::Deref;
 
 use crate::backend::{AttributeOp, Backend, DataContainer, DatasetOp, GroupOp};
-use crate::data::array::{CategoricalArray, slice::{SelectInfoElem, Shape}};
+use crate::data::array::{
+    slice::{SelectInfoElem, Shape},
+    CategoricalArray, DynArray, DynScalar,
+};
 use crate::data::data_traits::*;
-use crate::data::array::dynamic::{DynScalar, DynArray};
 use crate::data::index::{Index, Interval};
 
 use anyhow::{bail, Result};
@@ -267,12 +269,8 @@ impl WriteData for Series {
 impl ReadData for Series {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container.encoding_type()? {
-            crate::backend::DataType::Categorical => {
-                Ok(CategoricalArray::read(container)?.into())
-            },
-            crate::backend::DataType::Array(_) => {
-                Ok(DynArray::read(container)?.into())
-            },
+            crate::backend::DataType::Categorical => Ok(CategoricalArray::read(container)?.into()),
+            crate::backend::DataType::Array(_) => Ok(DynArray::read(container)?.into()),
             ty => bail!("Unsupported data type: {:?}", ty),
         }
     }
@@ -460,7 +458,7 @@ impl ReadData for DataFrameIndex {
             "range" => {
                 let start: u64 = dataset.get_scalar_attr("start")?;
                 let end: u64 = dataset.get_scalar_attr("end")?;
-                Ok((start as usize .. end as usize).into())
+                Ok((start as usize..end as usize).into())
             }
             x => bail!("Unknown index type: {}", x),
         }

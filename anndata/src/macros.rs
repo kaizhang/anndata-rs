@@ -1,4 +1,4 @@
-macro_rules! dyn_map0 {
+macro_rules! dyn_match {
     ($scalar:expr, $enum:ident, $inner_macro:ident) => {
         match $scalar {
             $enum::I8 => $inner_macro!(I8),
@@ -17,7 +17,7 @@ macro_rules! dyn_map0 {
     };
 }
 
-macro_rules! dyn_map1 {
+macro_rules! dyn_map {
     ($scalar:expr, $enum:ident, $inner_macro:ident) => {
         match $scalar {
             $enum::I8(_val) => $inner_macro!(I8, _val),
@@ -36,4 +36,23 @@ macro_rules! dyn_map1 {
     };
 }
 
-pub(crate) use {dyn_map0, dyn_map1};
+macro_rules! dyn_map_fun {
+    ($scalar:expr, $enum:ident, $fun:ident $(, $arg:expr)*) => {
+        match $scalar {
+            $enum::I8(_val) => _val.$fun($($arg),*),
+            $enum::I16(_val) => _val.$fun($($arg),*),
+            $enum::I32(_val) => _val.$fun($($arg),*),
+            $enum::I64(_val) => _val.$fun($($arg),*),
+            $enum::U8(_val) => _val.$fun($($arg),*),
+            $enum::U16(_val) => _val.$fun($($arg),*),
+            $enum::U32(_val) => _val.$fun($($arg),*),
+            $enum::U64(_val) => _val.$fun($($arg),*),
+            $enum::F32(_val) => _val.$fun($($arg),*),
+            $enum::F64(_val) => _val.$fun($($arg),*),
+            $enum::Bool(_val) => _val.$fun($($arg),*),
+            $enum::String(_val) => _val.$fun($($arg),*),
+        }
+    };
+}
+
+pub(crate) use {dyn_match, dyn_map, dyn_map_fun};

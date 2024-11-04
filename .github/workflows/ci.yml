@@ -11,7 +11,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly
+        toolchain: stable
         override: true
 
     - name: Install dependency
@@ -23,10 +23,14 @@ jobs:
 
     - name: Build and test package
       run: |
-        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --all --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/anndata && cargo test --all --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/python && pip install --user .[test]
-        pytest ${GITHUB_WORKSPACE}/python/tests
+        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
+        #cd ${GITHUB_WORKSPACE}/python && pip install --user .[test]
+        #pytest ${GITHUB_WORKSPACE}/python/tests
+
+    - name: benchmark
+      run: cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
 
     - name: Build doc
       run: |

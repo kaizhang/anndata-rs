@@ -1,7 +1,7 @@
 mod csr;
 mod csc;
 mod noncanonical;
+mod dynamic;
 
-pub use csr::*;
-pub use csc::*;
 pub use noncanonical::*;
+pub use dynamic::*;

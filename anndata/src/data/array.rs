@@ -1,28 +1,25 @@
-mod ndarray;
-mod dynamic;
-pub mod slice;
-pub mod dataframe;
-pub mod utils;
-mod sparse;
 mod chunks;
+pub mod dataframe;
+mod dense;
+pub mod slice;
+mod sparse;
+pub mod utils;
 
-pub use self::ndarray::CategoricalArray;
-pub use slice::{SelectInfoBounds, SelectInfoElemBounds, SelectInfo, SelectInfoElem, Shape};
-pub use sparse::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
-pub use dataframe::DataFrameIndex;
 pub use chunks::ArrayChunk;
-pub use dynamic::{DynScalar, DynArray, DynCowArray, ArrayCast};
+pub use dataframe::DataFrameIndex;
+pub use dense::{CategoricalArray, DynArray, DynCowArray, DynScalar};
+pub use slice::{SelectInfo, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape};
+pub use sparse::{CsrNonCanonical, DynCscMatrix, DynCsrMatrix, DynCsrNonCanonical};
 
 use crate::backend::*;
 use crate::data::utils::from_csr_data;
 use crate::data::{data_traits::*, DataType};
 
-use polars::prelude::DataFrame;
-use ::ndarray::{Array, RemoveAxis, Ix1};
+use ::ndarray::{Array, Ix1, RemoveAxis};
 use anyhow::{bail, Result};
-use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;
-
+use nalgebra_sparse::csr::CsrMatrix;
+use polars::prelude::DataFrame;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayData {
@@ -93,7 +90,10 @@ impl TryFrom<ArrayData> for DynCsrNonCanonical {
         match value {
             ArrayData::CsrNonCanonical(data) => Ok(data),
             ArrayData::CsrMatrix(data) => Ok(data.into()),
-            _ => bail!("Cannot convert {:?} to DynCsrNonCanonical", value.data_type()),
+            _ => bail!(
+                "Cannot convert {:?} to DynCsrNonCanonical",
+                value.data_type()
+            ),
         }
     }
 }
@@ -256,22 +256,34 @@ impl ArrayOp for ArrayData {
             ArrayData::CsrMatrix(data) => data.select(info).into(),
             ArrayData::CsrNonCanonical(data) => data.select(info).into(),
             ArrayData::CscMatrix(data) => data.select(info).into(),
-            ArrayData::DataFrame(data) => ArrayOp::select(data,info).into(),
+            ArrayData::DataFrame(data) => ArrayOp::select(data, info).into(),
         }
     }
 
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
-            ArrayData::Array(_) => DynArray::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::CsrMatrix(_) => DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap()))
-                .map(|x| match x.canonicalize() {
-                    Ok(x) => x.into(),
-                    Err(x) => x.into(),
-                }),
-            ArrayData::CsrNonCanonical(_) => DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::CscMatrix(_) => DynCscMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
-            ArrayData::DataFrame(_) => <DataFrame as ArrayOp>::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into()),
+            ArrayData::Array(_) => {
+                DynArray::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
+            }
+            ArrayData::CsrMatrix(_) => {
+                DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| {
+                    match x.canonicalize() {
+                        Ok(x) => x.into(),
+                        Err(x) => x.into(),
+                    }
+                })
+            }
+            ArrayData::CsrNonCanonical(_) => {
+                DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
+            }
+            ArrayData::CscMatrix(_) => {
+                DynCscMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
+            }
+            ArrayData::DataFrame(_) => {
+                <DataFrame as ArrayOp>::vstack(iter.map(|x| x.try_into().unwrap()))
+                    .map(|x| x.into())
+            }
         }
     }
 }
@@ -293,13 +305,16 @@ impl ReadArrayData for ArrayData {
         S: AsRef<SelectInfoElem>,
     {
         match container.encoding_type()? {
-            DataType::Categorical | DataType::Array(_) =>
-                DynArray::read_select(container, info).map(ArrayData::Array),
+            DataType::Categorical | DataType::Array(_) => {
+                DynArray::read_select(container, info).map(ArrayData::Array)
+            }
             DataType::CsrMatrix(_) => read_csr_select(container, info),
-            DataType::CscMatrix(_) =>
-                DynCscMatrix::read_select(container, info).map(ArrayData::CscMatrix),
-            DataType::DataFrame =>
-                DataFrame::read_select(container, info).map(ArrayData::DataFrame),
+            DataType::CscMatrix(_) => {
+                DynCscMatrix::read_select(container, info).map(ArrayData::CscMatrix)
+            }
+            DataType::DataFrame => {
+                DataFrame::read_select(container, info).map(ArrayData::DataFrame)
+            }
             ty => bail!("Cannot read type '{:?}' as matrix data", ty),
         }
     }
@@ -307,7 +322,6 @@ impl ReadArrayData for ArrayData {
 impl WriteArrayData for ArrayData {}
 
 impl WriteArrayData for &ArrayData {}
-
 
 // Helper
 
@@ -319,9 +333,21 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
     {
         let group = container.as_group()?;
         let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
-        let data = group.open_dataset("data")?.read_array::<_, Ix1>()?.into_raw_vec_and_offset().0;
-        let indptr: Vec<usize> = group.open_dataset("indptr")?.read_array_cast::<_, Ix1>()?.into_raw_vec_and_offset().0;
-        let indices: Vec<usize> = group.open_dataset("indices")?.read_array_cast::<_, Ix1>()?.into_raw_vec_and_offset().0;
+        let data = group
+            .open_dataset("data")?
+            .read_array::<_, Ix1>()?
+            .into_raw_vec_and_offset()
+            .0;
+        let indptr: Vec<usize> = group
+            .open_dataset("indptr")?
+            .read_array_cast::<_, Ix1>()?
+            .into_raw_vec_and_offset()
+            .0;
+        let indices: Vec<usize> = group
+            .open_dataset("indices")?
+            .read_array_cast::<_, Ix1>()?
+            .into_raw_vec_and_offset()
+            .0;
         from_csr_data::<T>(shape[0] as usize, shape[1] as usize, indptr, indices, data)
     }
 
@@ -349,7 +375,10 @@ where
     B: Backend,
     S: AsRef<SelectInfoElem>,
 {
-    fn _read_csr<B: Backend, T: BackendData, S>(container: &DataContainer<B>, info: &[S]) -> Result<ArrayData>
+    fn _read_csr<B: Backend, T: BackendData, S>(
+        container: &DataContainer<B>,
+        info: &[S],
+    ) -> Result<ArrayData>
     where
         CsrMatrix<T>: Into<ArrayData>,
         CsrNonCanonical<T>: Into<ArrayData>,
@@ -363,31 +392,33 @@ where
             return read_csr(container);
         }
 
-        let data = if let SelectInfoElem::Slice(s) = info[0].as_ref()  {
+        let data = if let SelectInfoElem::Slice(s) = info[0].as_ref() {
             let group = container.as_group()?;
             let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
             let indptr_slice = if let Some(end) = s.end {
-                SelectInfoElem::from(s.start .. end + 1)
+                SelectInfoElem::from(s.start..end + 1)
             } else {
-                SelectInfoElem::from(s.start ..)
+                SelectInfoElem::from(s.start..)
             };
-            let mut indptr: Vec<usize> = group 
+            let mut indptr: Vec<usize> = group
                 .open_dataset("indptr")?
                 .read_array_slice_cast(&[indptr_slice])?
                 .to_vec();
             let lo = indptr[0];
-            let slice = SelectInfoElem::from(lo .. indptr[indptr.len() - 1]);
-            let data: Vec<T> = group.open_dataset("data")?.read_array_slice(&[&slice])?.to_vec();
-            let indices: Vec<usize> = group.open_dataset("indices")?.read_array_slice_cast(&[&slice])?.to_vec();
+            let slice = SelectInfoElem::from(lo..indptr[indptr.len() - 1]);
+            let data: Vec<T> = group
+                .open_dataset("data")?
+                .read_array_slice(&[&slice])?
+                .to_vec();
+            let indices: Vec<usize> = group
+                .open_dataset("indices")?
+                .read_array_slice_cast(&[&slice])?
+                .to_vec();
             indptr.iter_mut().for_each(|x| *x -= lo);
 
-            from_csr_data::<T>(
-                indptr.len() - 1,
-                shape[1] as usize,
-                indptr,
-                indices,
-                data,
-            ).unwrap().select_axis(1, info[1].as_ref())
+            from_csr_data::<T>(indptr.len() - 1, shape[1] as usize, indptr, indices, data)
+                .unwrap()
+                .select_axis(1, info[1].as_ref())
         } else {
             read_csr(container)?.select(info)
         };

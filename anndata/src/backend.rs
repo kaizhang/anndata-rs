@@ -1,5 +1,5 @@
 mod datatype;
-use crate::data::{ArrayCast, DynArray, SelectInfo, SelectInfoElem, Shape};
+use crate::data::{DynArray, SelectInfo, SelectInfoElem, Shape};
 pub use datatype::{BackendData, DataType, ScalarType};
 
 use anyhow::{bail, Result};
@@ -193,11 +193,11 @@ pub trait DatasetOp<B: Backend + ?Sized> {
 
     fn read_array_slice_cast<T, D, S>(&self, selection: &[S]) -> Result<Array<T, D>>
     where
-        DynArray: ArrayCast<T>,
+        Array<T, D>: TryFrom<DynArray, Error=anyhow::Error>,
         D: Dimension,
         S: AsRef<SelectInfoElem>
     {
-        self.read_dyn_array_slice(selection)?.cast()
+        self.read_dyn_array_slice(selection)?.try_into()
     }
 
     fn read_array<T: BackendData, D>(&self) -> Result<Array<T, D>>
@@ -213,10 +213,10 @@ pub trait DatasetOp<B: Backend + ?Sized> {
 
     fn read_array_cast<T, D>(&self) -> Result<Array<T, D>>
     where
-        DynArray: ArrayCast<T>,
+        Array<T, D>: TryFrom<DynArray, Error=anyhow::Error>,
         D: Dimension,
     {
-        ArrayCast::cast(self.read_dyn_array()?)
+        self.read_dyn_array()?.try_into()
     }
 
     fn read_scalar<T: BackendData>(&self) -> Result<T> {

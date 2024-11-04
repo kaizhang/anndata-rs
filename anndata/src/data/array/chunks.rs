@@ -47,18 +47,18 @@ impl ArrayChunk for DynArray {
     {
         let mut iter = iter.peekable();
         match iter.peek().context("input iterator is empty")? {
-            DynArray::U8(_) => ArrayD::<u8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::U16(_) => ArrayD::<u16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::U32(_) => ArrayD::<u32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::U64(_) => ArrayD::<u64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::I8(_) => ArrayD::<i8>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::I16(_) => ArrayD::<i16>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::I32(_) => ArrayD::<i32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::I64(_) => ArrayD::<i64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::F32(_) => ArrayD::<f32>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::F64(_) => ArrayD::<f64>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::Bool(_) => ArrayD::<bool>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
-            DynArray::String(_) => ArrayD::<String>::write_by_chunk(iter.map(|x| x.try_into().unwrap()), location, name),
+            DynArray::U8(_) => ArrayD::<u8>::write_by_chunk(iter.map(|x| x.into_u8().unwrap()), location, name),
+            DynArray::U16(_) => ArrayD::<u16>::write_by_chunk(iter.map(|x| x.into_u16().unwrap()), location, name),
+            DynArray::U32(_) => ArrayD::<u32>::write_by_chunk(iter.map(|x| x.into_u32().unwrap()), location, name),
+            DynArray::U64(_) => ArrayD::<u64>::write_by_chunk(iter.map(|x| x.into_u64().unwrap()), location, name),
+            DynArray::I8(_) => ArrayD::<i8>::write_by_chunk(iter.map(|x| x.into_i8().unwrap()), location, name),
+            DynArray::I16(_) => ArrayD::<i16>::write_by_chunk(iter.map(|x| x.into_i16().unwrap()), location, name),
+            DynArray::I32(_) => ArrayD::<i32>::write_by_chunk(iter.map(|x| x.into_i32().unwrap()), location, name),
+            DynArray::I64(_) => ArrayD::<i64>::write_by_chunk(iter.map(|x| x.into_i64().unwrap()), location, name),
+            DynArray::F32(_) => ArrayD::<f32>::write_by_chunk(iter.map(|x| x.into_f32().unwrap()), location, name),
+            DynArray::F64(_) => ArrayD::<f64>::write_by_chunk(iter.map(|x| x.into_f64().unwrap()), location, name),
+            DynArray::Bool(_) => ArrayD::<bool>::write_by_chunk(iter.map(|x| x.into_bool().unwrap()), location, name),
+            DynArray::String(_) => ArrayD::<String>::write_by_chunk(iter.map(|x| x.into_string().unwrap()), location, name),
         }
     }
 }
