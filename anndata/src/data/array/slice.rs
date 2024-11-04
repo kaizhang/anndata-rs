@@ -8,10 +8,12 @@ use smallvec::{SmallVec, smallvec};
 /// 
 /// # Examples
 /// ```
+/// use anndata::data::Shape;
+/// 
 /// let shape = Shape::from(vec![3, 4, 5]);
 /// assert_eq!(shape.ndim(), 3);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shape(SmallVec<[usize; 3]>);
 
 impl Shape {
@@ -324,6 +326,9 @@ impl SelectInfoElem {
 /// 
 /// # Example
 /// ```
+/// use anndata::data::{Shape, SelectInfoElem, SelectInfoBounds};
+/// use ndarray::Slice;
+/// 
 /// let shape = Shape::from(vec![5, 10]);
 /// let select = SelectInfoBounds::new(&[SelectInfoElem::Slice(Slice { start: 0, end: Some(5), step: 1 })], &shape);
 /// assert_eq!(select.in_shape(), shape);

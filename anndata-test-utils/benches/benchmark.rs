@@ -1,4 +1,3 @@
-use std::hint::black_box;
 use anndata_hdf5::H5;
 use anndata_zarr::Zarr;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -19,7 +18,7 @@ fn bench_array_io(c: &mut Criterion) {
 
             let adata = AnnData::<H5>::open(H5::new(&output).unwrap()).unwrap();
             group.bench_with_input(format!("Write H5 ({} x {})", n, n), &arr, |b, arr|
-                b.iter(|| adata.set_x(black_box(arr.clone())).unwrap())
+                b.iter(|| adata.set_x(arr.clone()).unwrap())
             );
             group.bench_function(format!("Read H5 ({} x {})", n, n), |b|
                 b.iter(|| adata.x().get::<Array2<i64>>().unwrap())
@@ -27,7 +26,7 @@ fn bench_array_io(c: &mut Criterion) {
 
             let adata = AnnData::<Zarr>::open(Zarr::new(&output).unwrap()).unwrap();
             group.bench_with_input(format!("Write Zarr ({} x {})", n, n), &arr, |b, arr|
-                b.iter(|| adata.set_x(black_box(arr.clone())).unwrap())
+                b.iter(|| adata.set_x(arr.clone()).unwrap())
             );
             group.bench_function(format!("Read Zarr ({} x {})", n, n), |b|
                 b.iter(|| adata.x().get::<Array2<i64>>().unwrap())
