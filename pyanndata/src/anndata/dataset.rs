@@ -5,7 +5,7 @@ use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::{AnnData, PyAnnData};
 
 use anndata::container::Slot;
-use anndata::data::{ArrayData, BoundedSelectInfoElem, DataFrameIndex, SelectInfoElem};
+use anndata::data::{ArrayData, SelectInfoElemBounds, DataFrameIndex, SelectInfoElem};
 use anndata::{self, ArrayElemOp, Data, ArrayOp};
 use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
@@ -715,8 +715,8 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             }
         } else {
             let adata = PyAnnData::new(py)?;
-            let obs_slice = BoundedSelectInfoElem::new(&slice[0], inner.n_obs());
-            let var_slice = BoundedSelectInfoElem::new(&slice[1], inner.n_vars());
+            let obs_slice = SelectInfoElemBounds::new(&slice[0], inner.n_obs());
+            let var_slice = SelectInfoElemBounds::new(&slice[1], inner.n_vars());
             let n_obs = obs_slice.len();
             let n_vars = var_slice.len();
             adata.set_n_obs(n_obs)?;

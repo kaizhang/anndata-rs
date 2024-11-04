@@ -155,7 +155,6 @@ impl IntoPython for DynScalar {
             DynScalar::U16(s) => Ok(s.into_py(py)),
             DynScalar::U32(s) => Ok(s.into_py(py)),
             DynScalar::U64(s) => Ok(s.into_py(py)),
-            DynScalar::Usize(s) => Ok(s.into_py(py)),
             DynScalar::F32(s) => Ok(s.into_py(py)),
             DynScalar::F64(s) => Ok(s.into_py(py)),
             DynScalar::Bool(s) => Ok(s.into_py(py)),

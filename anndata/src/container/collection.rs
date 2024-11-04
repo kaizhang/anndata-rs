@@ -1,12 +1,13 @@
 use crate::{
-    backend::{iter_containers, Backend, GroupOp, AttributeOp},
+    backend::{iter_containers, AttributeOp, Backend, GroupOp},
     container::base::*,
     data::*,
-    AxisArraysOp, ElemCollectionOp,
+    ElemCollectionOp,
 };
 
 use anyhow::{bail, ensure, Result};
 use itertools::Itertools;
+use log::warn;
 use parking_lot::{Mutex, MutexGuard};
 use smallvec::{smallvec, SmallVec};
 use std::{
@@ -15,7 +16,6 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use log::warn;
 
 pub struct InnerElemCollection<B: Backend> {
     container: B::Group,
@@ -54,7 +54,7 @@ impl<B: Backend> std::fmt::Display for InnerElemCollection<B> {
 }
 
 impl<B: Backend> InnerElemCollection<B> {
-    pub fn add_data<D: WriteData + Into<Data>>(&mut self, key: &str, data: D) -> Result<()> {
+    pub fn add_data(&mut self, key: &str, data: Data) -> Result<()> {
         match self.get_mut(key) {
             None => {
                 let container = data.write(&self.container, key)?;
@@ -70,11 +70,7 @@ impl<B: Backend> InnerElemCollection<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<O>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
         let group = location.new_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
@@ -123,18 +119,19 @@ impl<B: Backend> ElemCollectionOp for &ElemCollection<B> {
 
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
     where
-        D: ReadData + Into<Data> + TryFrom<Data> + Clone,
+        D: TryFrom<Data>,
         <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
     {
-        self.lock()
-            .as_mut()
-            .and_then(|x| x.get_mut(key))
-            .map(|x| x.inner().data())
-            .transpose()
+        let mut lock = self.lock();
+        if let Some(elem) = lock.as_mut().and_then(|x| x.get_mut(key)) {
+            Ok(Some(elem.inner().data()?.try_into().map_err(Into::into)?))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn add<D: WriteData + Into<Data>>(&self, key: &str, data: D) -> Result<()> {
-        self.inner().add_data(key, data)
+    fn add<D: Into<Data>>(&self, key: &str, data: D) -> Result<()> {
+        self.inner().add_data(key, data.into())
     }
 
     fn remove(&self, key: &str) -> Result<()> {
@@ -304,12 +301,9 @@ impl<B: Backend> InnerAxisArrays<B> {
         self.dim1.get()
     }
 
-    pub fn add_data<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &mut self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
+    pub fn add_data<D: Into<ArrayData>>(&mut self, key: &str, data: D) -> Result<()> {
         // Check if the data is compatible with the current size
+        let data = data.into();
         let shape = data.shape();
         match self.axis {
             Axis::Row => {
@@ -394,11 +388,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<O>>(
-        &self,
-        location: &G,
-        name: &str,
-    ) -> Result<()> {
+    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
         let group = location.new_group(name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
@@ -545,12 +535,21 @@ impl<B: Backend> AxisArrays<B> {
             .collect::<Vec<_>>();
 
         // Check if shapes of arrays conform to axis
-        ensure!(shapes.iter().map(|x| x[0]).all_equal(), "the size of the 1st dimension of arrays must be equal");
+        ensure!(
+            shapes.iter().map(|x| x[0]).all_equal(),
+            "the size of the 1st dimension of arrays must be equal"
+        );
         if let Axis::Pairwise = axis {
-            ensure!(shapes.iter().all(|x| x[0] == x[1]), "the size of the 1st and 2nd dimension of arrays must be equal");
+            ensure!(
+                shapes.iter().all(|x| x[0] == x[1]),
+                "the size of the 1st and 2nd dimension of arrays must be equal"
+            );
         }
         if let Axis::RowColumn = axis {
-            ensure!(shapes.iter().map(|x| x[1]).all_equal(), "the size of the 2nd dimension of arrays must be equal");
+            ensure!(
+                shapes.iter().map(|x| x[1]).all_equal(),
+                "the size of the 2nd dimension of arrays must be equal"
+            );
         }
 
         if let Some(s) = shapes.get(0) {
@@ -584,46 +583,10 @@ impl<B: Backend> AxisArrays<B> {
     }
 }
 
-impl<B: Backend> AxisArraysOp for &AxisArrays<B> {
-    type ArrayElem = ArrayElem<B>;
-
-    fn keys(&self) -> Vec<String> {
-        if self.is_empty() {
-            Vec::new()
-        } else {
-            self.inner().keys().cloned().collect()
-        }
-    }
-
-    fn get(&self, key: &str) -> Option<Self::ArrayElem> {
-        self.lock().as_ref().and_then(|x| x.get(key).cloned())
-    }
-
-    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        key: &str,
-        data: D,
-    ) -> Result<()> {
-        self.inner().add_data(key, data)
-    }
-
-    fn add_iter<I, D>(&self, key: &str, data: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: ArrayChunk,
-    {
-        self.inner().add_data_from_iter(key, data)
-    }
-
-    fn remove(&self, key: &str) -> Result<()> {
-        self.inner().remove_data(key)
-    }
-}
-
 /// Stacked axis arrays, providing Read-only access to the data.
 pub struct StackedAxisArrays<B: Backend> {
     axis: Axis,
-    data: Arc<HashMap<String, StackedArrayElem<B>>>,
+    pub(crate) data: Arc<HashMap<String, StackedArrayElem<B>>>,
 }
 
 impl<B: Backend> Clone for StackedAxisArrays<B> {
@@ -657,38 +620,6 @@ impl<B: Backend> std::fmt::Display for StackedAxisArrays<B> {
             .collect::<Vec<_>>()
             .join(", ");
         write!(f, "Stacked AxisArrays ({}) with keys: {}", ty, keys)
-    }
-}
-
-impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
-    type ArrayElem = StackedArrayElem<B>;
-
-    fn keys(&self) -> Vec<String> {
-        self.data.keys().cloned().collect()
-    }
-
-    fn get(&self, key: &str) -> Option<Self::ArrayElem> {
-        self.data.get(key).cloned()
-    }
-
-    fn add<D: WriteArrayData + HasShape + Into<ArrayData>>(
-        &self,
-        _key: &str,
-        _data: D,
-    ) -> Result<()> {
-        todo!()
-    }
-
-    fn add_iter<I, D>(&self, _key: &str, _data: I) -> Result<()>
-    where
-        I: Iterator<Item = D>,
-        D: ArrayChunk,
-    {
-        todo!()
-    }
-
-    fn remove(&self, _key: &str) -> Result<()> {
-        todo!()
     }
 }
 
@@ -733,7 +664,10 @@ impl<B: Backend> StackedAxisArrays<B> {
             })
             .collect::<HashMap<_, _>>();
         if !ignore_keys.is_empty() {
-            warn!("Unable to create stacked arrays for these keys: {}", ignore_keys.join(","));
+            warn!(
+                "Unable to create stacked arrays for these keys: {}",
+                ignore_keys.join(",")
+            );
         }
         Ok(Self {
             axis: axis,

@@ -7,7 +7,7 @@ use crate::data::{
 use anndata::backend::DataType;
 use anndata::data::SelectInfoElem;
 use anndata::{
-    ArrayData, ArrayElem, AxisArrays, Backend, Data,
+    ArrayData, ArrayElem, AxisArrays, Backend,
     DataFrameElem, Elem, ElemCollection, StackedArrayElem, StackedDataFrame, StackedAxisArrays,
 };
 use anndata::container::{ChunkedArrayElem, StackedChunkedArrayElem};
@@ -47,7 +47,7 @@ impl<B: Backend> ElemTrait for Elem<B> {
 
     fn get<'py>(&self, slice: &Bound<'py, PyAny>) -> Result<PyData> {
         if is_none_slice(slice)? {
-            Ok(self.inner().data::<Data>()?.into())
+            Ok(self.inner().data()?.into())
         } else {
             bail!("Please use None slice to retrieve data.")
         }
@@ -85,7 +85,7 @@ impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
     fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyArrayData> {
         let slice = to_select_info(subscript, self.inner().shape())?;
         self.inner()
-            .select::<ArrayData, _>(slice.as_ref())
+            .select::<_>(slice.as_ref())
             .map(|x| x.into())
     }
 
@@ -112,11 +112,11 @@ impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
         } else {
             rand::seq::index::sample(&mut rng, length, size).into_vec()
         };
-        self.inner().select_axis::<ArrayData, _>(0, &SelectInfoElem::from(idx))
+        self.inner().select_axis::<_>(0, &SelectInfoElem::from(idx))
     }
 
     fn chunked(&self, chunk_size: usize) -> PyChunkedArray {
-        self.chunked::<ArrayData>(chunk_size).into()
+        self.chunked(chunk_size).into()
     }
 }
 
@@ -163,7 +163,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
     }
 
     fn chunked(&self, chunk_size: usize) -> PyChunkedArray {
-        self.chunked::<ArrayData>(chunk_size).into()
+        self.chunked(chunk_size).into()
     }
 }
 
@@ -258,7 +258,7 @@ impl<B: Backend + 'static> AxisArrayTrait for AxisArrays<B> {
             .get(key)
             .context(format!("No such key: {}", key))?
             .inner()
-            .data::<ArrayData>()?
+            .data()?
             .into())
     }
 
@@ -342,7 +342,7 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
             .get(key)
             .context(format!("No such key: {}", key))?
             .inner()
-            .data::<Data>()?
+            .data()?
             .into())
     }
 
@@ -356,7 +356,7 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
     }
 
     fn set(&self, key: &str, data: PyData) -> Result<()> {
-        self.inner().add_data::<Data>(key, data.into())
+        self.inner().add_data(key, data.into())
     }
 
     fn show(&self) -> String {
@@ -366,5 +366,5 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
 
 pub trait ChunkedArrayTrait: ExactSizeIterator<Item = (ArrayData, usize, usize)> + Send {}
 
-impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B, ArrayData> {}
-impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B, ArrayData> {}
+impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B> {}
+impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B> {}

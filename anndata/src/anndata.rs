@@ -4,47 +4,42 @@ pub use dataset::{AnnDataSet, StackedAnnData};
 use smallvec::SmallVec;
 
 use crate::{
-    backend::{Backend, DataContainer, StoreOp, GroupOp},
-    container::{
-        Dim, ArrayElem, Axis, AxisArrays, DataFrameElem, ElemCollection,
-        InnerDataFrameElem, Slot,
-    },
+    backend::{Backend, DataContainer, GroupOp, StoreOp},
+    container::{ArrayElem, Axis, AxisArrays, DataFrameElem, Dim, ElemCollection, Slot},
     data::*,
     traits::AnnDataOp,
 };
 
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{anyhow, ensure, Result};
 use itertools::Itertools;
-use polars::prelude::DataFrame;
 use std::path::{Path, PathBuf};
-
 
 /// Represents an annotated data object backed by a specified backend.
 pub struct AnnData<B: Backend> {
     /// The file storage backend.
-    file: B::Store,
+    pub(crate) file: B::Store,
     /// Number of observations (rows).
     pub(crate) n_obs: Dim,
     /// Number of variables (columns).
     pub(crate) n_vars: Dim,
     /// Data matrix.
-    x: ArrayElem<B>,
+    pub(crate) x: ArrayElem<B>,
     /// Observations metadata.
-    obs: DataFrameElem<B>,
+    pub(crate) obs: DataFrameElem<B>,
     /// Observation multi-dimensional annotation.
-    obsm: AxisArrays<B>,
+    pub(crate) obsm: AxisArrays<B>,
     /// Observation pairwise annotation.
-    obsp: AxisArrays<B>,
+    pub(crate) obsp: AxisArrays<B>,
     /// Variables metadata.
-    var: DataFrameElem<B>,
+    pub(crate) var: DataFrameElem<B>,
     /// Variable multi-dimensional annotation.
-    varm: AxisArrays<B>,
+    pub(crate) varm: AxisArrays<B>,
     /// Variable pairwise annotation.
-    varp: AxisArrays<B>,
+    pub(crate) varp: AxisArrays<B>,
     /// Unstructured annotation.
-    uns: ElemCollection<B>,
+    pub(crate) uns: ElemCollection<B>,
     /// Layers of data.
-    layers: AxisArrays<B>,
+    pub(crate) layers: AxisArrays<B>,
 }
 
 impl<B: Backend> std::fmt::Debug for AnnData<B> {
@@ -107,27 +102,27 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
 }
 
 // Helper function to create a new observation matrix (obsm)
-fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Row, n_obs, None)
 }
 
 // Helper function to create a new pairwise observation matrix (obsp)
-fn new_obsp<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_obsp<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Pairwise, n_obs, None)
 }
 
 // Helper function to create a new variable matrix (varm)
-fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Row, n_vars, None)
 }
 
 // Helper function to create a new pairwise variable matrix (varp)
-fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Pairwise, n_vars, None)
 }
 
 // Helper function to create new layers of data
-fn new_layers<B: Backend>(group: B::Group, n_obs: &Dim, n_vars: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_layers<B: Backend>(group: B::Group, n_obs: &Dim, n_vars: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::RowColumn, n_obs, Some(n_vars))
 }
 
@@ -308,9 +303,11 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[SelectInfoElem]>,
         P: AsRef<Path>,
     {
-        selection.as_ref()[0].bound_check(self.n_obs())
+        selection.as_ref()[0]
+            .bound_check(self.n_obs())
             .map_err(|e| anyhow!("AnnData obs {}", e))?;
-        selection.as_ref()[1].bound_check(self.n_vars())
+        selection.as_ref()[1]
+            .bound_check(self.n_vars())
             .map_err(|e| anyhow!("AnnData var {}", e))?;
         let slice: SmallVec<[_; 3]> = selection.as_ref().iter().collect();
         let file = O::new(filename)?;
@@ -455,293 +452,5 @@ impl<B: Backend> AnnData<B> {
         }
 
         Ok(())
-    }
-}
-
-impl<B: Backend> AnnDataOp for AnnData<B> {
-    type X = ArrayElem<B>;
-    type AxisArraysRef<'a> = &'a AxisArrays<B>;
-    type ElemCollectionRef<'a> = &'a ElemCollection<B>;
-
-    fn x(&self) -> Self::X {
-        self.x.clone()
-    }
-
-    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, iter: I) -> Result<()> {
-        let mut obs_lock = self.n_obs.lock();
-        let mut vars_lock = self.n_vars.lock();
-        self.del_x()?;
-        let new_elem =
-            ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
-        let shape = new_elem.inner().shape().clone();
-
-        match obs_lock
-            .try_set(shape[0])
-            .and(vars_lock.try_set(shape[1]))
-        {
-            Ok(_) => {
-                self.x.swap(&new_elem);
-                Ok(())
-            }
-            Err(e) => {
-                new_elem.clear()?;
-                Err(e)
-            }
-        }
-    }
-
-    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
-        let shape = data.shape();
-        ensure!(
-            shape.ndim() >= 2,
-            "X must be a N dimensional array, where N >= 2"
-        );
-        self.n_obs.try_set(shape[0])?;
-        self.n_vars.try_set(shape[1])?;
-
-        if !self.x.is_none() {
-            self.x.inner().save(data)?;
-        } else {
-            let new_elem = ArrayElem::try_from(data.write(&self.file, "X")?)?;
-            self.x.swap(&new_elem);
-        }
-        Ok(())
-    }
-
-    fn del_x(&self) -> Result<()> {
-        self.x.clear()
-    }
-
-    fn n_obs(&self) -> usize {
-        self.n_obs.get()
-    }
-    fn n_vars(&self) -> usize {
-        self.n_vars.get()
-    }
-
-    fn set_n_obs(&self, n: usize) -> Result<()> {
-        let mut n_obs = self.n_obs.lock();
-        if let Err(e) = n_obs.try_set(n) {
-            if self.x().is_none() && self.obs.is_none() &&
-               self.obsm().is_empty() && self.obsp().is_empty() && self.layers().is_empty() 
-            {
-                n_obs.set(n);
-            } else {
-                return Err(e);
-            }
-        }
-        Ok(())
-    }
-    fn set_n_vars(&self, n: usize) -> Result<()> {
-        let mut n_vars = self.n_vars.lock();
-        if let Err(e) = n_vars.try_set(n) {
-            if self.x().is_none() && self.var.is_none() &&
-               self.varm().is_empty() && self.varp().is_empty() && self.layers().is_empty() 
-            {
-                n_vars.set(n);
-            } else {
-                return Err(e);
-            }
-        }
-        Ok(())
-    }
-
-    fn obs_names(&self) -> DataFrameIndex {
-        self.obs
-            .lock()
-            .as_ref()
-            .map_or(DataFrameIndex::empty(), |obs| obs.index.clone())
-    }
-
-    fn var_names(&self) -> DataFrameIndex {
-        self.var
-            .lock()
-            .as_ref()
-            .map_or(DataFrameIndex::empty(), |var| var.index.clone())
-    }
-
-    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.n_obs.try_set(index.len())?;
-        if self.obs.is_none() {
-            let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
-            self.obs.insert(df);
-        } else {
-            self.obs.inner().set_index(index)?;
-        }
-        Ok(())
-    }
-
-    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.n_vars.try_set(index.len())?;
-        if self.var.is_none() {
-            let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
-            self.var.insert(df);
-        } else {
-            self.var.inner().set_index(index)?;
-        }
-        Ok(())
-    }
-
-    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>>
-    {
-        let inner = self.obs.inner();
-        names
-            .into_iter()
-            .map(|i| {
-                inner
-                    .index
-                    .get_index(i)
-                    .context(format!("'{}' does not exist in obs_names", i))
-            })
-            .collect()
-    }
-
-    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
-        let inner = self.var.inner();
-        names
-            .into_iter()
-            .map(|i| {
-                inner
-                    .index
-                    .get_index(i)
-                    .context(format!("'{}' does not exist in obs_names", i))
-            })
-            .collect()
-    }
-
-    fn read_obs(&self) -> Result<DataFrame> {
-        self.get_obs()
-            .lock()
-            .as_mut()
-            .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
-    }
-    fn read_var(&self) -> Result<DataFrame> {
-        self.get_var()
-            .lock()
-            .as_mut()
-            .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
-    }
-    // TODO: empty dataframe should be allowed
-    fn set_obs(&self, obs: DataFrame) -> Result<()> {
-        let nrows = obs.height();
-        if nrows != 0 {
-            self.n_obs.try_set(nrows)?;
-            if self.obs.is_none() {
-                self.obs.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "obs",
-                    DataFrameIndex::from(nrows),
-                    &obs,
-                )?);
-            } else {
-                self.obs.inner().save(obs)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn set_var(&self, var: DataFrame) -> Result<()> {
-        let nrows = var.height();
-        if nrows != 0 {
-            self.n_vars.try_set(nrows)?;
-            if self.var.is_none() {
-                self.var.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "var",
-                    DataFrameIndex::from(nrows),
-                    &var,
-                )?);
-            } else {
-                self.var.inner().save(var)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn del_obs(&self) -> Result<()> {
-        self.get_obs().clear()
-    }
-
-    fn del_var(&self) -> Result<()> {
-        self.get_var().clear()
-    }
-
-    fn uns(&self) -> Self::ElemCollectionRef<'_> {
-        if self.uns.is_none() {
-            let elems = self.file.new_group("uns").and_then(|g| ElemCollection::new(g));
-            if let Ok(uns) = elems {
-                self.uns.swap(&uns);
-            }
-        }
-        &self.uns
-    }
-    fn obsm(&self) -> Self::AxisArraysRef<'_> {
-        if self.obsm.is_none() {
-            let arrays = self.file.new_group("obsm")
-                .and_then(|g| new_obsm(g, &self.n_obs));
-            if let Ok(obsm) = arrays {
-                self.obsm.swap(&obsm);
-            }
-        }
-        &self.obsm
-    }
-    fn obsp(&self) -> Self::AxisArraysRef<'_> {
-        if self.obsp.is_none() {
-            let arrays = self.file.new_group("obsp")
-                .and_then(|g| new_obsp(g, &self.n_obs));
-            if let Ok(obsp) = arrays {
-                self.obsp.swap(&obsp);
-            }
-        }
-        &self.obsp
-    }
-    fn varm(&self) -> Self::AxisArraysRef<'_> {
-        if self.varm.is_none() {
-            let arrays = self.file.new_group("varm")
-                .and_then(|g| new_varm(g, &self.n_vars));
-            if let Ok(varm) = arrays {
-                self.varm.swap(&varm);
-            }
-        }
-        &self.varm
-    }
-    fn varp(&self) -> Self::AxisArraysRef<'_> {
-        if self.varp.is_none() {
-            let arrays = self.file.new_group("varp")
-                .and_then(|g| new_varp(g, &self.n_vars));
-            if let Ok(varp) = arrays {
-                self.varp.swap(&varp);
-            }
-        }
-        &self.varp
-    }
-    fn layers(&self) -> Self::AxisArraysRef<'_> {
-        if self.layers.is_none() {
-            let arrays = self.file.new_group("layers")
-                .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
-            if let Ok(layers) = arrays {
-                self.layers.swap(&layers);
-            }
-        }
-        &self.layers
-    }
-
-    fn del_uns(&self) -> Result<()> {
-        self.uns.clear()
-    }
-    fn del_obsm(&self) -> Result<()> {
-        self.obsm.clear()
-    }
-    fn del_obsp(&self) -> Result<()> {
-        self.obsp.clear()
-    }
-    fn del_varm(&self) -> Result<()> {
-        self.varm.clear()
-    }
-    fn del_varp(&self) -> Result<()> {
-        self.varp.clear()
-    }
-    fn del_layers(&self) -> Result<()> {
-        self.layers.clear()
     }
 }

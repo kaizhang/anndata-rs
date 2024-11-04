@@ -2,7 +2,7 @@ use crate::{
     traits::{AnnDataOp, ElemCollectionOp},
     anndata::AnnData,
     backend::Backend,
-    container::{Slot, Dim, Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame, ElemCollection},
+    container::{Slot, Dim, Axis, AxisArrays, StackedArrayElem, StackedAxisArrays, StackedDataFrame},
     data::*,
     data::index::VecVecIndex,
 };
@@ -15,8 +15,8 @@ use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::{collections::{HashMap, HashSet}, path::{Path, PathBuf}};
 
 pub struct AnnDataSet<B: Backend> {
-    annotation: AnnData<B>,
-    anndatas: Slot<StackedAnnData<B>>,
+    pub(crate) annotation: AnnData<B>,
+    pub(crate) anndatas: Slot<StackedAnnData<B>>,
 }
 
 impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
@@ -390,142 +390,14 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
     Ok(new_files)
 }
 
-
-impl<B: Backend> AnnDataOp for AnnDataSet<B> {
-    type X = StackedArrayElem<B>;
-    type AxisArraysRef<'a> = &'a AxisArrays<B>;
-    type ElemCollectionRef<'a> = &'a ElemCollection<B>;
-
-    fn x(&self) -> Self::X {
-        self.anndatas.inner().x.clone()
-    }
-
-    fn set_x_from_iter<I: Iterator<Item = D>, D: ArrayChunk>(&self, _iter: I) -> Result<()> {
-        bail!("cannot set X in AnnDataSet")
-    }
-
-    fn set_x<D: WriteData + Into<ArrayData> + HasShape>(&self, _: D) -> Result<()> {
-        bail!("cannot set X in AnnDataSet")
-    }
-
-    fn del_x(&self) -> Result<()> {
-        bail!("cannot delete X in AnnDataSet")
-    }
-
-    fn n_obs(&self) -> usize {
-        self.anndatas.inner().n_obs
-    }
-    fn n_vars(&self) -> usize {
-        self.anndatas.inner().n_vars
-    }
-    fn set_n_obs(&self, n: usize) -> Result<()> {
-        self.annotation.set_n_obs(n)
-    }
-    fn set_n_vars(&self, n: usize) -> Result<()> {
-        self.annotation.set_n_vars(n)
-    }
-
-    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
-        self.annotation.obs_ix(names)
-    }
-    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
-        self.annotation.var_ix(names)
-    }
-    fn obs_names(&self) -> DataFrameIndex {
-        self.annotation.obs_names()
-    }
-    fn var_names(&self) -> DataFrameIndex {
-        self.annotation.var_names()
-    }
-    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.annotation.set_obs_names(index)
-    }
-    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
-        self.annotation.set_var_names(index)
-    }
-
-    fn read_obs(&self) -> Result<DataFrame> {
-        self.annotation.read_obs()
-    }
-    fn read_var(&self) -> Result<DataFrame> {
-        self.annotation.read_var()
-    }
-    fn set_obs(&self, obs: DataFrame) -> Result<()> {
-        self.annotation.set_obs(obs)
-    }
-    fn set_var(&self, var: DataFrame) -> Result<()> {
-        self.annotation.set_var(var)
-    }
-    fn del_obs(&self) -> Result<()> {
-        self.annotation.del_obs()
-    }
-    fn del_var(&self) -> Result<()> {
-        self.annotation.del_var()
-    }
-
-    fn uns(&self) -> Self::ElemCollectionRef<'_> {
-        self.annotation.uns()
-    }
-    fn obsm(&self) -> Self::AxisArraysRef<'_> {
-        self.annotation.obsm()
-    }
-    fn obsp(&self) -> Self::AxisArraysRef<'_> {
-        self.annotation.obsp()
-    }
-    fn varm(&self) -> Self::AxisArraysRef<'_> {
-        self.annotation.varm()
-    }
-    fn varp(&self) -> Self::AxisArraysRef<'_> {
-        self.annotation.varp()
-    }
-    fn layers(&self) -> Self::AxisArraysRef<'_> {
-        self.annotation.layers()
-    }
-
-    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
-        self.annotation.set_uns(data)
-    }
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
-        self.annotation.set_obsm(data)
-    }
-    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
-        self.annotation.set_obsp(data)
-    }
-    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
-        self.annotation.set_varm(data)
-    }
-    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
-        self.annotation.set_varp(data)
-    }
-
-    fn del_uns(&self) -> Result<()> {
-        self.annotation.del_uns()
-    }
-    fn del_obsm(&self) -> Result<()> {
-        self.annotation.del_obsm()
-    }
-    fn del_obsp(&self) -> Result<()> {
-        self.annotation.del_obsp()
-    }
-    fn del_varm(&self) -> Result<()> {
-        self.annotation.del_varm()
-    }
-    fn del_varp(&self) -> Result<()> {
-        self.annotation.del_varp()
-    }
-    fn del_layers(&self) -> Result<()> {
-        self.annotation.del_layers()
-    }
-}
-
 pub struct StackedAnnData<B: Backend> {
     index: VecVecIndex,
     elems: IndexMap<String, AnnData<B>>,
-    n_obs: usize,
-    n_vars: usize,
-    x: StackedArrayElem<B>,
-    obs: StackedDataFrame<B>,
-    obsm: StackedAxisArrays<B>,
+    pub(crate) n_obs: usize,
+    pub(crate) n_vars: usize,
+    pub(crate) x: StackedArrayElem<B>,
+    pub(crate) obs: StackedDataFrame<B>,
+    pub(crate) obsm: StackedAxisArrays<B>,
 }
 
 impl<B: Backend> std::fmt::Display for StackedAnnData<B> {

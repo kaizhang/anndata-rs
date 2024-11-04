@@ -124,20 +124,27 @@ pub enum DynArray {
 }
 
 macro_rules! impl_dynarray_into_array{
-    ($($from_type:ident, $to_type:ident),*) => {
+    ($($variant:ident, $scalar_ty:ident),*) => {
         $(
             paste! {
                 /// Extract the concrete array type from the dynamic array.
                 /// This function does not perform any conversion, it only checks if 
                 /// the underlying data type is exactly the same as the target type.
                 /// To perform conversion, use the `.try_into()` method.
-                pub fn [<into_ $to_type:lower>]<D: Dimension>(self) -> Result<Array<$to_type, D>> {
+                pub fn [<into_ $scalar_ty:lower>]<D: Dimension>(self) -> Result<Array<$scalar_ty, D>> {
                     match self {
-                        DynArray::$from_type(x) => Ok(x.into_dimensionality()?),
-                        v => bail!("Cannot convert {} to {}", v.data_type(), stringify!($to_type)),
+                        DynArray::$variant(x) => Ok(x.into_dimensionality()?),
+                        v => bail!("Cannot convert {} to {}", v.data_type(), stringify!($scalar_ty)),
                     }
                 }
-            }
+
+                pub fn [<as_ $scalar_ty:lower>](&self) -> Result<&ArrayD<$scalar_ty>> {
+                    match self {
+                        DynArray::$variant(x) => Ok(x),
+                        v => bail!("Cannot convert {} to {}", v.data_type(), stringify!($scalar_ty)),
+                    }
+                }
+           }
         )*
     };
 }
@@ -164,11 +171,11 @@ impl DynArray {
 }
 
 macro_rules! impl_to_dynarray{
-    ($($from_type:ty, $to_type:ident),*) => {
+    ($($scalar_type:ty, $ident:ident),*) => {
         $(
-            impl<D: Dimension> From<Array<$from_type, D>> for DynArray {
-                fn from(data: Array<$from_type, D>) -> Self {
-                    DynArray::$to_type(data.into_dyn())
+            impl<D: Dimension> From<Array<$scalar_type, D>> for DynArray {
+                fn from(data: Array<$scalar_type, D>) -> Self {
+                    DynArray::$ident(data.into_dyn())
                 }
             }
         )*

@@ -244,12 +244,10 @@ impl IntoPython for DynArray {
             DynArray::U16(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::U32(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::U64(arr) => arr.into_pyarray_bound(py).to_object(py),
-            DynArray::Usize(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::F32(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::F64(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::Bool(arr) => arr.into_pyarray_bound(py).to_object(py),
             DynArray::String(_) => todo!(),
-            DynArray::Categorical(_) => todo!(),
         };
         Ok(res)
     }
@@ -284,7 +282,6 @@ impl IntoPython for DynCsrMatrix {
             DynCsrMatrix::U16(csr) => helper(csr, py),
             DynCsrMatrix::U32(csr) => helper(csr, py),
             DynCsrMatrix::U64(csr) => helper(csr, py),
-            DynCsrMatrix::Usize(csr) => helper(csr, py),
             DynCsrMatrix::F32(csr) => helper(csr, py),
             DynCsrMatrix::F64(csr) => helper(csr, py),
             DynCsrMatrix::Bool(csr) => helper(csr, py),
@@ -322,7 +319,6 @@ impl IntoPython for DynCsrNonCanonical {
             DynCsrNonCanonical::U16(csr) => helper(csr, py),
             DynCsrNonCanonical::U32(csr) => helper(csr, py),
             DynCsrNonCanonical::U64(csr) => helper(csr, py),
-            DynCsrNonCanonical::Usize(csr) => helper(csr, py),
             DynCsrNonCanonical::F32(csr) => helper(csr, py),
             DynCsrNonCanonical::F64(csr) => helper(csr, py),
             DynCsrNonCanonical::Bool(csr) => helper(csr, py),
@@ -361,7 +357,6 @@ impl IntoPython for DynCscMatrix {
             DynCscMatrix::U16(csc) => helper(csc, py),
             DynCscMatrix::U32(csc) => helper(csc, py),
             DynCscMatrix::U64(csc) => helper(csc, py),
-            DynCscMatrix::Usize(csc) => helper(csc, py),
             DynCscMatrix::F32(csc) => helper(csc, py),
             DynCscMatrix::F64(csc) => helper(csc, py),
             DynCscMatrix::Bool(csc) => helper(csc, py),

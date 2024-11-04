@@ -17,9 +17,9 @@ jobs:
     - name: Install dependency
       run: |
         sudo pip install --upgrade pip
-        pip install --user Pygments==2.6.1 sphinx==4.4.0 pandoc nbsphinx \
+        pip install --user Pygments sphinx==8.* pandoc nbsphinx \
           sphinx-autodoc-typehints sphinx_rtd_theme \
-          markupsafe==2.0.1
+          markupsafe
 
     - name: Build and test package
       run: |
@@ -32,13 +32,18 @@ jobs:
     - name: benchmark
       run: cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
 
+    - uses: actions/upload-artifact@v4
+      with:
+        name: benchmark
+        path: ${GITHUB_WORKSPACE}/target/criterion
+
     - name: Build doc
       run: |
         cd ${GITHUB_WORKSPACE}
         sphinx-build ${GITHUB_WORKSPACE}/python/docs _build/html
 
     - name: Upload doc
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: documentation
         path: ./_build/html

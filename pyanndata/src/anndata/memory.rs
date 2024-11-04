@@ -129,7 +129,8 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         Ok(())
     }
 
-    fn set_x<D: WriteArrayData + Into<ArrayData> + HasShape>(&self, data: D) -> Result<()> {
+    fn set_x<D: Into<ArrayData>>(&self, data: D) -> Result<()> {
+        let data = data.into();
         let py = self.py();
         let shape = data.shape();
         self.set_n_obs(shape[0])?;
@@ -340,15 +341,14 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 }
 
-pub struct PyArrayIterator<T> {
+pub struct PyArrayIterator {
     array: PyArrayData,
     chunk_size: usize,
     total_rows: usize,
     current_row: usize,
-    phantom: std::marker::PhantomData<T>,
 }
 
-impl<T> PyArrayIterator<T> {
+impl PyArrayIterator {
     pub(crate) fn new(array: PyArrayData, chunk_size: usize) -> PyResult<Self> {
         let total_rows = array.shape()[0];
         Ok(Self {
@@ -356,17 +356,13 @@ impl<T> PyArrayIterator<T> {
             chunk_size,
             total_rows,
             current_row: 0,
-            phantom: std::marker::PhantomData,
         })
     }
 }
 
-impl<T> Iterator for PyArrayIterator<T>
-where
-    T: TryFrom<ArrayData>,
-    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+impl Iterator for PyArrayIterator
 {
-    type Item = (T, usize, usize);
+    type Item = (ArrayData, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_row >= self.total_rows {
@@ -377,15 +373,12 @@ where
             self.current_row = j;
             let slice = SelectInfoElem::from(i..j);
             let data = self.array.select_axis(0, slice);
-            Some((T::try_from(data).map_err(Into::into).unwrap(), i, j))
+            Some((data, i, j))
         }
     }
 }
 
-impl<T> ExactSizeIterator for PyArrayIterator<T>
-where
-    T: TryFrom<ArrayData>,
-    <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+impl ExactSizeIterator for PyArrayIterator
 {
     fn len(&self) -> usize {
         let n = self.total_rows / self.chunk_size;
@@ -406,7 +399,7 @@ impl ElemCollectionOp for ElemCollection<'_> {
 
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
         where
-            D: Into<Data> + TryFrom<Data> + Clone,
+            D: TryFrom<Data>,
             <D as TryFrom<Data>>::Error: Into<anyhow::Error>
     {
         self.0.call_method1("__getitem__", (key,)).ok().map(|x| {
@@ -455,12 +448,13 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
         self.arrays.call_method1("__getitem__", (key,)).ok().map(ArrayElem)
     }
 
-    fn add<D: HasShape + Into<ArrayData>>(
+    fn add<D: Into<ArrayData>>(
             &self,
             key: &str,
             data: D,
         ) -> Result<()>
     {
+        let data = data.into();
         let py = self.arrays.py();
         let shape = data.shape();
         if self.axis == 0 {
@@ -471,7 +465,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             self.adata.set_n_obs(shape[0])?;
             self.adata.set_n_vars(shape[1])?;
         }
-        let d = PyArrayData::from(data.into()).into_py(py);
+        let d = PyArrayData::from(data).into_py(py);
         let new_d = if isinstance_of_polars(d.bind(py))? {
             d.call_method0(py, "to_pandas")?
         } else {
@@ -512,10 +506,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
 pub struct ArrayElem<'a>(Bound<'a, PyAny>);
 
 impl ArrayElemOp for ArrayElem<'_> {
-    type ArrayIter<T> = PyArrayIterator<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>;
+    type ArrayIter = PyArrayIterator;
 
     fn shape(&self) -> Option<Shape> {
         let shape: Vec<usize> = self.0.getattr("shape").unwrap().extract().unwrap();
@@ -524,7 +515,7 @@ impl ArrayElemOp for ArrayElem<'_> {
 
     fn get<D>(&self) -> Result<Option<D>>
     where
-        D: ReadData + Into<ArrayData> + TryFrom<ArrayData> + Clone,
+        D: TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         let data: Option<ArrayData> = self.0.extract::<Option<PyArrayData>>()?.map(Into::into);
@@ -533,20 +524,21 @@ impl ArrayElemOp for ArrayElem<'_> {
 
     fn slice<D, S>(&self, slice: S) -> Result<Option<D>>
     where
-        D: ReadArrayData + Into<ArrayData> + TryFrom<ArrayData> + ArrayOp + Clone,
+        D: TryFrom<ArrayData>,
         S: AsRef<[SelectInfoElem]>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>
     {
-        self.get::<D>().map(|mat| mat.map(|x| x.select(slice.as_ref())))
+        if let Some(data) = self.get::<ArrayData>()? {
+            data.select(slice.as_ref()).try_into().map_err(Into::into).map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
-    fn iter<T>(
+    fn iter(
         &self,
         chunk_size: usize,
-    ) -> Self::ArrayIter<T>
-    where
-        T: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
-        <T as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    ) -> Self::ArrayIter
     {
         let array = self.0.extract::<PyArrayData>().unwrap();
         PyArrayIterator::new(array, chunk_size).unwrap()

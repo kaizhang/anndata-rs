@@ -9,7 +9,7 @@ pub use mapping::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 
-use ::ndarray::{Array, RemoveAxis};
+use ndarray::{Array, RemoveAxis};
 use anyhow::{bail, Ok, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;

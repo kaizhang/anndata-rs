@@ -4,7 +4,7 @@ use crate::anndata::PyAnnData;
 
 use anndata::{self, ArrayElemOp, ArrayOp, AxisArraysOp, Data, ElemCollectionOp};
 use anndata::container::Slot;
-use anndata::data::{DataFrameIndex, SelectInfoElem, BoundedSelectInfoElem};
+use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
 use anyhow::{bail, Result};
@@ -817,8 +817,8 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
             }
         } else {
             let adata = PyAnnData::new(py)?;
-            let obs_slice = BoundedSelectInfoElem::new(&slice[0], inner.n_obs());
-            let var_slice = BoundedSelectInfoElem::new(&slice[1], inner.n_vars());
+            let obs_slice = SelectInfoElemBounds::new(&slice[0], inner.n_obs());
+            let var_slice = SelectInfoElemBounds::new(&slice[1], inner.n_vars());
             let n_obs = obs_slice.len();
             let n_vars = var_slice.len();
             adata.set_n_obs(n_obs)?;
