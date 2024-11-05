@@ -669,11 +669,7 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
         self.data.get(key).cloned()
     }
 
-    fn add<D: Into<ArrayData>>(
-        &self,
-        _key: &str,
-        _data: D,
-    ) -> Result<()> {
+    fn add<D: Into<ArrayData>>(&self, _key: &str, _data: D) -> Result<()> {
         todo!()
     }
 

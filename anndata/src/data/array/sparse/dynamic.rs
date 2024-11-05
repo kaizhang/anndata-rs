@@ -1,11 +1,12 @@
 use crate::backend::*;
+use crate::data::ArrayConvert;
 use crate::data::{
     array::DynScalar,
     data_traits::*,
     slice::{SelectInfoElem, Shape},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use nalgebra_sparse::csc::CscMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
 use ndarray::Ix1;
@@ -27,91 +28,35 @@ pub enum DynCsrMatrix {
     String(CsrMatrix<String>),
 }
 
-macro_rules! impl_into_dyn_csr {
-    ($from_type:ty, $to_type:ident) => {
-        impl From<CsrMatrix<$from_type>> for DynCsrMatrix {
-            fn from(data: CsrMatrix<$from_type>) -> Self {
-                DynCsrMatrix::$to_type(data)
-            }
-        }
-        impl TryFrom<DynCsrMatrix> for CsrMatrix<$from_type> {
-            type Error = anyhow::Error;
-            fn try_from(data: DynCsrMatrix) -> Result<Self> {
-                match data {
-                    DynCsrMatrix::$to_type(data) => Ok(data),
-                    _ => bail!(
-                        "Cannot convert {:?} to {} CsrMatrix",
-                        data.data_type(),
-                        stringify!($from_type)
-                    ),
+macro_rules! impl_dyncsr_traits {
+    ($($scalar_ty:ty, $variant:ident),*) => {
+        $(
+            impl From<CsrMatrix<$scalar_ty>> for DynCsrMatrix {
+                fn from(data: CsrMatrix<$scalar_ty>) -> Self {
+                    DynCsrMatrix::$variant(data)
                 }
             }
-        }
+            impl TryFrom<DynCsrMatrix> for CsrMatrix<$scalar_ty> {
+                type Error = anyhow::Error;
+                fn try_from(data: DynCsrMatrix) -> Result<Self> {
+                    match data {
+                        DynCsrMatrix::$variant(data) => Ok(data),
+                        _ => bail!(
+                            "Cannot convert {} to {} CsrMatrix",
+                            data.data_type(),
+                            stringify!($scalar_ty)
+                        ),
+                    }
+                }
+            }
+        )*
     };
 }
 
-impl From<CsrMatrix<u32>> for DynCsrMatrix {
-    fn from(data: CsrMatrix<u32>) -> Self {
-        DynCsrMatrix::U32(data)
-    }
-}
-
-impl TryFrom<DynCsrMatrix> for CsrMatrix<u32> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCsrMatrix) -> Result<Self> {
-        match data {
-            DynCsrMatrix::U32(data) => Ok(data),
-            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
-            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U64(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::F32(_) => bail!("Cannot convert f32 to u32"),
-            DynCsrMatrix::F64(_) => bail!("Cannot convert f64 to u32"),
-            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
-}
-
-impl From<CsrMatrix<f64>> for DynCsrMatrix {
-    fn from(data: CsrMatrix<f64>) -> Self {
-        DynCsrMatrix::F64(data)
-    }
-}
-
-impl TryFrom<DynCsrMatrix> for CsrMatrix<f64> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCsrMatrix) -> Result<Self> {
-        match data {
-            DynCsrMatrix::F64(data) => Ok(data),
-            DynCsrMatrix::I8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::I64(data) => Ok(from_i64_csr(data)?),
-            DynCsrMatrix::U8(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U16(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::U64(_) => bail!("Cannot convert u64 to f64"),
-            DynCsrMatrix::F32(data) => Ok(cast_csr(data)?),
-            DynCsrMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCsrMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
-}
-
-impl_into_dyn_csr!(i8, I8);
-impl_into_dyn_csr!(i16, I16);
-impl_into_dyn_csr!(i32, I32);
-impl_into_dyn_csr!(i64, I64);
-impl_into_dyn_csr!(u8, U8);
-impl_into_dyn_csr!(u16, U16);
-impl_into_dyn_csr!(u64, U64);
-impl_into_dyn_csr!(f32, F32);
-impl_into_dyn_csr!(bool, Bool);
-impl_into_dyn_csr!(String, String);
+impl_dyncsr_traits!(
+    i8, I8, i16, I16, i32, I32, i64, I64, u8, U8, u16, U16, u32, U32, u64, U64, f32, F32, f64, F64,
+    bool, Bool, String, String
+);
 
 impl WriteData for DynCsrMatrix {
     fn data_type(&self) -> DataType {
@@ -136,7 +81,7 @@ impl ReadData for DynCsrMatrix {
                     };
                 }
                 crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
-            },
+            }
             _ => bail!("cannot read csr matrix from non-group container"),
         }
     }
@@ -237,7 +182,6 @@ impl ReadArrayData for DynCsrMatrix {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynCscMatrix {
     I8(CscMatrix<i8>),
@@ -254,91 +198,35 @@ pub enum DynCscMatrix {
     String(CscMatrix<String>),
 }
 
-macro_rules! impl_into_dyn_csc {
-    ($from_type:ty, $to_type:ident) => {
-        impl From<CscMatrix<$from_type>> for DynCscMatrix {
-            fn from(data: CscMatrix<$from_type>) -> Self {
-                DynCscMatrix::$to_type(data)
-            }
-        }
-        impl TryFrom<DynCscMatrix> for CscMatrix<$from_type> {
-            type Error = anyhow::Error;
-            fn try_from(data: DynCscMatrix) -> Result<Self> {
-                match data {
-                    DynCscMatrix::$to_type(data) => Ok(data),
-                    _ => bail!(
-                        "Cannot convert {:?} to {} CscMatrix",
-                        data.data_type(),
-                        stringify!($from_type)
-                    ),
+macro_rules! impl_dyncsc_traits {
+    ($($from_type:ty, $to_type:ident),*) => {
+        $(
+            impl From<CscMatrix<$from_type>> for DynCscMatrix {
+                fn from(data: CscMatrix<$from_type>) -> Self {
+                    DynCscMatrix::$to_type(data)
                 }
             }
-        }
+            impl TryFrom<DynCscMatrix> for CscMatrix<$from_type> {
+                type Error = anyhow::Error;
+                fn try_from(data: DynCscMatrix) -> Result<Self> {
+                    match data {
+                        DynCscMatrix::$to_type(data) => Ok(data),
+                        _ => bail!(
+                            "Cannot convert {:?} to {} CscMatrix",
+                            data.data_type(),
+                            stringify!($from_type)
+                        ),
+                    }
+                }
+            }
+        )*
     };
 }
 
-impl From<CscMatrix<u32>> for DynCscMatrix {
-    fn from(data: CscMatrix<u32>) -> Self {
-        DynCscMatrix::U32(data)
-    }
-}
-
-impl TryFrom<DynCscMatrix> for CscMatrix<u32> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCscMatrix) -> Result<Self> {
-        match data {
-            DynCscMatrix::U32(data) => Ok(data),
-            DynCscMatrix::I8(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I16(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I32(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I64(data) => Ok(from_i64_csc(data)?),
-            DynCscMatrix::U8(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::U16(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::U64(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::F32(_) => bail!("Cannot convert f32 to u32"),
-            DynCscMatrix::F64(_) => bail!("Cannot convert f64 to u32"),
-            DynCscMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCscMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
-}
-
-impl From<CscMatrix<f64>> for DynCscMatrix {
-    fn from(data: CscMatrix<f64>) -> Self {
-        DynCscMatrix::F64(data)
-    }
-}
-
-impl TryFrom<DynCscMatrix> for CscMatrix<f64> {
-    type Error = anyhow::Error;
-    fn try_from(data: DynCscMatrix) -> Result<Self> {
-        match data {
-            DynCscMatrix::F64(data) => Ok(data),
-            DynCscMatrix::I8(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I16(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I32(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::I64(data) => Ok(from_i64_csc(data)?),
-            DynCscMatrix::U8(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::U16(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::U32(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::U64(_) => bail!("Cannot convert u64 to f64"),
-            DynCscMatrix::F32(data) => Ok(cast_csc(data)?),
-            DynCscMatrix::Bool(_) => bail!("Cannot convert bool to f64"),
-            DynCscMatrix::String(_) => bail!("Cannot convert string to f64"),
-        }
-    }
-}
-
-impl_into_dyn_csc!(i8, I8);
-impl_into_dyn_csc!(i16, I16);
-impl_into_dyn_csc!(i32, I32);
-impl_into_dyn_csc!(i64, I64);
-impl_into_dyn_csc!(u8, U8);
-impl_into_dyn_csc!(u16, U16);
-impl_into_dyn_csc!(u64, U64);
-impl_into_dyn_csc!(f32, F32);
-impl_into_dyn_csc!(bool, Bool);
-impl_into_dyn_csc!(String, String);
+impl_dyncsc_traits!(
+    i8, I8, i16, I16, i32, I32, i64, I64, u8, U8, u16, U16, u32, U32, u64, U64, f32, F32, f64, F64,
+    bool, Bool, String, String
+);
 
 impl WriteData for DynCscMatrix {
     fn data_type(&self) -> DataType {
@@ -364,7 +252,7 @@ impl ReadData for DynCscMatrix {
                     };
                 }
                 crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
-            },
+            }
             _ => bail!("cannot read csc matrix from non-group container"),
         }
     }
@@ -401,7 +289,11 @@ impl ArrayOp for DynCscMatrix {
                 DynCscMatrix::$variant(CscMatrix::vstack(iter.map(|x| x.try_into().unwrap()))?)
             };
         }
-        Ok(crate::macros::dyn_map!(iter.peek().unwrap(), DynCscMatrix, fun))
+        Ok(crate::macros::dyn_map!(
+            iter.peek().unwrap(),
+            DynCscMatrix,
+            fun
+        ))
     }
 }
 
@@ -435,64 +327,100 @@ impl ReadArrayData for DynCscMatrix {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Helper functions
+// ArrayConvert implementations
 ////////////////////////////////////////////////////////////////////////////////
 
-fn cast_csr<T, U>(csr: CsrMatrix<T>) -> Result<CsrMatrix<U>>
+macro_rules! impl_arrayconvert {
+    ($($ty:ident, $fun:expr),*) => {
+        $(paste::paste! {
+
+            impl ArrayConvert<$ty<u32>> for [<Dyn $ty>] {
+                fn try_convert(self) -> Result<$ty<u32>> {
+                    match self {
+                        [<Dyn $ty>]::U32(data) => Ok(data),
+                        [<Dyn $ty>]::I8(data) => $fun(data, |x| Ok(x.try_into()?)),
+                        [<Dyn $ty>]::I16(data) => $fun(data, |x| Ok(x.try_into()?)),
+                        [<Dyn $ty>]::I32(data) => $fun(data, |x| Ok(x.try_into()?)),
+                        [<Dyn $ty>]::I64(data) => $fun(data, |x| Ok(x.try_into()?)),
+                        [<Dyn $ty>]::U8(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U16(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U64(data) => $fun(data, |x| Ok(x.try_into()?)),
+                        [<Dyn $ty>]::Bool(data) => $fun(data, |x| Ok(x.into())),
+                        v => bail!("Cannot convert {} to {}<u32>", v.data_type(), stringify!($ty)),
+                    }
+                }
+            }
+
+            impl ArrayConvert<$ty<f32>> for [<Dyn $ty>] {
+                fn try_convert(self) -> Result<$ty<f32>> {
+                    match self {
+                        [<Dyn $ty>]::F32(data) => Ok(data),
+                        [<Dyn $ty>]::I8(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::I16(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::I32(data) => $fun(data, |x| Ok(f32::from_i32(x).unwrap())),
+                        [<Dyn $ty>]::I64(data) => $fun(data, |x| Ok(f32::from_i64(x).unwrap())),
+                        [<Dyn $ty>]::U8(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U16(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U32(data) => $fun(data, |x| Ok(f32::from_u32(x).unwrap())),
+                        [<Dyn $ty>]::U64(data) => $fun(data, |x| Ok(f32::from_u64(x).unwrap())),
+                        [<Dyn $ty>]::F64(data) => $fun(data, |x| Ok(f32::from_f64(x).unwrap())),
+                        [<Dyn $ty>]::Bool(data) => $fun(data, |x| Ok(x.into())),
+                        v => bail!("Cannot convert {} to {}<f32>", v.data_type(), stringify!($ty)),
+                    }
+                }
+            }
+
+            impl ArrayConvert<$ty<f64>> for [<Dyn $ty>] {
+                fn try_convert(self) -> Result<$ty<f64>> {
+                    match self {
+                        [<Dyn $ty>]::F64(data) => Ok(data),
+                        [<Dyn $ty>]::I8(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::I16(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::I32(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::I64(data) => $fun(data, |x| Ok(f64::from_i64(x).unwrap())),
+                        [<Dyn $ty>]::U8(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U16(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U32(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::U64(data) => $fun(data, |x| Ok(f64::from_u64(x).unwrap())),
+                        [<Dyn $ty>]::F32(data) => $fun(data, |x| Ok(x.into())),
+                        [<Dyn $ty>]::Bool(data) => $fun(data, |x| Ok(x.into())),
+                        v => bail!("Cannot convert {} to {}<f64>", v.data_type(), stringify!($ty)),
+                    }
+                }
+            }
+
+        })*
+    };
+}
+
+impl_arrayconvert!(CsrMatrix, convert_csr_with, CscMatrix, convert_csc_with);
+
+fn convert_csr_with<T, U, F>(csr: CsrMatrix<T>, f: F) -> Result<CsrMatrix<U>>
 where
-    T: TryInto<U>,
-    <T as TryInto<U>>::Error: std::error::Error + Sync + Send + 'static,
+    F: Fn(T) -> Result<U>,
 {
     let (pattern, values) = csr.into_pattern_and_values();
     let out = CsrMatrix::try_from_pattern_and_values(
         pattern,
         values
             .into_iter()
-            .map(|x| x.try_into())
+            .map(|x| f(x))
             .collect::<Result<_, _>>()?,
-    )
-    .unwrap();
+    ).unwrap();
     Ok(out)
 }
 
-fn from_i64_csr<U: FromPrimitive>(csr: CsrMatrix<i64>) -> Result<CsrMatrix<U>> {
-    let (pattern, values) = csr.into_pattern_and_values();
-    let out = CsrMatrix::try_from_pattern_and_values(
-        pattern,
-        values
-            .into_iter()
-            .map(|x| U::from_i64(x).context("cannot convert from i64"))
-            .collect::<Result<_>>()?,
-    )
-    .unwrap();
-    Ok(out)
-}
-
-fn cast_csc<T, U>(csc: CscMatrix<T>) -> Result<CscMatrix<U>>
+fn convert_csc_with<T, U, F>(csc: CscMatrix<T>, f: F) -> Result<CscMatrix<U>>
 where
-    T: TryInto<U>,
-    <T as TryInto<U>>::Error: std::error::Error + Sync + Send + 'static,
+    F: Fn(T) -> Result<U>,
 {
     let (pattern, values) = csc.into_pattern_and_values();
     let out = CscMatrix::try_from_pattern_and_values(
         pattern,
         values
             .into_iter()
-            .map(|x| x.try_into())
+            .map(|x| f(x))
             .collect::<Result<_, _>>()?,
-    )
-    .unwrap();
-    Ok(out)
-}
-
-fn from_i64_csc<U: FromPrimitive>(csc: CscMatrix<i64>) -> Result<CscMatrix<U>> {
-    let (pattern, values) = csc.into_pattern_and_values();
-    let out = CscMatrix::try_from_pattern_and_values(
-        pattern,
-        values
-            .into_iter()
-            .map(|x| U::from_i64(x).context("cannot convert from i64"))
-            .collect::<Result<_>>()?,
     )
     .unwrap();
     Ok(out)

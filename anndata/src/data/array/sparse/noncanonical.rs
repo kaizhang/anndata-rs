@@ -1,8 +1,8 @@
 use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
-    data_traits::*,
     array::DynScalar,
+    data_traits::*,
     slice::{SelectInfoElem, Shape},
     SelectInfoBounds, SelectInfoElemBounds,
 };
@@ -86,143 +86,71 @@ impl DynCsrNonCanonical {
     }
 }
 
-macro_rules! impl_into_dyn_csr {
-    ($from_type:ty, $to_type:ident) => {
-        impl From<CsrNonCanonical<$from_type>> for DynCsrNonCanonical {
-            fn from(data: CsrNonCanonical<$from_type>) -> Self {
-                DynCsrNonCanonical::$to_type(data)
-            }
-        }
-        impl TryFrom<DynCsrNonCanonical> for CsrNonCanonical<$from_type> {
-            type Error = anyhow::Error;
-            fn try_from(data: DynCsrNonCanonical) -> Result<Self> {
-                match data {
-                    DynCsrNonCanonical::$to_type(data) => Ok(data),
-                    _ => bail!(
-                        "Cannot convert {:?} to {} CsrNonCanonical",
-                        data.data_type(),
-                        stringify!($from_type)
-                    ),
+macro_rules! impl_noncanonicalcsr_traits {
+    ($($from_type:ty, $to_type:ident),*) => {
+        $(
+            impl From<CsrNonCanonical<$from_type>> for DynCsrNonCanonical {
+                fn from(data: CsrNonCanonical<$from_type>) -> Self {
+                    DynCsrNonCanonical::$to_type(data)
                 }
             }
-        }
+            impl TryFrom<DynCsrNonCanonical> for CsrNonCanonical<$from_type> {
+                type Error = anyhow::Error;
+                fn try_from(data: DynCsrNonCanonical) -> Result<Self> {
+                    match data {
+                        DynCsrNonCanonical::$to_type(data) => Ok(data),
+                        _ => bail!(
+                            "Cannot convert {:?} to {} CsrNonCanonical",
+                            data.data_type(),
+                            stringify!($from_type)
+                        ),
+                    }
+                }
+            }
+        )*
     };
 }
 
-impl_into_dyn_csr!(i8, I8);
-impl_into_dyn_csr!(i16, I16);
-impl_into_dyn_csr!(i32, I32);
-impl_into_dyn_csr!(i64, I64);
-impl_into_dyn_csr!(u8, U8);
-impl_into_dyn_csr!(u16, U16);
-impl_into_dyn_csr!(u32, U32);
-impl_into_dyn_csr!(u64, U64);
-impl_into_dyn_csr!(f32, F32);
-impl_into_dyn_csr!(f64, F64);
-impl_into_dyn_csr!(bool, Bool);
-impl_into_dyn_csr!(String, String);
-
-macro_rules! impl_dyn_csr_matrix {
-    ($self:expr, $fun:ident) => {
-        match $self {
-            DynCsrNonCanonical::I8(data) => $fun!(data),
-            DynCsrNonCanonical::I16(data) => $fun!(data),
-            DynCsrNonCanonical::I32(data) => $fun!(data),
-            DynCsrNonCanonical::I64(data) => $fun!(data),
-            DynCsrNonCanonical::U8(data) => $fun!(data),
-            DynCsrNonCanonical::U16(data) => $fun!(data),
-            DynCsrNonCanonical::U32(data) => $fun!(data),
-            DynCsrNonCanonical::U64(data) => $fun!(data),
-            DynCsrNonCanonical::F32(data) => $fun!(data),
-            DynCsrNonCanonical::F64(data) => $fun!(data),
-            DynCsrNonCanonical::Bool(data) => $fun!(data),
-            DynCsrNonCanonical::String(data) => $fun!(data),
-        }
-    };
-}
+impl_noncanonicalcsr_traits!(
+    i8, I8, i16, I16, i32, I32, i64, I64, u8, U8, u16, U16, u32, U32, u64, U64, f32, F32, f64, F64,
+    bool, Bool, String, String
+);
 
 impl From<DynCsrMatrix> for DynCsrNonCanonical {
     fn from(value: DynCsrMatrix) -> Self {
-        match value {
-            DynCsrMatrix::I8(data) => DynCsrNonCanonical::I8(data.into()),
-            DynCsrMatrix::I16(data) => DynCsrNonCanonical::I16(data.into()),
-            DynCsrMatrix::I32(data) => DynCsrNonCanonical::I32(data.into()),
-            DynCsrMatrix::I64(data) => DynCsrNonCanonical::I64(data.into()),
-            DynCsrMatrix::U8(data) => DynCsrNonCanonical::U8(data.into()),
-            DynCsrMatrix::U16(data) => DynCsrNonCanonical::U16(data.into()),
-            DynCsrMatrix::U32(data) => DynCsrNonCanonical::U32(data.into()),
-            DynCsrMatrix::U64(data) => DynCsrNonCanonical::U64(data.into()),
-            DynCsrMatrix::F32(data) => DynCsrNonCanonical::F32(data.into()),
-            DynCsrMatrix::F64(data) => DynCsrNonCanonical::F64(data.into()),
-            DynCsrMatrix::Bool(data) => DynCsrNonCanonical::Bool(data.into()),
-            DynCsrMatrix::String(data) => DynCsrNonCanonical::String(data.into()),
+        macro_rules! fun {
+            ($variant:ident, $data:expr) => {
+                DynCsrNonCanonical::$variant($data.into())
+            };
         }
+        crate::macros::dyn_map!(value, DynCsrMatrix, fun)
     }
 }
 
 impl WriteData for DynCsrNonCanonical {
     fn data_type(&self) -> DataType {
-        macro_rules! data_type {
-            ($data:expr) => {
-                $data.data_type()
-            };
-        }
-        impl_dyn_csr_matrix!(self, data_type)
+        crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, data_type)
     }
+
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-        macro_rules! write_data {
-            ($data:expr) => {
-                $data.write(location, name)
-            };
-        }
-        impl_dyn_csr_matrix!(self, write_data)
+        crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, write, location, name)
     }
 }
 
 impl ReadData for DynCsrNonCanonical {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
-            DataContainer::Group(group) => match group.open_dataset("data")?.dtype()? {
-                ScalarType::I8 => {
-                    CsrNonCanonical::<i8>::read(container).map(DynCsrNonCanonical::I8)
+            DataContainer::Group(group) => {
+                macro_rules! fun {
+                    ($variant:ident) => {
+                        CsrNonCanonical::read(container).map(DynCsrNonCanonical::$variant)
+                    };
                 }
-                ScalarType::I16 => {
-                    CsrNonCanonical::<i16>::read(container).map(DynCsrNonCanonical::I16)
-                }
-                ScalarType::I32 => {
-                    CsrNonCanonical::<i32>::read(container).map(DynCsrNonCanonical::I32)
-                }
-                ScalarType::I64 => {
-                    CsrNonCanonical::<i64>::read(container).map(DynCsrNonCanonical::I64)
-                }
-                ScalarType::U8 => {
-                    CsrNonCanonical::<u8>::read(container).map(DynCsrNonCanonical::U8)
-                }
-                ScalarType::U16 => {
-                    CsrNonCanonical::<u16>::read(container).map(DynCsrNonCanonical::U16)
-                }
-                ScalarType::U32 => {
-                    CsrNonCanonical::<u32>::read(container).map(DynCsrNonCanonical::U32)
-                }
-                ScalarType::U64 => {
-                    CsrNonCanonical::<u64>::read(container).map(DynCsrNonCanonical::U64)
-                }
-                ScalarType::F32 => {
-                    CsrNonCanonical::<f32>::read(container).map(DynCsrNonCanonical::F32)
-                }
-                ScalarType::F64 => {
-                    CsrNonCanonical::<f64>::read(container).map(DynCsrNonCanonical::F64)
-                }
-                ScalarType::Bool => {
-                    CsrNonCanonical::<bool>::read(container).map(DynCsrNonCanonical::Bool)
-                }
-                ScalarType::String => {
-                    CsrNonCanonical::<String>::read(container).map(DynCsrNonCanonical::String)
-                }
+                crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
             },
             _ => bail!("cannot read csr matrix from non-group container"),
         }
@@ -231,35 +159,25 @@ impl ReadData for DynCsrNonCanonical {
 
 impl HasShape for DynCsrNonCanonical {
     fn shape(&self) -> Shape {
-        macro_rules! shape {
-            ($data:expr) => {
-                $data.shape()
-            };
-        }
-        impl_dyn_csr_matrix!(self, shape)
+        crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, shape)
     }
 }
 
 impl ArrayOp for DynCsrNonCanonical {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        macro_rules! get {
-            ($data:expr) => {
-                $data.get(index)
-            };
-        }
-        impl_dyn_csr_matrix!(self, get)
+        crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, get, index)
     }
 
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
     {
-        macro_rules! select {
-            ($data:expr) => {
+        macro_rules! fun {
+            ($variant:ident, $data:expr) => {
                 $data.select(info).into()
             };
         }
-        impl_dyn_csr_matrix!(self, select)
+        crate::macros::dyn_map!(self, DynCsrNonCanonical, fun)
     }
 
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
@@ -324,44 +242,12 @@ impl ReadArrayData for DynCsrNonCanonical {
         S: AsRef<SelectInfoElem>,
     {
         if let DataType::CsrMatrix(ty) = container.encoding_type()? {
-            match ty {
-                ScalarType::I8 => {
-                    CsrNonCanonical::<i8>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::I16 => {
-                    CsrNonCanonical::<i16>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::I32 => {
-                    CsrNonCanonical::<i32>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::I64 => {
-                    CsrNonCanonical::<i64>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::U8 => {
-                    CsrNonCanonical::<u8>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::U16 => {
-                    CsrNonCanonical::<u16>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::U32 => {
-                    CsrNonCanonical::<u32>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::U64 => {
-                    CsrNonCanonical::<u64>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::F32 => {
-                    CsrNonCanonical::<f32>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::F64 => {
-                    CsrNonCanonical::<f64>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::Bool => {
-                    CsrNonCanonical::<bool>::read_select(container, info).map(Into::into)
-                }
-                ScalarType::String => {
-                    CsrNonCanonical::<String>::read_select(container, info).map(Into::into)
-                }
+            macro_rules! fun {
+                ($variant:ident) => {
+                    CsrNonCanonical::read_select(container, info).map(DynCsrNonCanonical::$variant)
+                };
             }
+            crate::macros::dyn_match!(ty, ScalarType, fun)
         } else {
             bail!("the container does not contain a csr matrix");
         }
@@ -755,7 +641,14 @@ impl<T: BackendData> WriteData for CsrNonCanonical<T> {
 
         group.new_str_attr("encoding-type", "csr_matrix")?;
         group.new_str_attr("encoding-version", "0.1.0")?;
-        group.new_array_attr("shape", &shape.as_ref().iter().map(|x| *x as u64).collect::<Array1<_>>())?;
+        group.new_array_attr(
+            "shape",
+            &shape
+                .as_ref()
+                .iter()
+                .map(|x| *x as u64)
+                .collect::<Array1<_>>(),
+        )?;
 
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
@@ -848,7 +741,11 @@ impl<T: BackendData> ReadData for CsrNonCanonical<T> {
             .into_raw_vec_and_offset()
             .0;
         Ok(Self::from_csr_data(
-            shape[0] as usize, shape[1] as usize, indptr, indices, data,
+            shape[0] as usize,
+            shape[1] as usize,
+            indptr,
+            indices,
+            data,
         ))
     }
 }

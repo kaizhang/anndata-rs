@@ -1,6 +1,6 @@
 mod dynamic;
 
-pub use dynamic::{DynScalar, DynArray, DynCowArray};
+pub use dynamic::{ArrayConvert, DynScalar, DynArray, DynCowArray};
 
 use crate::{
     backend::*,

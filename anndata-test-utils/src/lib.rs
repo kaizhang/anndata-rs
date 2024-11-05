@@ -2,7 +2,7 @@ mod common;
 pub use common::*;
 
 use anndata::{data::CsrNonCanonical, *};
-use data::DynArray;
+use data::ArrayConvert;
 use nalgebra_sparse::{CooMatrix, CsrMatrix};
 use ndarray::Array2;
 use proptest::prelude::*;
@@ -68,8 +68,8 @@ where
     let arr2 = Array2::<i32>::zeros((10, 20));
     assert!(adata.obsm().add("test", &arr2).is_err());
 
-    // Automatical data type casting
-    let _: Array2<f64> = adata.x().get::<DynArray>().unwrap().unwrap().try_into().expect("Automatical data type casting failed");
+    // Data type casting
+    let _: Array2<f64> = adata.x().get::<ArrayData>().unwrap().unwrap().try_convert().expect("data type casting failed");
 }
 
 pub fn test_noncanonical<F, T>(adata_gen: F)

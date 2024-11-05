@@ -7,7 +7,7 @@ pub mod utils;
 
 pub use chunks::ArrayChunk;
 pub use dataframe::DataFrameIndex;
-pub use dense::{CategoricalArray, DynArray, DynCowArray, DynScalar};
+pub use dense::{ArrayConvert, CategoricalArray, DynArray, DynCowArray, DynScalar};
 pub use slice::{SelectInfo, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape};
 pub use sparse::{CsrNonCanonical, DynCscMatrix, DynCsrMatrix, DynCsrNonCanonical};
 
@@ -118,13 +118,57 @@ impl TryFrom<ArrayData> for DataFrame {
     }
 }
 
+impl<T, D> TryFrom<ArrayData> for Array<T, D>
+where Array<T, D>: TryFrom<DynArray, Error = anyhow::Error>
+{
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        DynArray::try_from(value)?.try_into()
+    }
+}
+
+impl<T> TryFrom<ArrayData> for CsrMatrix<T>
+where CsrMatrix<T>: TryFrom<DynCsrMatrix, Error = anyhow::Error>
+{
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        DynCsrMatrix::try_from(value)?.try_into()
+    }
+}
+
+impl<T> TryFrom<ArrayData> for CscMatrix<T>
+where CscMatrix<T>: TryFrom<DynCscMatrix, Error = anyhow::Error>
+{
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        DynCscMatrix::try_from(value)?.try_into()
+    }
+}
+
+impl<T> TryFrom<ArrayData> for CsrNonCanonical<T>
+where CsrNonCanonical<T>: TryFrom<DynCsrNonCanonical, Error = anyhow::Error>
+{
+    type Error = anyhow::Error;
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+        DynCsrNonCanonical::try_from(value)?.try_into()
+    }
+}
+
+impl<T, D> ArrayConvert<Array<T, D>> for ArrayData
+where DynArray: ArrayConvert<Array<T, D>>
+{
+    fn try_convert(self) -> Result<Array<T, D>> {
+        DynArray::try_from(self)?.try_convert()
+    }
+}
+
 /// macro for implementing From trait for Data from a list of types
-macro_rules! impl_into_array_data {
+macro_rules! impl_arraydata_traits {
     ($($ty:ty),*) => {
         $(
             impl<D: RemoveAxis> From<Array<$ty, D>> for ArrayData {
                 fn from(data: Array<$ty, D>) -> Self {
-                    ArrayData::Array(data.into_dyn().into())
+                    ArrayData::Array(data.into())
                 }
             }
             impl From<CsrMatrix<$ty>> for ArrayData {
@@ -142,48 +186,11 @@ macro_rules! impl_into_array_data {
                     ArrayData::CscMatrix(data.into())
                 }
             }
-            impl<D: RemoveAxis> TryFrom<ArrayData> for Array<$ty, D> {
-                type Error = anyhow::Error;
-                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-                    match value {
-                        ArrayData::Array(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to {} Array", value.data_type(), stringify!($ty)),
-                    }
-                }
-            }
-            impl TryFrom<ArrayData> for CsrMatrix<$ty> {
-                type Error = anyhow::Error;
-                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-                    match value {
-                        ArrayData::CsrMatrix(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to {} CsrMatrix", value.data_type(), stringify!($ty)),
-                    }
-                }
-            }
-            impl TryFrom<ArrayData> for CsrNonCanonical<$ty> {
-                type Error = anyhow::Error;
-                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-                    match value {
-                        ArrayData::CsrNonCanonical(data) => data.try_into(),
-                        ArrayData::CsrMatrix(data) => DynCsrNonCanonical::from(data).try_into(),
-                        _ => bail!("Cannot convert {:?} to {} CsrNonCanonical", value.data_type(), stringify!($ty)),
-                    }
-                }
-            }
-            impl TryFrom<ArrayData> for CscMatrix<$ty> {
-                type Error = anyhow::Error;
-                fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-                    match value {
-                        ArrayData::CscMatrix(data) => data.try_into(),
-                        _ => bail!("Cannot convert {:?} to {} CsrMatrix", value.data_type(), stringify!($ty)),
-                    }
-                }
-            }
         )*
     };
 }
 
-impl_into_array_data!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
+impl_arraydata_traits!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
 
 impl WriteData for ArrayData {
     fn data_type(&self) -> DataType {
