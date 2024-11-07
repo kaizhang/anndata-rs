@@ -140,7 +140,7 @@ impl TryFrom<Data> for Mapping {
     }
 }
 
-impl WriteData for Data {
+impl Writable for Data {
     fn data_type(&self) -> DataType {
         match self {
             Data::ArrayData(data) => data.data_type(),
@@ -161,7 +161,7 @@ impl WriteData for Data {
     }
 }
 
-impl ReadData for Data {
+impl Readable for Data {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => {

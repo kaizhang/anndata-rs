@@ -7,14 +7,14 @@ use crate::data::{
 use anyhow::Result;
 
 /// Read data from a backend
-pub trait ReadData {
+pub trait Readable {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self>
     where
         Self: Sized;
 }
 
 /// Write data to a backend
-pub trait WriteData {
+pub trait Writable {
     fn data_type(&self) -> DataType;
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
@@ -31,9 +31,9 @@ pub trait WriteData {
     }
 }
 
-impl<T> WriteData for &T
+impl<T> Writable for &T
 where
-    T: WriteData,
+    T: Writable,
 {
     fn data_type(&self) -> DataType {
         (*self).data_type()
@@ -70,7 +70,7 @@ pub trait Indexable: HasShape {
     fn get(&self, index: &[usize]) -> Option<DynScalar>;
 }
 
-pub trait ArrayOp: HasShape {
+pub trait Selectable: HasShape {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>;
@@ -84,11 +84,13 @@ pub trait ArrayOp: HasShape {
         let selection = slice.as_ref().set_axis(axis, self.shape().ndim(), &full);
         self.select(selection.as_slice())
     }
+}
 
+pub trait Stackable: HasShape {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized;
 }
 
-pub trait ReadArrayData: ReadData {
+pub trait ReadableArray: Readable {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape>;
 
     fn read_select<B, S>(container: &DataContainer<B>, info: &[S]) -> Result<Self>
@@ -110,4 +112,4 @@ pub trait ReadArrayData: ReadData {
     }
 }
 
-pub trait WriteArrayData: WriteData {}
+pub trait WritableArray: Writable {}

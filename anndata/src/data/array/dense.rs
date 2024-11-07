@@ -19,7 +19,7 @@ use polars::{
 use std::collections::HashMap;
 use std::ops::Index;
 
-impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D: Dimension> Writable for ArrayView<'a, T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -41,7 +41,7 @@ impl<'a, T: BackendData, D: Dimension> WriteData for ArrayView<'a, T, D> {
     }
 }
 
-impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
+impl<T: BackendData, D: Dimension> Writable for Array<T, D> {
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
@@ -66,13 +66,13 @@ impl<'a, T, D: Dimension> HasShape for ArrayView<'a, T, D> {
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> Indexable for Array<T, D> {
+impl<T: BackendData, D: Dimension> Indexable for Array<T, D> {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         self.view().into_dyn().get(index).map(|x| x.into_dyn())
     }
 }
 
-impl<T: Clone, D: RemoveAxis> ArrayOp for Array<T, D> {
+impl<T: Clone, D: Dimension> Selectable for Array<T, D> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -108,7 +108,9 @@ impl<T: Clone, D: RemoveAxis> ArrayOp for Array<T, D> {
         .into_dimensionality::<D>()
         .unwrap()
     }
+}
 
+impl<T: Clone, D: RemoveAxis> Stackable for Array<T, D> {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         iter.reduce(|mut this, other| {
             this.append(Axis(0), other.view()).unwrap();
@@ -118,13 +120,13 @@ impl<T: Clone, D: RemoveAxis> ArrayOp for Array<T, D> {
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> ReadData for Array<T, D> {
+impl<T: BackendData, D: Dimension> Readable for Array<T, D> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         Ok(container.as_dataset()?.read_array::<T, D>()?)
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> ReadArrayData for Array<T, D> {
+impl<T: BackendData, D: Dimension> ReadableArray for Array<T, D> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container.as_dataset()?.shape().into())
     }
@@ -138,9 +140,9 @@ impl<T: BackendData, D: RemoveAxis> ReadArrayData for Array<T, D> {
     }
 }
 
-impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
-impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
-impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
+impl<T: BackendData, D: Dimension> WritableArray for Array<T, D> {}
+impl<T: BackendData, D: Dimension> WritableArray for &Array<T, D> {}
+impl<'a, T: BackendData, D: Dimension> WritableArray for ArrayView<'a, T, D> {}
 
 /// CategoricalArrays store discrete values.
 /// These arrays encode the values as small width integers (codes), which map to
@@ -200,7 +202,7 @@ impl<'a> FromIterator<Option<&'a str>> for CategoricalArray {
     }
 }
 
-impl WriteData for CategoricalArray {
+impl Writable for CategoricalArray {
     fn data_type(&self) -> DataType {
         DataType::Categorical
     }
@@ -242,25 +244,21 @@ impl Indexable for CategoricalArray {
     }
 }
 
-impl ArrayOp for CategoricalArray {
+impl Selectable for CategoricalArray {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
     {
         CategoricalArray {
-            codes: ArrayOp::select(&self.codes, info),
+            codes: Selectable::select(&self.codes, info),
             categories: self.categories.clone(),
         }
     }
-
-    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        todo!()
-    }
 }
 
-impl WriteArrayData for CategoricalArray {}
+impl WritableArray for CategoricalArray {}
 
-impl ReadData for CategoricalArray {
+impl Readable for CategoricalArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let codes: ArrayD<i32> = group.open_dataset("codes")?.read_array()?;
@@ -270,7 +268,7 @@ impl ReadData for CategoricalArray {
     }
 }
 
-impl ReadArrayData for CategoricalArray {
+impl ReadableArray for CategoricalArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         let group = container.as_group()?;
         let codes = group.open_dataset("codes")?.shape();

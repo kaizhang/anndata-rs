@@ -126,7 +126,7 @@ impl From<DynCsrMatrix> for DynCsrNonCanonical {
     }
 }
 
-impl WriteData for DynCsrNonCanonical {
+impl Writable for DynCsrNonCanonical {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, data_type)
     }
@@ -140,7 +140,7 @@ impl WriteData for DynCsrNonCanonical {
     }
 }
 
-impl ReadData for DynCsrNonCanonical {
+impl Readable for DynCsrNonCanonical {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
             DataContainer::Group(group) => {
@@ -162,7 +162,7 @@ impl HasShape for DynCsrNonCanonical {
     }
 }
 
-impl ArrayOp for DynCsrNonCanonical {
+impl Selectable for DynCsrNonCanonical {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -174,7 +174,9 @@ impl ArrayOp for DynCsrNonCanonical {
         }
         crate::macros::dyn_map!(self, DynCsrNonCanonical, fun)
     }
+}
 
+impl Stackable for DynCsrNonCanonical {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
@@ -220,8 +222,8 @@ impl ArrayOp for DynCsrNonCanonical {
     }
 }
 
-impl WriteArrayData for DynCsrNonCanonical {}
-impl ReadArrayData for DynCsrNonCanonical {
+impl WritableArray for DynCsrNonCanonical {}
+impl ReadableArray for DynCsrNonCanonical {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -438,7 +440,7 @@ impl<T> HasShape for CsrNonCanonical<T> {
     }
 }
 
-impl<T: BackendData + Clone> ArrayOp for CsrNonCanonical<T> {
+impl<T: Clone> Selectable for CsrNonCanonical<T> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -596,7 +598,9 @@ impl<T: BackendData + Clone> ArrayOp for CsrNonCanonical<T> {
             new_data,
         )
     }
+}
 
+impl<T: Clone> Stackable for CsrNonCanonical<T> {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         fn vstack_csr<T: Clone>(
             this: CsrNonCanonical<T>,
@@ -618,7 +622,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrNonCanonical<T> {
     }
 }
 
-impl<T: BackendData> WriteData for CsrNonCanonical<T> {
+impl<T: BackendData> Writable for CsrNonCanonical<T> {
     fn data_type(&self) -> DataType {
         DataType::CsrMatrix(T::DTYPE)
     }
@@ -712,7 +716,7 @@ impl<T: BackendData> WriteData for CsrNonCanonical<T> {
     }
 }
 
-impl<T: BackendData> ReadData for CsrNonCanonical<T> {
+impl<T: BackendData> Readable for CsrNonCanonical<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
         let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
@@ -741,7 +745,7 @@ impl<T: BackendData> ReadData for CsrNonCanonical<T> {
     }
 }
 
-impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
+impl<T: BackendData> ReadableArray for CsrNonCanonical<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -802,8 +806,8 @@ impl<T: BackendData> ReadArrayData for CsrNonCanonical<T> {
     }
 }
 
-impl<T: BackendData> WriteArrayData for &CsrNonCanonical<T> {}
-impl<T: BackendData> WriteArrayData for CsrNonCanonical<T> {}
+impl<T: BackendData> WritableArray for &CsrNonCanonical<T> {}
+impl<T: BackendData> WritableArray for CsrNonCanonical<T> {}
 
 #[cfg(test)]
 mod csr_noncanonical_index_tests {

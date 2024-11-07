@@ -9,7 +9,7 @@ mod macros;
 pub use traits::{AnnDataOp, AxisArraysOp, ElemCollectionOp, ArrayElemOp};
 pub use crate::anndata::{AnnData, AnnDataSet, StackedAnnData};
 pub use backend::Backend;
-pub use data::{HasShape, Data, ReadData, WriteData, ArrayData, WriteArrayData, ReadArrayData, ArrayOp};
+pub use data::{HasShape, Data, Readable, Writable, ArrayData, WritableArray, ReadableArray, Selectable};
 pub use container::{
     AxisArrays, DataFrameElem, Elem, ElemCollection, ArrayElem, 
     StackedAxisArrays, StackedDataFrame, StackedArrayElem,

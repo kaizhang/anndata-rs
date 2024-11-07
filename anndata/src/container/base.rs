@@ -249,14 +249,14 @@ impl<B: Backend> InnerDataFrameElem<B> {
     where
         S: AsRef<SelectInfoElem>,
     {
-        Ok(ArrayOp::select(self.data()?, selection))
+        Ok(Selectable::select(self.data()?, selection))
     }
 
     pub fn select_axis<S>(&mut self, axis: usize, selection: S) -> Result<DataFrame>
     where
         S: AsRef<SelectInfoElem>,
     {
-        Ok(ArrayOp::select_axis(self.data()?, axis, selection))
+        Ok(Selectable::select_axis(self.data()?, axis, selection))
     }
 
     pub fn save(&mut self, data: DataFrame) -> Result<()> {
@@ -773,7 +773,7 @@ impl<B: Backend> StackedDataFrame<B> {
             let select: SmallVec<[SelectInfoElem; 3]> = std::iter::once(m.into())
                 .chain(std::iter::repeat((..).into()).take(selection.as_ref().len() - 1))
                 .collect();
-            Ok(ArrayOp::select(&df, select.as_slice()))
+            Ok(Selectable::select(&df, select.as_slice()))
         } else {
             Ok(df)
         }
@@ -836,7 +836,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                 .elems
                 .iter()
                 .flat_map(|x| x.lock().as_mut().map(|i| i.data()))
-                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+                .process_results(|x| Stackable::vstack(x).unwrap())?;
             Some(array.try_into().map_err(Into::into)?)
         };
         Ok(data)
@@ -856,7 +856,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                 .flat_map(|x| x.lock().as_mut().map(|i| i.data()))
                 .collect::<Vec<_>>()
                 .into_iter()
-                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+                .process_results(|x| Stackable::vstack(x).unwrap())?;
             Some(array.try_into().map_err(Into::into)?)
         };
         Ok(data)
@@ -901,7 +901,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                         el.inner().select(select.as_slice())
                     })
                 })
-                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+                .process_results(|x| Stackable::vstack(x).unwrap())?;
             if let Some(m) = mapping {
                 Some(
                     array
@@ -918,7 +918,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
 
     pub fn par_select<D, S>(&self, selection: &[S]) -> Result<Option<D>>
     where
-        D: Into<ArrayData> + TryFrom<ArrayData> + ReadArrayData + Clone,
+        D: Into<ArrayData> + TryFrom<ArrayData> + ReadableArray + Clone,
         S: AsRef<SelectInfoElem> + Sync,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
@@ -940,7 +940,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
-                .process_results(|x| ArrayOp::vstack(x).unwrap())?;
+                .process_results(|x| Stackable::vstack(x).unwrap())?;
             if let Some(m) = mapping {
                 Some(
                     array

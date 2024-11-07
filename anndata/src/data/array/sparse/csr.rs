@@ -19,7 +19,7 @@ impl<T> HasShape for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
+impl<T: Clone> Selectable for CsrMatrix<T> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -179,7 +179,9 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
         };
         CsrMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
     }
+}
 
+impl<T: Clone> Stackable for CsrMatrix<T> {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         fn vstack_csr<T: Clone>(this: CsrMatrix<T>, other: CsrMatrix<T>) -> CsrMatrix<T> {
             let num_cols = this.ncols();
@@ -203,7 +205,7 @@ impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> WriteData for CsrMatrix<T> {
+impl<T: BackendData> Writable for CsrMatrix<T> {
     fn data_type(&self) -> DataType {
         DataType::CsrMatrix(T::DTYPE)
     }
@@ -290,7 +292,7 @@ impl<T: BackendData> WriteData for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> ReadData for CsrMatrix<T> {
+impl<T: BackendData> Readable for CsrMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let data_type = container.encoding_type()?;
         if let DataType::CsrMatrix(_) = data_type {
@@ -322,7 +324,7 @@ impl<T: BackendData> ReadData for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
+impl<T: BackendData> ReadableArray for CsrMatrix<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -392,8 +394,8 @@ impl<T: BackendData> ReadArrayData for CsrMatrix<T> {
     }
 }
 
-impl<T: BackendData> WriteArrayData for &CsrMatrix<T> {}
-impl<T: BackendData> WriteArrayData for CsrMatrix<T> {}
+impl<T: BackendData> WritableArray for &CsrMatrix<T> {}
+impl<T: BackendData> WritableArray for CsrMatrix<T> {}
 
 #[cfg(test)]
 mod csr_matrix_index_tests {

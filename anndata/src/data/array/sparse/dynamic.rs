@@ -57,7 +57,7 @@ impl_dyncsr_traits!(
     bool, Bool, String, String
 );
 
-impl WriteData for DynCsrMatrix {
+impl Writable for DynCsrMatrix {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynCsrMatrix, data_type)
     }
@@ -70,7 +70,7 @@ impl WriteData for DynCsrMatrix {
     }
 }
 
-impl ReadData for DynCsrMatrix {
+impl Readable for DynCsrMatrix {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
             DataContainer::Group(group) => {
@@ -92,7 +92,7 @@ impl HasShape for DynCsrMatrix {
     }
 }
 
-impl ArrayOp for DynCsrMatrix {
+impl Selectable for DynCsrMatrix {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -104,7 +104,9 @@ impl ArrayOp for DynCsrMatrix {
         }
         crate::macros::dyn_map!(self, DynCsrMatrix, fun)
     }
+}
 
+impl Stackable for DynCsrMatrix {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
@@ -148,8 +150,8 @@ impl ArrayOp for DynCsrMatrix {
     }
 }
 
-impl WriteArrayData for DynCsrMatrix {}
-impl ReadArrayData for DynCsrMatrix {
+impl WritableArray for DynCsrMatrix {}
+impl ReadableArray for DynCsrMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -223,7 +225,7 @@ impl_dyncsc_traits!(
     bool, Bool, String, String
 );
 
-impl WriteData for DynCscMatrix {
+impl Writable for DynCscMatrix {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynCscMatrix, data_type)
     }
@@ -237,7 +239,7 @@ impl WriteData for DynCscMatrix {
     }
 }
 
-impl ReadData for DynCscMatrix {
+impl Readable for DynCscMatrix {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container {
             DataContainer::Group(group) => {
@@ -259,7 +261,7 @@ impl HasShape for DynCscMatrix {
     }
 }
 
-impl ArrayOp for DynCscMatrix {
+impl Selectable for DynCscMatrix {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -271,25 +273,10 @@ impl ArrayOp for DynCscMatrix {
         }
         crate::macros::dyn_map!(self, DynCscMatrix, select)
     }
-
-    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
-        let mut iter = iter.peekable();
-
-        macro_rules! fun {
-            ($variant:ident, $data:expr) => {
-                DynCscMatrix::$variant(CscMatrix::vstack(iter.map(|x| x.try_into().unwrap()))?)
-            };
-        }
-        Ok(crate::macros::dyn_map!(
-            iter.peek().unwrap(),
-            DynCscMatrix,
-            fun
-        ))
-    }
 }
 
-impl WriteArrayData for DynCscMatrix {}
-impl ReadArrayData for DynCscMatrix {
+impl WritableArray for DynCscMatrix {}
+impl ReadableArray for DynCscMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?

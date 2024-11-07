@@ -192,7 +192,7 @@ macro_rules! impl_arraydata_traits {
 
 impl_arraydata_traits!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
 
-impl WriteData for ArrayData {
+impl Writable for ArrayData {
     fn data_type(&self) -> DataType {
         match self {
             ArrayData::Array(data) => data.data_type(),
@@ -217,7 +217,7 @@ impl WriteData for ArrayData {
     }
 }
 
-impl ReadData for ArrayData {
+impl Readable for ArrayData {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => {
@@ -252,7 +252,7 @@ impl Indexable for ArrayData {
     }
 }
 
-impl ArrayOp for ArrayData {
+impl Selectable for ArrayData {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -262,10 +262,12 @@ impl ArrayOp for ArrayData {
             ArrayData::CsrMatrix(data) => data.select(info).into(),
             ArrayData::CsrNonCanonical(data) => data.select(info).into(),
             ArrayData::CscMatrix(data) => data.select(info).into(),
-            ArrayData::DataFrame(data) => ArrayOp::select(data, info).into(),
+            ArrayData::DataFrame(data) => Selectable::select(data, info).into(),
         }
     }
+}
 
+impl Stackable for ArrayData {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
@@ -283,18 +285,16 @@ impl ArrayOp for ArrayData {
             ArrayData::CsrNonCanonical(_) => {
                 DynCsrNonCanonical::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
             }
-            ArrayData::CscMatrix(_) => {
-                DynCscMatrix::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
-            }
+            ArrayData::CscMatrix(_) => todo!(),
             ArrayData::DataFrame(_) => {
-                <DataFrame as ArrayOp>::vstack(iter.map(|x| x.try_into().unwrap()))
+                <DataFrame as Stackable>::vstack(iter.map(|x| x.try_into().unwrap()))
                     .map(|x| x.into())
             }
         }
     }
 }
 
-impl ReadArrayData for ArrayData {
+impl ReadableArray for ArrayData {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         match container.encoding_type()? {
             DataType::Categorical | DataType::Array(_) => DynArray::get_shape(container),
@@ -325,9 +325,9 @@ impl ReadArrayData for ArrayData {
         }
     }
 }
-impl WriteArrayData for ArrayData {}
+impl WritableArray for ArrayData {}
 
-impl WriteArrayData for &ArrayData {}
+impl WritableArray for &ArrayData {}
 
 // Helper
 

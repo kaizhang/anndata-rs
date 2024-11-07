@@ -1,5 +1,5 @@
 use crate::backend::{Backend, GroupOp, DataContainer, iter_containers, DataType};
-use crate::data::{Data, ReadData, WriteData};
+use crate::data::{Data, Readable, Writable};
 
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -28,7 +28,7 @@ impl Deref for Mapping {
     }
 }
 
-impl WriteData for Mapping {
+impl Writable for Mapping {
     fn data_type(&self) -> DataType {
         DataType::Mapping
     }
@@ -41,7 +41,7 @@ impl WriteData for Mapping {
     }
 }
 
-impl ReadData for Mapping {
+impl Readable for Mapping {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let data: Result<_> = iter_containers::<B>(container.as_group()?).map(|(k, v)| {
             Ok((k.to_owned(), Data::read(&v)?))

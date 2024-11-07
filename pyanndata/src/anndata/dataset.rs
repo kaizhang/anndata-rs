@@ -6,7 +6,7 @@ use crate::{AnnData, PyAnnData};
 
 use anndata::container::Slot;
 use anndata::data::{ArrayData, SelectInfoElemBounds, DataFrameIndex, SelectInfoElem};
-use anndata::{self, ArrayElemOp, Data, ArrayOp};
+use anndata::{self, ArrayElemOp, Data, Selectable};
 use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
 use anndata_hdf5::H5;

@@ -1,5 +1,5 @@
 use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, BackendData, ScalarType};
-use crate::ArrayOp;
+use crate::Selectable;
 use crate::data::{
     array::DynArray,
     ArrayData,
@@ -12,7 +12,7 @@ use nalgebra_sparse::na::Scalar;
 use nalgebra_sparse::{CsrMatrix, CscMatrix};
 use super::{DynCsrMatrix, DynCscMatrix, DynCsrNonCanonical, CsrNonCanonical};
 
-pub trait ArrayChunk: ArrayOp {
+pub trait ArrayChunk: Selectable {
     fn write_by_chunk<B, G, I>(iter: I, location: &G, name: &str) -> Result<DataContainer<B>>
     where
         I: Iterator<Item = Self>,

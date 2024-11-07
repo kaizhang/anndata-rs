@@ -30,7 +30,7 @@ impl<T: BackendData + Clone> Indexable for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
+impl<T: BackendData + Clone> Selectable for CscMatrix<T> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -193,16 +193,9 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         };
         CscMatrix::try_from_pattern_and_values(pattern, new_data).unwrap()
     }
-
-    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
 }
 
-impl<T: BackendData> WriteData for CscMatrix<T> {
+impl<T: BackendData> Writable for CscMatrix<T> {
     fn data_type(&self) -> DataType {
         DataType::CscMatrix(T::DTYPE)
     }
@@ -296,7 +289,7 @@ impl<T: BackendData> WriteData for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData> ReadData for CscMatrix<T> {
+impl<T: BackendData> Readable for CscMatrix<T> {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let data_type = container.encoding_type()?;
         if let DataType::CscMatrix(_) = data_type {
@@ -334,7 +327,7 @@ impl<T: BackendData> ReadData for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData> ReadArrayData for CscMatrix<T> {
+impl<T: BackendData> ReadableArray for CscMatrix<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
@@ -404,8 +397,8 @@ impl<T: BackendData> ReadArrayData for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData> WriteArrayData for &CscMatrix<T> {}
-impl<T: BackendData> WriteArrayData for CscMatrix<T> {}
+impl<T: BackendData> WritableArray for &CscMatrix<T> {}
+impl<T: BackendData> WritableArray for CscMatrix<T> {}
 
 #[cfg(test)]
 mod csc_matrix_index_tests {

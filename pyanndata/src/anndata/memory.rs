@@ -6,9 +6,9 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::IntoPyDict;
 use pyo3_polars::PyDataFrame;
-use anndata::{self, ArrayOp, ElemCollectionOp, ArrayElemOp};
-use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, ReadArrayData, ReadData, Backend, WriteArrayData, HasShape};
-use anndata::data::{DataFrameIndex, SelectInfoElem, ArrayChunk, Shape};
+use anndata::{self, Selectable, ElemCollectionOp, ArrayElemOp};
+use anndata::{AnnDataOp, AxisArraysOp, ArrayData, Data, Backend, HasShape};
+use anndata::data::{ArrayChunk, DataFrameIndex, SelectInfoElem, Shape, Stackable};
 use anyhow::{Result, bail};
 
 pub struct PyAnnData<'py>(Bound<'py, PyAny>);
@@ -121,7 +121,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         I: Iterator<Item = D>,
         D: Into<ArrayData>,
     {
-        let array = ArrayOp::vstack(iter.map(|x| x.into()))?;
+        let array = Stackable::vstack(iter.map(|x| x.into()))?;
         let shape = array.shape();
         self.set_n_obs(shape[0])?;
         self.set_n_vars(shape[1])?;
@@ -481,7 +481,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             D: ArrayChunk + Into<ArrayData>,
     {
         let py = self.arrays.py();
-        let array = ArrayOp::vstack(data)?;
+        let array = Stackable::vstack(data.map(|x| x.into()))?;
         let shape = array.shape();
         if self.axis == 0 {
             self.adata.set_n_obs(shape[0])?;
@@ -492,7 +492,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             self.adata.set_n_vars(shape[1])?;
         }
         self.arrays
-            .call_method1("__setitem__", (key, PyArrayData::from(array.into()).into_py(py)))?;
+            .call_method1("__setitem__", (key, PyArrayData::from(array).into_py(py)))?;
         Ok(())
     }
 

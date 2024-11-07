@@ -2,7 +2,7 @@ use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollect
 use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::anndata::PyAnnData;
 
-use anndata::{self, ArrayElemOp, ArrayOp, AxisArraysOp, Data, ElemCollectionOp};
+use anndata::{self, ArrayElemOp, Selectable, AxisArraysOp, Data, ElemCollectionOp};
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anndata::{AnnDataOp, ArrayData, Backend};

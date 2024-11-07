@@ -37,7 +37,7 @@ macro_rules! impl_from_dynscalar {
                 }
             }
 
-            impl ReadData for $from {
+            impl Readable for $from {
                 fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
                     let dataset = container.as_dataset()?;
                     match dataset.dtype()? {
@@ -47,7 +47,7 @@ macro_rules! impl_from_dynscalar {
                 }
             }
 
-            impl WriteData for $from {
+            impl Writable for $from {
                 fn data_type(&self) -> DataType {
                     DataType::Scalar(ScalarType::$to)
                 }
@@ -73,7 +73,7 @@ impl_from_dynscalar!(
     bool, Bool, String, String
 );
 
-impl WriteData for DynScalar {
+impl Writable for DynScalar {
     fn data_type(&self) -> DataType {
         macro_rules! dtype {
             ($variant:ident, $exp:expr) => {
@@ -92,7 +92,7 @@ impl WriteData for DynScalar {
     }
 }
 
-impl ReadData for DynScalar {
+impl Readable for DynScalar {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let dataset = container.as_dataset()?;
 
@@ -205,7 +205,7 @@ impl Into<Series> for DynArray {
     }
 }
 
-impl WriteData for DynArray {
+impl Writable for DynArray {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynArray, data_type)
     }
@@ -219,7 +219,7 @@ impl WriteData for DynArray {
     }
 }
 
-impl ReadData for DynArray {
+impl Readable for DynArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         container.as_dataset()?.read_dyn_array()
     }
@@ -244,19 +244,21 @@ impl Indexable for DynArray {
     }
 }
 
-impl ArrayOp for DynArray {
+impl Selectable for DynArray {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
     {
         macro_rules! fun {
             ($variant:ident, $exp:expr) => {
-                ArrayOp::select($exp, info).into()
+                Selectable::select($exp, info).into()
             };
         }
         crate::macros::dyn_map!(self, DynArray, fun)
     }
+}
 
+impl Stackable for DynArray {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
         match iter.peek().unwrap() {
@@ -300,8 +302,8 @@ impl ArrayOp for DynArray {
     }
 }
 
-impl WriteArrayData for DynArray {}
-impl ReadArrayData for DynArray {
+impl WritableArray for DynArray {}
+impl ReadableArray for DynArray {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container.as_dataset()?.shape().into())
     }

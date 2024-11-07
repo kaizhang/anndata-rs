@@ -17,7 +17,7 @@ use polars::prelude::{DataFrame, Series};
 
 use super::{SelectInfoBounds, SelectInfoElemBounds};
 
-impl WriteData for DataFrame {
+impl Writable for DataFrame {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
@@ -82,7 +82,7 @@ impl WriteData for DataFrame {
     }
 }
 
-impl ReadData for DataFrame {
+impl Readable for DataFrame {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let columns: Array1<String> = container.get_array_attr("column-order")?;
         columns
@@ -104,7 +104,7 @@ impl HasShape for DataFrame {
     }
 }
 
-impl ArrayOp for DataFrame {
+impl Selectable for DataFrame {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -125,7 +125,9 @@ impl ArrayOp for DataFrame {
         .take(&ChunkedArray::from_vec("idx".into(), ridx))
         .unwrap()
     }
+}
 
+impl Stackable for DataFrame {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         Ok(iter
             .reduce(|mut a, b| {
@@ -136,7 +138,7 @@ impl ArrayOp for DataFrame {
     }
 }
 
-impl ReadArrayData for DataFrame {
+impl ReadableArray for DataFrame {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         let group = container.as_group()?;
         let index = group.get_str_attr("_index")?;
@@ -167,9 +169,9 @@ impl ReadArrayData for DataFrame {
     }
 }
 
-impl WriteArrayData for DataFrame {}
+impl WritableArray for DataFrame {}
 
-impl WriteData for Series {
+impl Writable for Series {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
@@ -261,7 +263,7 @@ impl WriteData for Series {
     }
 }
 
-impl ReadData for Series {
+impl Readable for Series {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         match container.encoding_type()? {
             crate::backend::DataType::Categorical => Ok(CategoricalArray::read(container)?.into()),
@@ -277,7 +279,7 @@ impl HasShape for Series {
     }
 }
 
-impl ArrayOp for Series {
+impl Selectable for Series {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -288,13 +290,9 @@ impl ArrayOp for Series {
             .collect::<Vec<_>>();
         self.take(&ChunkedArray::from_vec("idx".into(), i)).unwrap()
     }
-
-    fn vstack<I: Iterator<Item = Self>>(_iter: I) -> Result<Self> {
-        todo!("vstack not implemented for Series")
-    }
 }
 
-impl ReadArrayData for Series {
+impl ReadableArray for Series {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container.as_dataset()?.shape().into())
     }
@@ -362,7 +360,7 @@ impl IntoIterator for DataFrameIndex {
     }
 }
 
-impl WriteData for DataFrameIndex {
+impl Writable for DataFrameIndex {
     fn data_type(&self) -> crate::backend::DataType {
         crate::backend::DataType::DataFrame
     }
@@ -418,7 +416,7 @@ impl WriteData for DataFrameIndex {
     }
 }
 
-impl ReadData for DataFrameIndex {
+impl Readable for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let index_name = container.get_str_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
