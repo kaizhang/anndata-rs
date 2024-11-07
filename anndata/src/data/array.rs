@@ -243,17 +243,16 @@ impl HasShape for ArrayData {
     }
 }
 
-impl ArrayOp for ArrayData {
+impl Indexable for ArrayData {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         match self {
             ArrayData::Array(data) => data.get(index),
-            ArrayData::CsrMatrix(data) => data.get(index),
-            ArrayData::CsrNonCanonical(data) => data.get(index),
-            ArrayData::CscMatrix(data) => data.get(index),
-            ArrayData::DataFrame(data) => ArrayOp::get(data, index),
+            _ => todo!(),
         }
     }
+}
 
+impl ArrayOp for ArrayData {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

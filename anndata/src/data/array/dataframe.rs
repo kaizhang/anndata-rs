@@ -3,7 +3,7 @@ use std::ops::Deref;
 use crate::backend::{AttributeOp, Backend, DataContainer, DatasetOp, GroupOp};
 use crate::data::array::{
     slice::{SelectInfoElem, Shape},
-    CategoricalArray, DynArray, DynScalar,
+    CategoricalArray, DynArray,
 };
 use crate::data::data_traits::*;
 use crate::data::index::{Index, Interval};
@@ -105,10 +105,6 @@ impl HasShape for DataFrame {
 }
 
 impl ArrayOp for DataFrame {
-    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
-        todo!()
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -258,7 +254,6 @@ impl WriteData for Series {
             DataType::Categorical(_, _) => self
                 .categorical()?
                 .iter_str()
-                .map(|x| x.unwrap())
                 .collect::<CategoricalArray>()
                 .write(location, name),
             other => bail!("Unsupported series data type: {:?}", other),
@@ -283,10 +278,6 @@ impl HasShape for Series {
 }
 
 impl ArrayOp for Series {
-    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
-        todo!()
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

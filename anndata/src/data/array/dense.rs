@@ -1,6 +1,6 @@
 mod dynamic;
 
-pub use dynamic::{ArrayConvert, DynScalar, DynArray, DynCowArray};
+pub use dynamic::{ArrayConvert, DynArray, DynCowArray, DynScalar};
 
 use crate::{
     backend::*,
@@ -12,7 +12,10 @@ use crate::{
 
 use anyhow::{anyhow, Result};
 use ndarray::{Array, Array1, ArrayD, ArrayView, Axis, Dimension, RemoveAxis, SliceInfoElem};
-use polars::{prelude::CategoricalChunkedBuilder, series::{IntoSeries, Series}};
+use polars::{
+    prelude::CategoricalChunkedBuilder,
+    series::{IntoSeries, Series},
+};
 use std::collections::HashMap;
 use std::ops::Index;
 
@@ -51,23 +54,25 @@ impl<T: BackendData, D: Dimension> WriteData for Array<T, D> {
     }
 }
 
-impl<T: BackendData, D: Dimension> HasShape for Array<T, D> {
+impl<T, D: Dimension> HasShape for Array<T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
 }
 
-impl<'a, T: BackendData, D: Dimension> HasShape for ArrayView<'a, T, D> {
+impl<'a, T, D: Dimension> HasShape for ArrayView<'a, T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
 }
 
-impl<T: BackendData, D: RemoveAxis> ArrayOp for Array<T, D> {
+impl<T: BackendData, D: RemoveAxis> Indexable for Array<T, D> {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         self.view().into_dyn().get(index).map(|x| x.into_dyn())
     }
+}
 
+impl<T: Clone, D: RemoveAxis> ArrayOp for Array<T, D> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -137,9 +142,13 @@ impl<T: BackendData, D: Dimension> WriteArrayData for Array<T, D> {}
 impl<T: BackendData, D: Dimension> WriteArrayData for &Array<T, D> {}
 impl<'a, T: BackendData, D: Dimension> WriteArrayData for ArrayView<'a, T, D> {}
 
+/// CategoricalArrays store discrete values.
+/// These arrays encode the values as small width integers (codes), which map to
+/// the original label set (categories). Each entry in the codes array is the
+/// zero-based index of the encoded value in the categories array.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CategoricalArray {
-    pub codes: ArrayD<u32>,
+    pub codes: ArrayD<Option<u32>>,
     pub categories: Array1<String>,
 }
 
@@ -153,24 +162,24 @@ impl Into<Series> for CategoricalArray {
         .drain_iter_and_finish(
             self.codes
                 .into_iter()
-                .map(|i| Some(self.categories[i as usize].as_str())),
+                .map(|i| Some(self.categories[i? as usize].as_str())),
         )
         .into_series()
     }
 }
 
-impl<'a> FromIterator<&'a str> for CategoricalArray {
+impl<'a> FromIterator<Option<&'a str>> for CategoricalArray {
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = &'a str>,
+        T: IntoIterator<Item = Option<&'a str>>,
     {
         let mut str_to_id = HashMap::new();
         let mut counter = 0;
-        let codes: Array1<u32> = iter
+        let codes: Array1<Option<u32>> = iter
             .into_iter()
             .map(|x| {
-                let str = x.to_string();
-                match str_to_id.get(&str) {
+                let str = x?.to_string();
+                let idx = match str_to_id.get(&str) {
                     Some(v) => *v,
                     None => {
                         let v = counter;
@@ -178,7 +187,8 @@ impl<'a> FromIterator<&'a str> for CategoricalArray {
                         counter += 1;
                         v
                     }
-                }
+                };
+                Some(idx)
             })
             .collect();
         let mut categories = str_to_id.drain().collect::<Vec<_>>();
@@ -204,7 +214,11 @@ impl WriteData for CategoricalArray {
         group.new_str_attr("encoding-version", "0.2.0")?;
         group.new_scalar_attr("ordered", false)?;
 
-        group.new_array_dataset("codes", self.codes.view().into(), Default::default())?;
+        group.new_array_dataset(
+            "codes",
+            self.codes.map(|x| x.map_or(-1, |x| x as i32)).into(),
+            Default::default(),
+        )?;
         group.new_array_dataset(
             "categories",
             self.categories.view().into(),
@@ -221,13 +235,14 @@ impl HasShape for CategoricalArray {
     }
 }
 
-impl ArrayOp for CategoricalArray {
+impl Indexable for CategoricalArray {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        self.codes
-            .get(index)
-            .map(|x| self.categories[*x as usize].clone().into())
+        let code = *self.codes.get(index)?;
+        Some(self.categories[code? as usize].clone().into())
     }
+}
 
+impl ArrayOp for CategoricalArray {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -248,7 +263,8 @@ impl WriteArrayData for CategoricalArray {}
 impl ReadData for CategoricalArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
-        let codes = group.open_dataset("codes")?.read_array()?;
+        let codes: ArrayD<i32> = group.open_dataset("codes")?.read_array()?;
+        let codes = codes.mapv(|x| if x < 0 { None } else { Some(x as u32) });
         let categories = group.open_dataset("categories")?.read_array()?;
         Ok(CategoricalArray { codes, categories })
     }
@@ -267,7 +283,8 @@ impl ReadArrayData for CategoricalArray {
         S: AsRef<SelectInfoElem>,
     {
         let group = container.as_group()?;
-        let codes = group.open_dataset("codes")?.read_array_slice(info)?;
+        let codes: ArrayD<i32> = group.open_dataset("codes")?.read_array_slice(info)?;
+        let codes = codes.mapv(|x| if x < 0 { None } else { Some(x as u32) });
         let categories = group.open_dataset("categories")?.read_array()?;
         Ok(CategoricalArray { codes, categories })
     }

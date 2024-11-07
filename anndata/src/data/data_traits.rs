@@ -47,6 +47,10 @@ where
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Traits for arrays
+////////////////////////////////////////////////////////////////////////////////
+
 /// Anything that has a shape.
 pub trait HasShape {
     fn shape(&self) -> Shape;
@@ -61,9 +65,12 @@ where
     }
 }
 
-pub trait ArrayOp: HasShape {
+/// Anything that can be indexed.
+pub trait Indexable: HasShape {
     fn get(&self, index: &[usize]) -> Option<DynScalar>;
+}
 
+pub trait ArrayOp: HasShape {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>;

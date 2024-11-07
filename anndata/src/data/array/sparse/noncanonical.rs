@@ -1,7 +1,6 @@
 use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
-    array::DynScalar,
     data_traits::*,
     slice::{SelectInfoElem, Shape},
     SelectInfoBounds, SelectInfoElemBounds,
@@ -164,10 +163,6 @@ impl HasShape for DynCsrNonCanonical {
 }
 
 impl ArrayOp for DynCsrNonCanonical {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        crate::macros::dyn_map_fun!(self, DynCsrNonCanonical, get, index)
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -444,10 +439,6 @@ impl<T> HasShape for CsrNonCanonical<T> {
 }
 
 impl<T: BackendData + Clone> ArrayOp for CsrNonCanonical<T> {
-    fn get(&self, _index: &[usize]) -> Option<DynScalar> {
-        panic!("Cannot index into a noncanonical sparse matrix");
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

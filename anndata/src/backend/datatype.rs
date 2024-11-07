@@ -9,12 +9,12 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DataType {
     Array(ScalarType),
-    Categorical,
     CsrMatrix(ScalarType),
     CscMatrix(ScalarType),
     DataFrame,
-    Scalar(ScalarType),
     Mapping,
+    Scalar(ScalarType),
+    Categorical,
 }
 
 impl Display for DataType {

@@ -2,7 +2,6 @@ use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
     data_traits::*,
-    array::DynScalar,
     slice::{SelectInfoElem, Shape},
     SelectInfoBounds, SelectInfoElemBounds,
 };
@@ -21,14 +20,6 @@ impl<T> HasShape for CsrMatrix<T> {
 }
 
 impl<T: BackendData + Clone> ArrayOp for CsrMatrix<T> {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        if index.len() != 2 {
-            panic!("index must have length 2");
-        }
-        todo!()
-        //self.get_entry(index[0], index[1]).map(|x| DynScalar::from(x.into_value()))
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

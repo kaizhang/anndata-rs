@@ -233,17 +233,18 @@ impl HasShape for DynArray {
     }
 }
 
-impl ArrayOp for DynArray {
+impl Indexable for DynArray {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         macro_rules! fun {
             ($variant:ident, $exp:expr) => {
                 $exp.get(index).map(|x| x.clone().into())
             };
         }
-
         crate::macros::dyn_map!(self, DynArray, fun)
     }
+}
 
+impl ArrayOp for DynArray {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

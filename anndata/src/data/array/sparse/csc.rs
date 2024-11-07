@@ -20,7 +20,7 @@ impl<T> HasShape for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
+impl<T: BackendData + Clone> Indexable for CscMatrix<T> {
     fn get(&self, index: &[usize]) -> Option<DynScalar> {
         if index.len() != 2 {
             panic!("index must have length 2");
@@ -28,7 +28,9 @@ impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
         todo!()
         //self.get_entry(index[0], index[1]).map(|x| DynScalar::from(x.into_value()))
     }
+}
 
+impl<T: BackendData + Clone> ArrayOp for CscMatrix<T> {
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,

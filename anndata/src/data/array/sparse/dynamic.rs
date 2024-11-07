@@ -1,7 +1,6 @@
 use crate::backend::*;
 use crate::data::ArrayConvert;
 use crate::data::{
-    array::DynScalar,
     data_traits::*,
     slice::{SelectInfoElem, Shape},
 };
@@ -94,10 +93,6 @@ impl HasShape for DynCsrMatrix {
 }
 
 impl ArrayOp for DynCsrMatrix {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        crate::macros::dyn_map_fun!(self, DynCsrMatrix, get, index)
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -265,10 +260,6 @@ impl HasShape for DynCscMatrix {
 }
 
 impl ArrayOp for DynCscMatrix {
-    fn get(&self, index: &[usize]) -> Option<DynScalar> {
-        crate::macros::dyn_map_fun!(self, DynCscMatrix, get, index)
-    }
-
     fn select<S>(&self, info: &[S]) -> Self
     where
         S: AsRef<SelectInfoElem>,
@@ -402,11 +393,9 @@ where
     let (pattern, values) = csr.into_pattern_and_values();
     let out = CsrMatrix::try_from_pattern_and_values(
         pattern,
-        values
-            .into_iter()
-            .map(|x| f(x))
-            .collect::<Result<_, _>>()?,
-    ).unwrap();
+        values.into_iter().map(|x| f(x)).collect::<Result<_, _>>()?,
+    )
+    .unwrap();
     Ok(out)
 }
 
@@ -417,10 +406,7 @@ where
     let (pattern, values) = csc.into_pattern_and_values();
     let out = CscMatrix::try_from_pattern_and_values(
         pattern,
-        values
-            .into_iter()
-            .map(|x| f(x))
-            .collect::<Result<_, _>>()?,
+        values.into_iter().map(|x| f(x)).collect::<Result<_, _>>()?,
     )
     .unwrap();
     Ok(out)
