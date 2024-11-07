@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::backend::{AttributeOp, Backend, DataContainer, DatasetOp, GroupOp};
 use crate::data::array::{
     slice::{SelectInfoElem, Shape},
@@ -10,7 +8,7 @@ use crate::data::index::{Index, Interval};
 
 use anyhow::{bail, Result};
 use log::warn;
-use ndarray::{Array1, Array2};
+use ndarray::Array1;
 use polars::chunked_array::ChunkedArray;
 use polars::datatypes::DataType;
 use polars::prelude::{DataFrame, Series};
@@ -31,15 +29,15 @@ impl Writable for DataFrame {
         } else {
             location.new_group(name)?
         };
-        group.new_str_attr("encoding-type", "dataframe")?;
-        group.new_str_attr("encoding-version", "0.2.0")?;
+        group.new_attr("encoding-type", "dataframe")?;
+        group.new_attr("encoding-version", "0.2.0")?;
 
-        let columns: Array1<String> = self
+        let columns: Vec<String> = self
             .get_column_names()
             .into_iter()
             .map(|x| x.to_string())
             .collect();
-        group.new_array_attr("column-order", &columns)?;
+        group.new_attr("column-order", columns)?;
         self.iter()
             .try_for_each(|x| x.write(&group, x.name()).map(|_| ()))?;
 
@@ -50,7 +48,7 @@ impl Writable for DataFrame {
     }
 
     fn overwrite<B: Backend>(&self, mut container: DataContainer<B>) -> Result<DataContainer<B>> {
-        if let Ok(index_name) = container.get_str_attr("_index") {
+        if let Ok(index_name) = container.get_attr::<String>("_index") {
             for obj in container.as_group()?.list()? {
                 if obj != index_name {
                     container.as_group()?.delete(&obj)?;
@@ -67,24 +65,34 @@ impl Writable for DataFrame {
             container = DataFrameIndex::from(self.height()).overwrite(container)?;
         }
 
-        let columns: Array1<String> = self
+        let columns: Vec<String> = self
             .get_column_names()
             .into_iter()
             .map(|x| x.to_string())
             .collect();
-        container.new_array_attr("column-order", &columns)?;
+        container.new_attr("column-order", columns)?;
         self.iter()
             .try_for_each(|x| x.write(container.as_group()?, x.name()).map(|_| ()))?;
-        container.new_str_attr("encoding-type", "dataframe")?;
-        container.new_str_attr("encoding-version", "0.2.0")?;
+        container.new_attr("encoding-type", "dataframe")?;
+        container.new_attr("encoding-version", "0.2.0")?;
 
         Ok(container)
     }
 }
 
+impl Element for DataFrame {
+    fn encoding(&self) -> Encoding {
+        Encoding {
+            encoding_type: "dataframe",
+            version: "0.2.0",
+            attributes: None,
+        }
+    }
+}
+
 impl Readable for DataFrame {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let columns: Array1<String> = container.get_array_attr("column-order")?;
+        let columns: Vec<String> = container.get_attr("column-order")?;
         columns
             .into_iter()
             .map(|x| {
@@ -141,9 +149,9 @@ impl Stackable for DataFrame {
 impl ReadableArray for DataFrame {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         let group = container.as_group()?;
-        let index = group.get_str_attr("_index")?;
+        let index: String = group.get_attr("_index")?;
         let nrows = group.open_dataset(&index)?.shape()[0];
-        let columns: Array1<String> = container.get_array_attr("column-order")?;
+        let columns: Vec<String> = container.get_attr("column-order")?;
         Ok((nrows, columns.len()).into())
     }
 
@@ -152,7 +160,7 @@ impl ReadableArray for DataFrame {
         B: Backend,
         S: AsRef<SelectInfoElem>,
     {
-        let columns: Vec<String> = container.get_array_attr("column-order")?.to_vec();
+        let columns: Vec<String> = container.get_attr("column-order")?;
         SelectInfoElemBounds::new(&info.as_ref()[1], columns.len())
             .iter()
             .map(|i| {
@@ -378,38 +386,37 @@ impl Writable for DataFrameIndex {
     }
 
     fn overwrite<B: Backend>(&self, mut container: DataContainer<B>) -> Result<DataContainer<B>> {
-        if let Ok(index_name) = container.get_str_attr("_index") {
+        if let Ok(index_name) = container.get_attr::<String>("_index") {
             container.as_group()?.delete(&index_name)?;
         }
-        container.new_str_attr("_index", &self.index_name)?;
+        container.new_attr("_index", self.index_name.clone())?;
         let group = container.as_group()?;
         let arr: Array1<String> = self.clone().into_iter().collect();
         let mut data = group.new_array_dataset(&self.index_name, arr.into(), Default::default())?;
         match &self.index {
             Index::List(_) => {
-                data.new_str_attr("index_type", "list")?;
+                data.new_attr("index_type", "list")?;
             }
             Index::Intervals(intervals) => {
-                let keys: Array1<String> = intervals.keys().cloned().collect();
-                let vec: Vec<u64> = intervals
+                let keys: Vec<String> = intervals.keys().cloned().collect();
+                let values: Vec<Vec<u64>> = intervals
                     .values()
-                    .flat_map(|x| [x.start as u64, x.end as u64, x.size as u64, x.step as u64])
+                    .map(|x| vec![x.start as u64, x.end as u64, x.size as u64, x.step as u64])
                     .collect();
-                let values = Array2::from_shape_vec((intervals.deref().len(), 4), vec)?;
-                if data.new_array_attr("names", &keys).is_err()
-                    || data.new_array_attr("intervals", &values).is_err()
+                if data.new_attr("names", keys).is_err()
+                    || data.new_attr("intervals", values).is_err()
                 {
                     // fallback to "list"
-                    data.new_str_attr("index_type", "list")?;
+                    data.new_attr("index_type", "list")?;
                     warn!("Failed to save interval index as attributes, fallback to list index");
                 } else {
-                    data.new_str_attr("index_type", "intervals")?;
+                    data.new_attr("index_type", "intervals")?;
                 }
             }
             Index::Range(range) => {
-                data.new_str_attr("index_type", "range")?;
-                data.new_scalar_attr("start", range.start as u64)?;
-                data.new_scalar_attr("end", range.end as u64)?;
+                data.new_attr("index_type", "range")?;
+                data.new_attr("start", range.start as u64)?;
+                data.new_attr("end", range.end as u64)?;
             }
         }
         Ok(container)
@@ -418,10 +425,10 @@ impl Writable for DataFrameIndex {
 
 impl Readable for DataFrameIndex {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let index_name = container.get_str_attr("_index")?;
+        let index_name: String = container.get_attr("_index")?;
         let dataset = container.as_group()?.open_dataset(&index_name)?;
         match dataset
-            .get_str_attr("index_type")
+            .get_attr::<String>("index_type")
             .as_ref()
             .map_or("list", |x| x.as_str())
         {
@@ -432,11 +439,11 @@ impl Readable for DataFrameIndex {
                 Ok(index)
             }
             "intervals" => {
-                let keys: Array1<String> = dataset.get_array_attr("names")?;
-                let values: Array2<u64> = dataset.get_array_attr("intervals")?;
+                let keys: Vec<String> = dataset.get_attr("names")?;
+                let values: Vec<Vec<u64>> = dataset.get_attr("intervals")?;
                 Ok(keys
                     .into_iter()
-                    .zip(values.rows().into_iter().map(|row| Interval {
+                    .zip(values.into_iter().map(|row| Interval {
                         start: row[0] as usize,
                         end: row[1] as usize,
                         size: row[2] as usize,
@@ -445,8 +452,8 @@ impl Readable for DataFrameIndex {
                     .collect())
             }
             "range" => {
-                let start: u64 = dataset.get_scalar_attr("start")?;
-                let end: u64 = dataset.get_scalar_attr("end")?;
+                let start: u64 = dataset.get_attr("start")?;
+                let end: u64 = dataset.get_attr("end")?;
                 Ok((start as usize..end as usize).into())
             }
             x => bail!("Unknown index type: {}", x),

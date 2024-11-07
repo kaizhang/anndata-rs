@@ -8,7 +8,6 @@ use crate::data::{
 use anyhow::{bail, Result};
 use nalgebra_sparse::csc::CscMatrix;
 use nalgebra_sparse::csr::CsrMatrix;
-use ndarray::Ix1;
 use num::FromPrimitive;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,9 +154,8 @@ impl ReadableArray for DynCsrMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .get_array_attr::<u64, Ix1>("shape")?
+            .get_attr::<Vec<usize>>("shape")?
             .into_iter()
-            .map(|x| x as usize)
             .collect())
     }
 
@@ -280,9 +278,8 @@ impl ReadableArray for DynCscMatrix {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .get_array_attr::<u64, Ix1>("shape")?
+            .get_attr::<Vec<usize>>("shape")?
             .into_iter()
-            .map(|x| x as usize)
             .collect())
     }
 

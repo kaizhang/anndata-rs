@@ -192,6 +192,20 @@ macro_rules! impl_arraydata_traits {
 
 impl_arraydata_traits!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, String);
 
+impl Readable for ArrayData {
+    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+        match container.encoding_type()? {
+            DataType::Categorical | DataType::Array(_) => {
+                DynArray::read(container).map(ArrayData::Array)
+            }
+            DataType::CsrMatrix(_) => read_csr(container),
+            DataType::CscMatrix(_) => DynCscMatrix::read(container).map(ArrayData::CscMatrix),
+            DataType::DataFrame => DataFrame::read(container).map(ArrayData::DataFrame),
+            ty => bail!("Cannot read type '{:?}' as matrix data", ty),
+        }
+    }
+}
+
 impl Writable for ArrayData {
     fn data_type(&self) -> DataType {
         match self {
@@ -213,20 +227,6 @@ impl Writable for ArrayData {
             ArrayData::CsrNonCanonical(data) => data.write(location, name),
             ArrayData::CscMatrix(data) => data.write(location, name),
             ArrayData::DataFrame(data) => data.write(location, name),
-        }
-    }
-}
-
-impl Readable for ArrayData {
-    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        match container.encoding_type()? {
-            DataType::Categorical | DataType::Array(_) => {
-                DynArray::read(container).map(ArrayData::Array)
-            }
-            DataType::CsrMatrix(_) => read_csr(container),
-            DataType::CscMatrix(_) => DynCscMatrix::read(container).map(ArrayData::CscMatrix),
-            DataType::DataFrame => DataFrame::read(container).map(ArrayData::DataFrame),
-            ty => bail!("Cannot read type '{:?}' as matrix data", ty),
         }
     }
 }
@@ -338,7 +338,7 @@ fn read_csr<B: Backend>(container: &DataContainer<B>) -> Result<ArrayData> {
         CsrNonCanonical<T>: Into<ArrayData>,
     {
         let group = container.as_group()?;
-        let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
+        let shape: Vec<u64> = group.get_attr("shape")?;
         let data = group
             .open_dataset("data")?
             .read_array::<_, Ix1>()?
@@ -400,7 +400,7 @@ where
 
         let data = if let SelectInfoElem::Slice(s) = info[0].as_ref() {
             let group = container.as_group()?;
-            let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
+            let shape: Vec<u64> = group.get_attr("shape")?;
             let indptr_slice = if let Some(end) = s.end {
                 SelectInfoElem::from(s.start..end + 1)
             } else {

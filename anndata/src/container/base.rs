@@ -7,7 +7,6 @@ use crate::{
 use anyhow::{bail, ensure, Result};
 use indexmap::set::IndexSet;
 use itertools::Itertools;
-use ndarray::Ix1;
 use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
@@ -310,9 +309,7 @@ impl<B: Backend> TryFrom<DataContainer<B>> for DataFrameElem<B> {
                 //let grp = container.as_group()?;
                 let index = DataFrameIndex::read(&container)?;
                 let column_names = container
-                    .get_array_attr::<String, Ix1>("column-order")?
-                    .into_raw_vec_and_offset()
-                    .0
+                    .get_attr::<Vec<String>>("column-order")?
                     .into_iter()
                     .collect();
                 let df = InnerDataFrameElem {

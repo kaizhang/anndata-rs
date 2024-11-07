@@ -9,7 +9,7 @@ use crate::data::{
 use anyhow::{anyhow, bail, Result};
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
-use ndarray::{Array1, Ix1};
+use ndarray::Ix1;
 
 use super::super::slice::SliceBounds;
 
@@ -217,9 +217,9 @@ impl<T: BackendData> Writable for CsrMatrix<T> {
         let mut group = location.new_group(name)?;
         let shape = self.shape();
 
-        group.new_str_attr("encoding-type", "csr_matrix")?;
-        group.new_str_attr("encoding-version", "0.1.0")?;
-        group.new_array_attr("shape", &shape.as_ref().iter().map(|x| *x as u64).collect::<Array1<_>>())?;
+        group.new_attr("encoding-type", "csr_matrix")?;
+        group.new_attr("encoding-version", "0.1.0")?;
+        group.new_attr("shape", shape.as_ref().iter().map(|x| *x as u64).collect::<Vec<_>>())?;
 
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
@@ -297,7 +297,7 @@ impl<T: BackendData> Readable for CsrMatrix<T> {
         let data_type = container.encoding_type()?;
         if let DataType::CsrMatrix(_) = data_type {
             let group = container.as_group()?;
-            let shape: Vec<u64> = group.get_array_attr("shape")?.to_vec();
+            let shape: Vec<u64> = group.get_attr("shape")?;
             let data = group
                 .open_dataset("data")?
                 .read_array::<_, Ix1>()?
@@ -328,9 +328,8 @@ impl<T: BackendData> ReadableArray for CsrMatrix<T> {
     fn get_shape<B: Backend>(container: &DataContainer<B>) -> Result<Shape> {
         Ok(container
             .as_group()?
-            .get_array_attr::<u64, Ix1>("shape")?
+            .get_attr::<Vec<usize>>("shape")?
             .into_iter()
-            .map(|x| x as usize)
             .collect())
     }
 

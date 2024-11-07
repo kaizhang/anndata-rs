@@ -89,8 +89,8 @@ impl<D: RemoveAxis, T: BackendData> ArrayChunk for Array<T, D> {
             "array"
         };
         let mut container = DataContainer::<B>::Dataset(dataset);
-        container.new_str_attr("encoding-type", encoding_type)?;
-        container.new_str_attr("encoding-version", "0.2.0")?;
+        container.new_attr("encoding-type", encoding_type)?;
+        container.new_attr("encoding-version", "0.2.0")?;
         Ok(container)
     }
 }
@@ -129,9 +129,9 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         G: GroupOp<B>,
     {
         let mut group = location.new_group(name)?;
-        group.new_str_attr("encoding-type", "csr_matrix")?;
-        group.new_str_attr("encoding-version", "0.1.0")?;
-        group.new_str_attr("h5sparse_format", "csr")?;
+        group.new_attr("encoding-type", "csr_matrix")?;
+        group.new_attr("encoding-version", "0.1.0")?;
+        group.new_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
             &group, "data", 1000.into(),
@@ -167,7 +167,7 @@ impl<T: BackendData> ArrayChunk for CsrMatrix<T> {
         data.finish()?;
         indptr.push(nnz);
         group.new_array_dataset("indptr", indptr.into(), Default::default())?;
-        group.new_array_attr("shape", &[num_rows as u64, num_cols.unwrap_or(0) as u64])?;
+        group.new_attr("shape", [num_rows as u64, num_cols.unwrap_or(0) as u64].as_slice())?;
         Ok(DataContainer::Group(group))
     }
 }
@@ -205,9 +205,9 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         G: GroupOp<B>,
     {
         let mut group = location.new_group(name)?;
-        group.new_str_attr("encoding-type", "csr_matrix")?;
-        group.new_str_attr("encoding-version", "0.1.0")?;
-        group.new_str_attr("h5sparse_format", "csr")?;
+        group.new_attr("encoding-type", "csr_matrix")?;
+        group.new_attr("encoding-version", "0.1.0")?;
+        group.new_attr("h5sparse_format", "csr")?;
 
         let mut data: ExtendableDataset<B, T> = ExtendableDataset::with_capacity(
             &group, "data", 1000.into(),
@@ -243,7 +243,7 @@ impl<T: BackendData> ArrayChunk for CsrNonCanonical<T> {
         data.finish()?;
         indptr.push(nnz);
         group.new_array_dataset("indptr", indptr.into(), Default::default())?;
-        group.new_array_attr("shape", &[num_rows as u64, num_cols.unwrap_or(0) as u64])?;
+        group.new_attr("shape", [num_rows as u64, num_cols.unwrap_or(0) as u64].as_slice())?;
         Ok(DataContainer::Group(group))
     }
 }

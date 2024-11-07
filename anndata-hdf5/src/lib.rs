@@ -10,7 +10,7 @@ use hdf5::{
     types::{FloatSize, TypeDescriptor, VarLenUnicode},
     File, Group, H5Type, Location, Selection,
 };
-use ndarray::{Array, ArrayBase, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfo, SliceInfoElem};
+use ndarray::{Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfo, SliceInfoElem};
 use std::ops::Deref;
 use std::ops::Index;
 use std::path::{Path, PathBuf};
@@ -433,116 +433,6 @@ fn path(loc: &Location) -> PathBuf {
     hdf5::Location::name(loc).into()
 }
 
-fn write_array_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Result<()>
-where
-    A: Into<ArrayView<'a, D, Dim>>,
-    D: BackendData,
-    Dim: Dimension,
-{
-    del_attr(loc, name);
-    let value = value.into().into_dyn().into();
-    match BackendData::into_dyn_arr(value) {
-        DynCowArray::U8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::U16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::U32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::U64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::I8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::I16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::I32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::I64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::F32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::F64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::Bool(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
-        DynCowArray::String(x) => {
-            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap()).into_dimensionality()?;
-            loc.new_attr_builder().with_data(data.view()).create(name)?
-        }
-    };
-    Ok(())
-}
-
-fn write_str_attr(loc: &Location, name: &str, value: &str) -> Result<()> {
-    let value_: VarLenUnicode = value.parse().unwrap();
-    let attr = loc
-        .attr(name)
-        .or(loc.new_attr::<VarLenUnicode>().create(name))?;
-    attr.write_scalar(&value_)?;
-    Ok(())
-}
-
-fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Result<()> {
-    del_attr(loc, name);
-    match value.into_dyn() {
-        DynScalar::U8(x) => loc.new_attr::<u8>().create(name)?.write_scalar(&x)?,
-        DynScalar::U16(x) => loc.new_attr::<u16>().create(name)?.write_scalar(&x)?,
-        DynScalar::U32(x) => loc.new_attr::<u32>().create(name)?.write_scalar(&x)?,
-        DynScalar::U64(x) => loc.new_attr::<u64>().create(name)?.write_scalar(&x)?,
-        DynScalar::I8(x) => loc.new_attr::<i8>().create(name)?.write_scalar(&x)?,
-        DynScalar::I16(x) => loc.new_attr::<i16>().create(name)?.write_scalar(&x)?,
-        DynScalar::I32(x) => loc.new_attr::<i32>().create(name)?.write_scalar(&x)?,
-        DynScalar::I64(x) => loc.new_attr::<i64>().create(name)?.write_scalar(&x)?,
-        DynScalar::F32(x) => loc.new_attr::<f32>().create(name)?.write_scalar(&x)?,
-        DynScalar::F64(x) => loc.new_attr::<f64>().create(name)?.write_scalar(&x)?,
-        DynScalar::Bool(x) => loc.new_attr::<bool>().create(name)?.write_scalar(&x)?,
-        DynScalar::String(x) => {
-            let value_: VarLenUnicode = x.parse().unwrap();
-            loc.new_attr::<VarLenUnicode>()
-                .create(name)?
-                .write_scalar(&value_)?
-        }
-    };
-    Ok(())
-}
-
-fn read_scalar_attr<T: BackendData>(loc: &Location, name: &str) -> Result<T> {
-    let attr = loc.attr(name)?;
-    let val = match T::DTYPE {
-        ScalarType::I8 => attr.read_scalar::<i8>()?.into_dyn(),
-        ScalarType::I16 => attr.read_scalar::<i16>()?.into_dyn(),
-        ScalarType::I32 => attr.read_scalar::<i32>()?.into_dyn(),
-        ScalarType::I64 => attr.read_scalar::<i64>()?.into_dyn(),
-        ScalarType::U8 => attr.read_scalar::<u8>()?.into_dyn(),
-        ScalarType::U16 => attr.read_scalar::<u16>()?.into_dyn(),
-        ScalarType::U32 => attr.read_scalar::<u32>()?.into_dyn(),
-        ScalarType::U64 => attr.read_scalar::<u64>()?.into_dyn(),
-        ScalarType::F32 => attr.read_scalar::<f32>()?.into_dyn(),
-        ScalarType::F64 => attr.read_scalar::<f64>()?.into_dyn(),
-        ScalarType::Bool => attr.read_scalar::<bool>()?.into_dyn(),
-        ScalarType::String => attr.read_scalar::<VarLenUnicode>()?.to_string().into_dyn(),
-    };
-    T::from_dyn(val)
-}
-
-fn read_array_attr<T: BackendData, D: Dimension>(
-    loc: &Location,
-    name: &str,
-) -> Result<Array<T, D>> {
-    let attr = loc.attr(name)?;
-    if attr.size() == 0 {
-        let shape = D::zeros(D::NDIM.unwrap_or(0));
-        ArrayBase::from_shape_vec(shape, vec![]).map_err(|e| e.into())
-    } else {
-        let array: DynArray = match T::DTYPE {
-            ScalarType::I8 => attr.read::<i8, D>()?.into(),
-            ScalarType::I16 => attr.read::<i16, D>()?.into(),
-            ScalarType::I32 => attr.read::<i32, D>()?.into(),
-            ScalarType::I64 => attr.read::<i64, D>()?.into(),
-            ScalarType::U8 => attr.read::<u8, D>()?.into(),
-            ScalarType::U16 => attr.read::<u16, D>()?.into(),
-            ScalarType::U32 => attr.read::<u32, D>()?.into(),
-            ScalarType::U64 => attr.read::<u64, D>()?.into(),
-            ScalarType::F32 => attr.read::<f32, D>()?.into(),
-            ScalarType::F64 => attr.read::<f64, D>()?.into(),
-            ScalarType::Bool => attr.read::<bool, D>()?.into(),
-            ScalarType::String => {
-                let s = attr.read::<VarLenUnicode, D>()?;
-                s.map(|s| s.to_string()).into()
-            }
-        };
-        Ok(BackendData::from_dyn_arr(array)?.into_dimensionality::<D>()?)
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Derived implementations
 ////////////////////////////////////////////////////////////////////////////////
@@ -642,29 +532,29 @@ impl AttributeOp<H5> for H5Group {
         path(self)
     }
 
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        write_array_attr(self, name, value)
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
+        match value {
+            Value::Null => Ok(()),
+            Value::Bool(b) => write_scalar_attr(self, name, *b),
+            Value::Number(n) => n.as_u64().map(|i| write_scalar_attr(self, name, i))
+                .or_else(|| n.as_i64().map(|i| write_scalar_attr(self, name, i)))
+                .or_else(|| n.as_f64().map(|i| write_scalar_attr(self, name, i)))
+                .expect("number cannot be converted to u64, i64 or f64"),
+            Value::String(s) => write_scalar_attr(self, name, s.clone()),
+            Value::Array(_) => json_to_ndarray(value, |x| x.as_i64())?.map(|x| write_array_attr(self, name, &x))
+                .or_else(|| json_to_ndarray(value, |x| x.as_f64()).unwrap().map(|x| write_array_attr(self, name, &x)))
+                .or_else(|| json_to_ndarray(value, |x| x.as_str().map(|s| s.to_string())).unwrap().map(|x| write_array_attr(self, name, &x)))
+                .expect("array cannot be converted to i64, f64 or string"),
+            Value::Object(_) => bail!("attributes of object type are not supported"),
+        }
     }
 
-    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
-        write_scalar_attr(self, name, value)
-    }
-
-    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
-        write_str_attr(self, name, value)
-    }
-
-    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
-        read_scalar_attr(self, name)
-    }
-
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        read_array_attr(self, name)
+    fn get_json_attr(&self, name: &str) -> Result<Value> {
+        if self.attr(name)?.is_scalar() {
+            read_scalar_attr(self, name)
+        } else {
+            read_array_attr(self, name)
+        }
     }
 }
 
@@ -677,35 +567,117 @@ impl AttributeOp<H5> for H5Dataset {
         path(self)
     }
 
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        write_array_attr(self, name, value)
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
+        match value {
+            Value::Null => Ok(()),
+            Value::Bool(b) => write_scalar_attr(self, name, *b),
+            Value::Number(n) => n.as_u64().map(|i| write_scalar_attr(self, name, i))
+                .or_else(|| n.as_i64().map(|i| write_scalar_attr(self, name, i)))
+                .or_else(|| n.as_f64().map(|i| write_scalar_attr(self, name, i)))
+                .expect("number cannot be converted to u64, i64 or f64"),
+            Value::String(s) => write_scalar_attr(self, name, s.clone()),
+            Value::Array(_) => json_to_ndarray(value, |x| x.as_i64())?.map(|x| write_array_attr(self, name, &x))
+                .or_else(|| json_to_ndarray(value, |x| x.as_f64()).unwrap().map(|x| write_array_attr(self, name, &x)))
+                .or_else(|| json_to_ndarray(value, |x| x.as_str().map(|s| s.to_string())).unwrap().map(|x| write_array_attr(self, name, &x)))
+                .expect("array cannot be converted to i64, f64 or string"),
+            Value::Object(_) => bail!("attributes of object type are not supported"),
+        }
     }
 
-    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
-        write_scalar_attr(self, name, value)
-    }
-
-    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
-        write_str_attr(self, name, value)
-    }
-
-    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
-        read_scalar_attr(self, name)
-    }
-
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        read_array_attr(self, name)
+    fn get_json_attr(&self, name: &str) -> Result<Value> {
+        if self.attr(name)?.is_scalar() {
+            read_scalar_attr(self, name)
+        } else {
+            read_array_attr(self, name)
+        }
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Auxiliary functions
 ///////////////////////////////////////////////////////////////////////////////
+fn read_scalar_attr(loc: &Location, name: &str) -> Result<Value> {
+    let attr = loc.attr(name)?;
+    let result = match attr.dtype()?.to_descriptor()? {
+        TypeDescriptor::VarLenUnicode => attr.read_scalar::<VarLenUnicode>()?.to_string().into(),
+        TypeDescriptor::VarLenAscii => attr.read_scalar::<VarLenUnicode>()?.to_string().into(),
+        TypeDescriptor::Boolean => attr.read_scalar::<bool>()?.into(),
+        TypeDescriptor::Unsigned(_) => attr.read_scalar::<u64>()?.into(),
+        TypeDescriptor::Integer(_) => attr.read_scalar::<i64>()?.into(),
+        TypeDescriptor::Float(_) => attr.read_scalar::<f64>()?.into(),
+        v => bail!("Unsupported type {}", v),
+    };
+    Ok(result)
+}
+
+fn read_array_attr(
+    loc: &Location,
+    name: &str,
+) -> Result<Value> {
+    let attr = loc.attr(name)?;
+    let result = match attr.dtype()?.to_descriptor()? {
+        TypeDescriptor::VarLenUnicode => ndarray_to_json(&attr.read::<VarLenUnicode, IxDyn>()?.mapv(|x| x.to_string())),
+        TypeDescriptor::VarLenAscii => ndarray_to_json(&attr.read::<VarLenUnicode, IxDyn>()?.mapv(|x| x.to_string())),
+        TypeDescriptor::Boolean => ndarray_to_json(&attr.read::<bool, IxDyn>()?),
+        TypeDescriptor::Unsigned(_) => ndarray_to_json(&attr.read::<u64, IxDyn>()?),
+        TypeDescriptor::Integer(_) => ndarray_to_json(&attr.read::<i64, IxDyn>()?),
+        TypeDescriptor::Float(_) => ndarray_to_json(&attr.read::<f64, IxDyn>()?),
+        v => bail!("Unsupported type {}", v),
+    };
+    Ok(result)
+}
+
+fn write_array_attr<'a, A, D, Dim>(loc: &Location, name: &str, value: A) -> Result<()>
+where
+    A: Into<ArrayView<'a, D, Dim>>,
+    D: BackendData,
+    Dim: Dimension,
+{
+    del_attr(loc, name);
+    let value = value.into().into_dyn().into();
+    match BackendData::into_dyn_arr(value) {
+        DynCowArray::U8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::U64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I8(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I16(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::I64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::F32(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::F64(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::Bool(x) => loc.new_attr_builder().with_data(x.view()).create(name)?,
+        DynCowArray::String(x) => {
+            let data: Array<VarLenUnicode, Dim> = x.map(|x| x.parse().unwrap()).into_dimensionality()?;
+            loc.new_attr_builder().with_data(data.view()).create(name)?
+        }
+    };
+    Ok(())
+}
+
+fn write_scalar_attr<D: BackendData>(loc: &Location, name: &str, value: D) -> Result<()> {
+    del_attr(loc, name);
+    match value.into_dyn() {
+        DynScalar::U8(x) => loc.new_attr::<u8>().create(name)?.write_scalar(&x)?,
+        DynScalar::U16(x) => loc.new_attr::<u16>().create(name)?.write_scalar(&x)?,
+        DynScalar::U32(x) => loc.new_attr::<u32>().create(name)?.write_scalar(&x)?,
+        DynScalar::U64(x) => loc.new_attr::<u64>().create(name)?.write_scalar(&x)?,
+        DynScalar::I8(x) => loc.new_attr::<i8>().create(name)?.write_scalar(&x)?,
+        DynScalar::I16(x) => loc.new_attr::<i16>().create(name)?.write_scalar(&x)?,
+        DynScalar::I32(x) => loc.new_attr::<i32>().create(name)?.write_scalar(&x)?,
+        DynScalar::I64(x) => loc.new_attr::<i64>().create(name)?.write_scalar(&x)?,
+        DynScalar::F32(x) => loc.new_attr::<f32>().create(name)?.write_scalar(&x)?,
+        DynScalar::F64(x) => loc.new_attr::<f64>().create(name)?.write_scalar(&x)?,
+        DynScalar::Bool(x) => loc.new_attr::<bool>().create(name)?.write_scalar(&x)?,
+        DynScalar::String(x) => {
+            let value_: VarLenUnicode = x.parse().unwrap();
+            loc.new_attr::<VarLenUnicode>()
+                .create(name)?
+                .write_scalar(&value_)?
+        }
+    };
+    Ok(())
+}
 
 fn into_selection<S, E>(selection: S, shape: Shape) -> (Selection, Shape)
 where
@@ -733,6 +705,69 @@ fn del_attr(loc: &Location, name: &str) {
             hdf5_sys::h5a::H5Adelete(loc.id(), c_name);
         }
     }
+}
+
+fn json_to_ndarray<F, T>(json: &Value, f: F) -> Result<Option<ArrayD<T>>>
+where
+    F: Fn(&Value) -> Option<T>,
+{
+    // Recursively determine the shape of the JSON array
+    fn get_shape(value: &Value) -> Vec<usize> {
+        let mut shape = Vec::new();
+        let mut current = value;
+        while let Value::Array(arr) = current {
+            shape.push(arr.len());
+            if arr.is_empty() {
+                break;
+            }
+            current = &arr[0];
+        }
+        shape
+    }
+
+    // Recursively flatten the JSON array to a Vec<i32>
+    fn flatten_array<F, T>(value: &Value, f: &F) -> Option<Vec<T>>
+    where
+        F: Fn(&Value) -> Option<T>,
+    {
+        match value {
+            Value::Array(arr) => {
+                let mut flattened = Vec::new();
+                for item in arr {
+                    flattened.extend(flatten_array(item, f)?);
+                }
+                Some(flattened)
+            }
+            v => Some(vec![f(v)?]),
+        }
+    }
+
+    // Get the shape and flatten the JSON
+    let shape = get_shape(json);
+    if let Some(flattened_data) = flatten_array(json, &f) {
+        Ok(Some(ArrayD::from_shape_vec(IxDyn(&shape), flattened_data)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn ndarray_to_json<T: Into<Value> + Clone>(array: &ArrayD<T>) -> Value {
+    // Helper function to recursively convert ndarray to nested Vecs
+    fn recursive_convert<T: Into<Value> + Clone>(array: &ArrayD<T>) -> Value {
+        if array.ndim() == 1 {
+            // Base case: 1D array, convert to Vec and serialize
+            let vec = array.iter().cloned().collect::<Vec<T>>();
+            vec.into()
+        } else {
+            // Recursive case: split along the first axis and apply recursively
+            let nested_vec = array.outer_iter().map(|sub_array| {
+                recursive_convert(&sub_array.to_owned().into_dyn())
+            }).collect::<Vec<Value>>();
+            Value::Array(nested_vec)
+        }
+    }
+
+    recursive_convert(array)
 }
 
 /// test module

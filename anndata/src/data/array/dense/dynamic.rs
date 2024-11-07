@@ -59,8 +59,8 @@ macro_rules! impl_from_dynscalar {
                     } else {
                         "numeric-scalar"
                     };
-                    container.new_str_attr("encoding-type", encoding_type)?;
-                    container.new_str_attr("encoding-version", "0.2.0")?;
+                    container.new_attr("encoding-type", encoding_type)?;
+                    container.new_attr("encoding-version", "0.2.0")?;
                     Ok(container)
                 }
             }

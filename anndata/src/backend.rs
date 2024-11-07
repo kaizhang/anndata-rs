@@ -4,8 +4,10 @@ pub use datatype::{BackendData, DataType, ScalarType};
 
 use anyhow::{bail, Result};
 use core::fmt::{Debug, Formatter};
-use ndarray::{arr0, Array, ArrayView, CowArray, Dimension, Ix0, IxDyn};
+use ndarray::{arr0, Array, CowArray, Dimension, Ix0, IxDyn};
 use std::path::{Path, PathBuf};
+pub use serde_json::Value;
+use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub struct WriteConfig {
@@ -123,30 +125,21 @@ pub trait AttributeOp<B: Backend + ?Sized> {
     /// Returns the path of the location relative to the file root.
     fn path(&self) -> PathBuf;
 
-    /// Write a array-like attribute at a given location.
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
+    /// Write a attribute at a given location.
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()>;
+
+    fn get_json_attr(&self, name: &str) -> Result<Value>;
+
+    fn get_attr<'de, T>(&self, name: &str) -> Result<T>
     where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension;
-
-    /// Write a scalar attribute at a given location. This function should be able to
-    /// overwrite existing attributes.
-    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
-        self.new_array_attr(name, &arr0(value.clone()))
+        T: Deserialize<'de>,
+    {
+        let value = self.get_json_attr(name)?;
+        T::deserialize(value).map_err(|e| e.into())
     }
 
-    fn new_str_attr(&mut self, name: &str, value: &str) -> Result<()> {
-        self.new_scalar_attr(name, value.to_string())
-    }
-
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>>;
-
-    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
-        self.get_array_attr::<T, Ix0>(name).map(|x| x.into_scalar())
-    }
-    fn get_str_attr(&self, name: &str) -> Result<String> {
-        self.get_scalar_attr(name)
+    fn new_attr<T: Into<Value>>(&mut self, name: &str, value: T) -> Result<()> {
+        self.new_json_attr(name, &value.into())
     }
 }
 
@@ -271,37 +264,18 @@ impl<B: Backend> AttributeOp<B> for DataContainer<B> {
         }
     }
 
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()>
     {
         match self {
-            DataContainer::Group(g) => g.new_array_attr(name, value),
-            DataContainer::Dataset(d) => d.new_array_attr(name, value),
+            DataContainer::Group(g) => g.new_json_attr(name, value),
+            DataContainer::Dataset(d) => d.new_json_attr(name, value),
             DataContainer::Null => bail!("Null container"),
         }
     }
-    fn new_scalar_attr<D: BackendData>(&mut self, name: &str, value: D) -> Result<()> {
+    fn get_json_attr(&self, name: &str) -> Result<Value> {
         match self {
-            DataContainer::Group(g) => g.new_scalar_attr(name, value),
-            DataContainer::Dataset(d) => d.new_scalar_attr(name, value),
-            DataContainer::Null => bail!("Null container"),
-        }
-    }
-
-    fn get_scalar_attr<T: BackendData>(&self, name: &str) -> Result<T> {
-        match self {
-            DataContainer::Group(g) => g.get_scalar_attr(name),
-            DataContainer::Dataset(d) => d.get_scalar_attr(name),
-            DataContainer::Null => bail!("Null container"),
-        }
-    }
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        match self {
-            DataContainer::Group(g) => g.get_array_attr(name),
-            DataContainer::Dataset(d) => d.get_array_attr(name),
+            DataContainer::Group(g) => g.get_json_attr(name),
+            DataContainer::Dataset(d) => d.get_json_attr(name),
             DataContainer::Null => bail!("Null container"),
         }
     }
@@ -335,10 +309,10 @@ impl<B: Backend> DataContainer<B> {
     pub fn encoding_type(&self) -> Result<DataType> {
         let enc = match self {
             DataContainer::Group(group) => group
-                .get_str_attr("encoding-type")
+                .get_attr("encoding-type")
                 .unwrap_or("mapping".to_string()),
             DataContainer::Dataset(dataset) => dataset
-                .get_str_attr("encoding-type")
+                .get_attr("encoding-type")
                 .unwrap_or("numeric-scalar".to_string()),
             DataContainer::Null => bail!("Null container"),
         };

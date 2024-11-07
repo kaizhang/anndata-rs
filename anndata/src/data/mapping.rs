@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::Result;
 
+use super::{Element, Encoding};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mapping(HashMap<String, Data>);
 
@@ -28,6 +30,25 @@ impl Deref for Mapping {
     }
 }
 
+impl Element for Mapping {
+    fn encoding(&self) -> Encoding {
+        Encoding{
+            encoding_type: "dict",
+            version: "0.1.0",
+            attributes: None,
+        }
+    }
+}
+
+impl Readable for Mapping {
+    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+        let data: Result<_> = iter_containers::<B>(container.as_group()?).map(|(k, v)| {
+            Ok((k.to_owned(), Data::read(&v)?))
+        }).collect();
+        Ok(Mapping(data?))
+    }
+}
+
 impl Writable for Mapping {
     fn data_type(&self) -> DataType {
         DataType::Mapping
@@ -38,14 +59,5 @@ impl Writable for Mapping {
             .iter()
             .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;
         Ok(DataContainer::Group(group))
-    }
-}
-
-impl Readable for Mapping {
-    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        let data: Result<_> = iter_containers::<B>(container.as_group()?).map(|(k, v)| {
-            Ok((k.to_owned(), Data::read(&v)?))
-        }).collect();
-        Ok(Mapping(data?))
     }
 }

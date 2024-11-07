@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, DataType};
 use crate::data::{
     array::slice::{SelectInfoElem, Shape},
@@ -5,6 +7,16 @@ use crate::data::{
 };
 
 use anyhow::Result;
+
+pub(crate) struct Encoding {
+    pub(crate) encoding_type: &'static str,
+    pub(crate) version: &'static str,
+    pub(crate) attributes: Option<HashMap<String, String>>,
+}
+
+pub(crate) trait Element {
+    fn encoding(&self) -> Encoding;
+}
 
 /// Read data from a backend
 pub trait Readable {

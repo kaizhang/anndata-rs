@@ -330,27 +330,20 @@ impl AttributeOp<Zarr> for ZarrGroup {
         self.group.path().as_path().to_path_buf()
     }
 
-    /// Write a array-like attribute at a given location.
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        let value = serde_json::to_value(value.into().into_dyn())?;
-        self.group.attributes_mut().insert(name.to_string(), value);
+    /// Write an attribute at a given location.
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
+        self.group.attributes_mut().insert(name.to_string(), value.clone());
         self.group.store_metadata()?;
         Ok(())
     }
 
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        let attr = self
+    fn get_json_attr(&self, name: &str) -> Result<Value> {
+        Ok(self
             .group
             .attributes()
             .get(name)
-            .with_context(|| format!("Attribute {} not found", name))?;
-        let arr: ArrayD<T> = serde_json::from_value(attr.clone())?;
-        Ok(arr.into_dimensionality::<D>()?)
+            .with_context(|| format!("Attribute {} not found", name))?.clone()
+        )
     }
 }
 
@@ -365,29 +358,20 @@ impl AttributeOp<Zarr> for ZarrDataset {
         self.dataset.path().as_path().to_path_buf()
     }
 
-    /// Write a array-like attribute at a given location.
-    fn new_array_attr<'a, A, D, Dim>(&mut self, name: &str, value: A) -> Result<()>
-    where
-        A: Into<ArrayView<'a, D, Dim>>,
-        D: BackendData,
-        Dim: Dimension,
-    {
-        let value = serde_json::to_value(value.into().into_dyn())?;
-        self.dataset
-            .attributes_mut()
-            .insert(name.to_string(), value);
+    /// Write an attribute at a given location.
+    fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
+        self.dataset.attributes_mut().insert(name.to_string(), value.clone());
         self.dataset.store_metadata()?;
         Ok(())
     }
 
-    fn get_array_attr<T: BackendData, D: Dimension>(&self, name: &str) -> Result<Array<T, D>> {
-        let attr = self
+    fn get_json_attr(&self, name: &str) -> Result<Value> {
+        Ok(self
             .dataset
             .attributes()
             .get(name)
-            .with_context(|| format!("Attribute {} not found", name))?;
-        let arr: ArrayD<T> = serde_json::from_value(attr.clone())?;
-        Ok(arr.into_dimensionality::<D>()?)
+            .with_context(|| format!("Attribute {} not found", name))?.clone()
+        )
     }
 }
 

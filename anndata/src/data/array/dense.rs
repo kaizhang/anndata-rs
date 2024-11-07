@@ -35,8 +35,8 @@ impl<'a, T: BackendData, D: Dimension> Writable for ArrayView<'a, T, D> {
             "array"
         };
         let mut container = DataContainer::<B>::Dataset(dataset);
-        container.new_str_attr("encoding-type", encoding_type)?;
-        container.new_str_attr("encoding-version", "0.2.0")?;
+        container.new_attr("encoding-type", encoding_type)?;
+        container.new_attr("encoding-version", "0.2.0")?;
         Ok(container)
     }
 }
@@ -202,6 +202,16 @@ impl<'a> FromIterator<Option<&'a str>> for CategoricalArray {
     }
 }
 
+impl Element for CategoricalArray {
+    fn encoding(&self) -> Encoding {
+        Encoding {
+            encoding_type: "categorical",
+            version: "0.2.0",
+            attributes: None,
+        }
+    }
+}
+
 impl Writable for CategoricalArray {
     fn data_type(&self) -> DataType {
         DataType::Categorical
@@ -212,9 +222,9 @@ impl Writable for CategoricalArray {
         name: &str,
     ) -> Result<DataContainer<B>> {
         let mut group = location.new_group(name)?;
-        group.new_str_attr("encoding-type", "categorical")?;
-        group.new_str_attr("encoding-version", "0.2.0")?;
-        group.new_scalar_attr("ordered", false)?;
+        group.new_attr("encoding-type", "categorical")?;
+        group.new_attr("encoding-version", "0.2.0")?;
+        group.new_attr("ordered", false)?;
 
         group.new_array_dataset(
             "codes",

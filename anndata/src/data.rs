@@ -1,7 +1,7 @@
 pub mod array;
 pub mod data_traits;
-pub mod mapping;
 pub mod index;
+pub mod mapping;
 
 pub use array::*;
 pub use data_traits::*;
@@ -9,10 +9,10 @@ pub use mapping::*;
 
 use crate::backend::{Backend, DataContainer, DataType, GroupOp};
 
-use ndarray::{Array, RemoveAxis};
 use anyhow::{bail, Ok, Result};
-use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::csc::CscMatrix;
+use nalgebra_sparse::csr::CsrMatrix;
+use ndarray::{Array, RemoveAxis};
 use polars::frame::DataFrame;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +140,24 @@ impl TryFrom<Data> for Mapping {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Data traits
+////////////////////////////////////////////////////////////////////////////////
+
+impl Readable for Data {
+    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
+        match container.encoding_type()? {
+            DataType::Categorical
+            | DataType::Array(_)
+            | DataType::DataFrame
+            | DataType::CscMatrix(_)
+            | DataType::CsrMatrix(_) => ArrayData::read(container).map(|x| x.into()),
+            DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
+            DataType::Mapping => Mapping::read(container).map(|x| x.into()),
+        }
+    }
+}
+
 impl Writable for Data {
     fn data_type(&self) -> DataType {
         match self {
@@ -157,25 +175,6 @@ impl Writable for Data {
             Data::ArrayData(data) => data.write(location, name),
             Data::Scalar(data) => data.write(location, name),
             Data::Mapping(data) => data.write(location, name),
-        }
-    }
-}
-
-impl Readable for Data {
-    fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
-        match container.encoding_type()? {
-            DataType::Categorical | DataType::Array(_) => {
-                DynArray::read(container).map(|x| ArrayData::from(x).into())
-            },
-            DataType::CsrMatrix(_) => {
-                DynCsrMatrix::read(container).map(|x| ArrayData::from(x).into())
-            },
-            DataType::CscMatrix(_) => {
-                DynCscMatrix::read(container).map(|x| ArrayData::from(x).into())
-            },
-            DataType::DataFrame => DataFrame::read(container).map(|x| ArrayData::from(x).into()),
-            DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
-            DataType::Mapping => Mapping::read(container).map(|x| x.into()),
         }
     }
 }

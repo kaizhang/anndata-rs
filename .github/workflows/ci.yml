@@ -35,12 +35,14 @@ jobs:
         #pytest ${GITHUB_WORKSPACE}/python/tests
 
     - name: benchmark
-      run: cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
+      run: |
+        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
+        cd ${GITHUB_WORKSPACE}
 
     - uses: actions/upload-artifact@v4
       with:
         name: benchmark
-        path: ${GITHUB_WORKSPACE}/target/criterion
+        path: target/criterion
 
     #- name: Build doc
     #  run: |
