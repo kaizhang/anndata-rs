@@ -158,7 +158,7 @@ impl Readable for Data {
     }
 }
 
-impl Writable for Data {
+impl Element for Data {
     fn data_type(&self) -> DataType {
         match self {
             Data::ArrayData(data) => data.data_type(),
@@ -166,6 +166,17 @@ impl Writable for Data {
             Data::Mapping(data) => data.data_type(),
         }
     }
+
+    fn metadata(&self) -> MetaData {
+        match self {
+            Data::ArrayData(data) => data.metadata(),
+            Data::Scalar(data) => data.metadata(),
+            Data::Mapping(data) => data.metadata(),
+        }
+    }
+}
+
+impl Writable for Data {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,

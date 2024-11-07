@@ -241,7 +241,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         self.n_obs.try_set(index.len())?;
         if self.obs.is_none() {
-            let df = InnerDataFrameElem::new(&self.file, "obs", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(&self.file, "obs", Some(index), &DataFrame::empty())?;
             self.obs.insert(df);
         } else {
             self.obs.inner().set_index(index)?;
@@ -252,7 +252,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         self.n_vars.try_set(index.len())?;
         if self.var.is_none() {
-            let df = InnerDataFrameElem::new(&self.file, "var", index, &DataFrame::empty())?;
+            let df = InnerDataFrameElem::new(&self.file, "var", Some(index), &DataFrame::empty())?;
             self.var.insert(df);
         } else {
             self.var.inner().set_index(index)?;
@@ -308,7 +308,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
                 self.obs.insert(InnerDataFrameElem::new(
                     &self.file,
                     "obs",
-                    DataFrameIndex::from(nrows),
+                    None,
                     &obs,
                 )?);
             } else {
@@ -326,7 +326,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
                 self.var.insert(InnerDataFrameElem::new(
                     &self.file,
                     "var",
-                    DataFrameIndex::from(nrows),
+                    None,
                     &var,
                 )?);
             } else {

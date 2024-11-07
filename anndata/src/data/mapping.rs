@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use anyhow::Result;
 
-use super::{Element, Encoding};
+use super::{Element, MetaData};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mapping(HashMap<String, Data>);
@@ -31,12 +31,12 @@ impl Deref for Mapping {
 }
 
 impl Element for Mapping {
-    fn encoding(&self) -> Encoding {
-        Encoding{
-            encoding_type: "dict",
-            version: "0.1.0",
-            attributes: None,
-        }
+    fn data_type(&self) -> DataType {
+        DataType::Mapping
+    }
+
+    fn metadata(&self) -> MetaData {
+        MetaData::new("dict", "0.1.0", None)
     }
 }
 
@@ -50,11 +50,9 @@ impl Readable for Mapping {
 }
 
 impl Writable for Mapping {
-    fn data_type(&self) -> DataType {
-        DataType::Mapping
-    }
     fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-        let group = location.new_group(name)?;
+        let mut group = location.new_group(name)?;
+        self.metadata().save_metadata(&mut group)?;
         self.0
             .iter()
             .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;

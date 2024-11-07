@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
@@ -12,6 +14,18 @@ use nalgebra_sparse::pattern::SparsityPattern;
 use ndarray::Ix1;
 
 use super::super::slice::SliceBounds;
+
+impl<T: BackendData> Element for CsrMatrix<T> {
+    fn data_type(&self) -> DataType {
+        DataType::CsrMatrix(T::DTYPE)
+    }
+
+    fn metadata(&self) -> MetaData {
+        let mut metadata = HashMap::new();
+        metadata.insert("shape".to_string(), self.shape().into());
+        MetaData::new("csr_matrix", "0.1.0", Some(metadata))
+    }
+}
 
 impl<T> HasShape for CsrMatrix<T> {
     fn shape(&self) -> Shape {
@@ -206,9 +220,6 @@ impl<T: Clone> Stackable for CsrMatrix<T> {
 }
 
 impl<T: BackendData> Writable for CsrMatrix<T> {
-    fn data_type(&self) -> DataType {
-        DataType::CsrMatrix(T::DTYPE)
-    }
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
@@ -217,10 +228,7 @@ impl<T: BackendData> Writable for CsrMatrix<T> {
         let mut group = location.new_group(name)?;
         let shape = self.shape();
 
-        group.new_attr("encoding-type", "csr_matrix")?;
-        group.new_attr("encoding-version", "0.1.0")?;
-        group.new_attr("shape", shape.as_ref().iter().map(|x| *x as u64).collect::<Vec<_>>())?;
-
+        self.metadata().save_metadata(&mut group)?;
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
         let num_cols = shape[1];

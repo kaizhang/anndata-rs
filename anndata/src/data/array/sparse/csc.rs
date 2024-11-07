@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::backend::*;
 use crate::data::{
     array::utils::{cs_major_index, cs_major_minor_index, cs_major_slice},
@@ -195,10 +197,19 @@ impl<T: BackendData + Clone> Selectable for CscMatrix<T> {
     }
 }
 
-impl<T: BackendData> Writable for CscMatrix<T> {
+impl<T: BackendData> Element for CscMatrix<T> {
     fn data_type(&self) -> DataType {
         DataType::CscMatrix(T::DTYPE)
     }
+
+    fn metadata(&self) -> MetaData {
+        let mut metadata = HashMap::new();
+        metadata.insert("shape".to_string(), self.shape().into());
+        MetaData::new("csc_matrix", "0.1.0", Some(metadata))
+    }
+}
+
+impl<T: BackendData> Writable for CscMatrix<T> {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
@@ -207,17 +218,7 @@ impl<T: BackendData> Writable for CscMatrix<T> {
         let mut group = location.new_group(name)?;
         let shape = self.shape();
 
-        group.new_attr("encoding-type", "csc_matrix")?;
-        group.new_attr("encoding-version", "0.1.0")?;
-        group.new_attr(
-            "shape",
-            shape
-                .as_ref()
-                .into_iter()
-                .map(|x| *x as u64)
-                .collect::<Vec<_>>(),
-        )?;
-
+        self.metadata().save_metadata(&mut group)?;
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
         let num_rows = shape[0];

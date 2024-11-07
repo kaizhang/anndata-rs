@@ -56,10 +56,17 @@ impl_dyncsr_traits!(
     bool, Bool, String, String
 );
 
-impl Writable for DynCsrMatrix {
+impl Element for DynCsrMatrix {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynCsrMatrix, data_type)
     }
+
+    fn metadata(&self) -> MetaData {
+        crate::macros::dyn_map_fun!(self, DynCsrMatrix, metadata)
+    }
+}
+
+impl Writable for DynCsrMatrix {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
@@ -223,11 +230,17 @@ impl_dyncsc_traits!(
     bool, Bool, String, String
 );
 
-impl Writable for DynCscMatrix {
+impl Element for DynCscMatrix {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynCscMatrix, data_type)
     }
 
+    fn metadata(&self) -> MetaData {
+        crate::macros::dyn_map_fun!(self, DynCscMatrix, metadata)
+    }
+}
+
+impl Writable for DynCscMatrix {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,

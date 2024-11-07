@@ -7,32 +7,76 @@ use crate::data::{
 };
 
 use anyhow::Result;
+use serde_json::Value;
 
-pub(crate) struct Encoding {
-    pub(crate) encoding_type: &'static str,
-    pub(crate) version: &'static str,
-    pub(crate) attributes: Option<HashMap<String, String>>,
+pub struct MetaData {
+    encoding_type: &'static str,
+    version: &'static str,
+    metadata: Option<HashMap<String, Value>>,
 }
 
-pub(crate) trait Element {
-    fn encoding(&self) -> Encoding;
+impl MetaData {
+    pub(crate) fn new(
+        encoding_type: &'static str,
+        version: &'static str,
+        metadata: Option<HashMap<String, Value>>
+    ) -> Self {
+        Self {
+            encoding_type,
+            version,
+            metadata,
+        }
+    }
+
+    pub(crate) fn save_metadata<B: Backend, A: AttributeOp<B>>(self, loc: &mut A) -> Result<()> {
+        loc.new_attr("encoding-type", self.encoding_type)?;
+        loc.new_attr("encoding-version", self.version)?;
+        if let Some(metadata) = self.metadata {
+            for (key, value) in metadata.into_iter() {
+                loc.new_attr(&key, value)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub trait Element {
+    fn data_type(&self) -> DataType;
+
+    fn metadata(&self) -> MetaData;
+}
+
+impl<T> Element for &T
+where
+    T: Element,
+{
+    fn data_type(&self) -> DataType {
+        (*self).data_type()
+    }
+
+    fn metadata(&self) -> MetaData {
+        (*self).metadata()
+    }
 }
 
 /// Read data from a backend
-pub trait Readable {
+pub trait Readable: Element {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self>
     where
         Self: Sized;
 }
 
 /// Write data to a backend
-pub trait Writable {
-    fn data_type(&self) -> DataType;
+pub trait Writable: Element {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>>;
+
+    /// Overwrite the data in the container. The default implementation deletes the 
+    /// container and creates a new one. The data is then written to the new container.
+    /// Specialized implementations may choose to overwrite the data in place.
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
         let file = container.store()?;
         let path = container.path();
@@ -47,9 +91,6 @@ impl<T> Writable for &T
 where
     T: Writable,
 {
-    fn data_type(&self) -> DataType {
-        (*self).data_type()
-    }
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,

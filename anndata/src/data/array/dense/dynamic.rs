@@ -47,20 +47,26 @@ macro_rules! impl_from_dynscalar {
                 }
             }
 
-            impl Writable for $from {
+            impl Element for $from {
                 fn data_type(&self) -> DataType {
                     DataType::Scalar(ScalarType::$to)
                 }
-                fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
-                    let dataset = location.new_scalar_dataset(name, self)?;
-                    let mut container = DataContainer::Dataset(dataset);
+
+                fn metadata(&self) -> MetaData {
                     let encoding_type = if $from::DTYPE == ScalarType::String {
                         "string"
                     } else {
                         "numeric-scalar"
                     };
-                    container.new_attr("encoding-type", encoding_type)?;
-                    container.new_attr("encoding-version", "0.2.0")?;
+                    MetaData::new(encoding_type, "0.2.0", None)
+                }
+            }
+
+            impl Writable for $from {
+                fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
+                    let dataset = location.new_scalar_dataset(name, self)?;
+                    let mut container = DataContainer::Dataset(dataset);
+                    self.metadata().save_metadata(&mut container)?;
                     Ok(container)
                 }
             }
@@ -73,16 +79,17 @@ impl_from_dynscalar!(
     bool, Bool, String, String
 );
 
-impl Writable for DynScalar {
+impl Element for DynScalar {
     fn data_type(&self) -> DataType {
-        macro_rules! dtype {
-            ($variant:ident, $exp:expr) => {
-                DataType::Scalar(ScalarType::$variant)
-            };
-        }
-        crate::macros::dyn_map!(self, DynScalar, dtype)
+        crate::macros::dyn_map_fun!(self, DynScalar, data_type)
     }
 
+    fn metadata(&self) -> MetaData {
+        crate::macros::dyn_map_fun!(self, DynScalar, metadata)
+    }
+}
+
+impl Writable for DynScalar {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
@@ -205,11 +212,17 @@ impl Into<Series> for DynArray {
     }
 }
 
-impl Writable for DynArray {
+impl Element for DynArray {
     fn data_type(&self) -> DataType {
         crate::macros::dyn_map_fun!(self, DynArray, data_type)
     }
 
+    fn metadata(&self) -> MetaData {
+        crate::macros::dyn_map_fun!(self, DynArray, metadata)
+    }
+}
+
+impl Writable for DynArray {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,

@@ -124,14 +124,17 @@ impl<B: Backend> InnerDataFrameElem<B> {
     pub fn new<G: GroupOp<B>>(
         location: &G,
         name: &str,
-        index: DataFrameIndex,
+        index: Option<DataFrameIndex>,
         df: &DataFrame,
     ) -> Result<Self> {
+        let index = index.unwrap_or(df.height().into());
         ensure!(
             df.height() == 0 || index.len() == df.height(),
             "cannot create dataframe element as lengths of index and dataframe differ"
         );
-        let container = df.overwrite(index.write(location, name)?)?;
+        let mut container = df.write(location, name)?;
+        index.overwrite(&mut container)?;
+
         let column_names = df
             .get_column_names()
             .into_iter()
@@ -183,8 +186,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
             "cannot change the index as the lengths differ"
         );
         self.index = index;
-        let container = std::mem::take(&mut self.container);
-        let _ = std::mem::replace(&mut self.container, self.index.overwrite(container)?);
+        self.index.overwrite(&mut self.container)?;
         Ok(())
     }
 
@@ -204,8 +206,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
             Some(ref df) => df.clone(),
             None => DataFrame::read(&self.container)?,
         };
-        df.overwrite(self.index.write(location, name)?)?;
-        Ok(())
+        let mut container = df.write(location, name)?;
+        self.index.overwrite(&mut container)
     }
 
     pub fn export_select<O, G>(
@@ -221,9 +223,8 @@ impl<B: Backend> InnerDataFrameElem<B> {
         if selection.as_ref().into_iter().all(|x| x.is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            self.select(selection)?
-                .overwrite(self.index.select(&selection[0]).write(location, name)?)?;
-            Ok(())
+            let mut container = self.select(selection)?.write(location, name)?;
+            self.index.select(&selection[0]).overwrite(&mut container)
         }
     }
 
@@ -277,13 +278,13 @@ impl<B: Backend> InnerDataFrameElem<B> {
         Ok(())
     }
 
+    /// inplace subsetting the DataFrameElem.
     pub fn subset<S>(&mut self, selection: &[S]) -> Result<()>
     where
         S: AsRef<SelectInfoElem>,
     {
         self.index = self.index.select(selection[0].as_ref());
-        let new = self.index.overwrite(std::mem::take(&mut self.container))?;
-        let _ = std::mem::replace(&mut self.container, new);
+        self.index.overwrite(&mut self.container)?;
         let df = self.select(selection)?;
         self.save(df)
     }

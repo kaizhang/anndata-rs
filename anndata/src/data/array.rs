@@ -206,7 +206,7 @@ impl Readable for ArrayData {
     }
 }
 
-impl Writable for ArrayData {
+impl Element for ArrayData {
     fn data_type(&self) -> DataType {
         match self {
             ArrayData::Array(data) => data.data_type(),
@@ -216,6 +216,19 @@ impl Writable for ArrayData {
             ArrayData::DataFrame(data) => data.data_type(),
         }
     }
+
+    fn metadata(&self) -> MetaData {
+        match self {
+            ArrayData::Array(data) => data.metadata(),
+            ArrayData::CsrMatrix(data) => data.metadata(),
+            ArrayData::CsrNonCanonical(data) => data.metadata(),
+            ArrayData::CscMatrix(data) => data.metadata(),
+            ArrayData::DataFrame(data) => data.metadata(),
+        }
+    }
+}
+
+impl Writable for ArrayData {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,

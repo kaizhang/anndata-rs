@@ -19,32 +19,55 @@ use polars::{
 use std::collections::HashMap;
 use std::ops::Index;
 
-impl<'a, T: BackendData, D: Dimension> Writable for ArrayView<'a, T, D> {
+impl<'a, T: BackendData, D> Element for ArrayView<'a, T, D> {
+    fn metadata(&self) -> MetaData {
+        let encoding_type = match T::DTYPE {
+            ScalarType::String => "string-array",
+            _ => "array",
+        };
+        MetaData::new(encoding_type, "0.2.0", None)
+    }
+
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
+}
+
+impl<'a, T: BackendData, D: Dimension> Writable for ArrayView<'a, T, D> {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
         let dataset = location.new_array_dataset(name, self.into(), Default::default())?;
-        let encoding_type = if T::DTYPE == ScalarType::String {
-            "string-array"
-        } else {
-            "array"
-        };
         let mut container = DataContainer::<B>::Dataset(dataset);
-        container.new_attr("encoding-type", encoding_type)?;
-        container.new_attr("encoding-version", "0.2.0")?;
+        self.metadata().save_metadata(&mut container)?;
         Ok(container)
     }
 }
 
-impl<T: BackendData, D: Dimension> Writable for Array<T, D> {
+impl<'a, T, D: Dimension> HasShape for ArrayView<'a, T, D> {
+    fn shape(&self) -> Shape {
+        self.shape().to_vec().into()
+    }
+}
+
+
+impl<T: BackendData, D> Element for Array<T, D> {
+    fn metadata(&self) -> MetaData {
+        let encoding_type = match T::DTYPE {
+            ScalarType::String => "string-array",
+            _ => "array",
+        };
+        MetaData::new(encoding_type, "0.2.0", None)
+    }
+
     fn data_type(&self) -> DataType {
         DataType::Array(T::DTYPE)
     }
+}
+
+impl<T: BackendData, D: Dimension> Writable for Array<T, D> {
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
@@ -55,12 +78,6 @@ impl<T: BackendData, D: Dimension> Writable for Array<T, D> {
 }
 
 impl<T, D: Dimension> HasShape for Array<T, D> {
-    fn shape(&self) -> Shape {
-        self.shape().to_vec().into()
-    }
-}
-
-impl<'a, T, D: Dimension> HasShape for ArrayView<'a, T, D> {
     fn shape(&self) -> Shape {
         self.shape().to_vec().into()
     }
@@ -203,28 +220,25 @@ impl<'a> FromIterator<Option<&'a str>> for CategoricalArray {
 }
 
 impl Element for CategoricalArray {
-    fn encoding(&self) -> Encoding {
-        Encoding {
-            encoding_type: "categorical",
-            version: "0.2.0",
-            attributes: None,
-        }
+    fn metadata(&self) -> MetaData {
+        let mut metadata = HashMap::new();
+        metadata.insert("ordered".to_string(), false.into());
+        MetaData::new("categorical", "0.2.0", Some(metadata))
+    }
+
+    fn data_type(&self) -> DataType {
+        DataType::Categorical
     }
 }
 
 impl Writable for CategoricalArray {
-    fn data_type(&self) -> DataType {
-        DataType::Categorical
-    }
     fn write<B: Backend, G: GroupOp<B>>(
         &self,
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
         let mut group = location.new_group(name)?;
-        group.new_attr("encoding-type", "categorical")?;
-        group.new_attr("encoding-version", "0.2.0")?;
-        group.new_attr("ordered", false)?;
+        self.metadata().save_metadata(&mut group)?;
 
         group.new_array_dataset(
             "codes",

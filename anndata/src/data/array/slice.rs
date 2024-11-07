@@ -1,6 +1,7 @@
 use ndarray::{Array1, Array2, Slice, SliceInfo, SliceInfoElem, IxDyn};
 use anyhow::{bail, Result};
 use itertools::Itertools;
+use serde_json::Value;
 use std::ops::{RangeFull, Range, Index, IndexMut, RangeFrom, RangeTo};
 use smallvec::{SmallVec, smallvec};
 
@@ -20,6 +21,12 @@ impl Shape {
     /// Returns the number of dimensions in the shape.
     pub fn ndim(&self) -> usize {
         self.0.len()
+    }
+}
+
+impl Into<Value> for Shape {
+    fn into(self) -> Value {
+        Value::Array(self.0.into_iter().map(|x| x.into()).collect())
     }
 }
 
