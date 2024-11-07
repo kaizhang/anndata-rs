@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use indexmap::map::IndexMap;
 use itertools::Itertools;
-use polars::{df, prelude::{Column, DataFrame}};
+use polars::{df, prelude::{DataFrame, NamedFrom, Series}};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use std::{collections::{HashMap, HashSet}, path::{Path, PathBuf}};
 
@@ -346,7 +346,7 @@ fn update_anndata_locations_by_map<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Column::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     if !new_locations.is_empty() {
         ann.uns().add("AnnDataSet", data)?;
@@ -384,7 +384,7 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
         .collect();
     let data = DataFrame::new(
         vec![keys.clone(),
-        Column::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
+        Series::new("file_path".into(), new_files.iter().map(|x| x.1.to_str().unwrap().to_string()).collect::<Vec<_>>())]
     ).unwrap();
     ann.uns().add("AnnDataSet", data)?;
     Ok(new_files)

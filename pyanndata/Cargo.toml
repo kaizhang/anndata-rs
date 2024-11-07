@@ -16,14 +16,16 @@ anndata = { workspace = true }
 anndata-hdf5 = { workspace = true }
 anyhow = "1.0"
 downcast-rs = "1.2"
-numpy = "0.21"
+numpy = "0.22"
 ndarray = "0.16"
 nalgebra-sparse = "0.10"
 hdf5 = { package = "hdf5-metno", version = "0.9" }
-polars = { version = "0.44", features = ["ndarray"] }
-pyo3-polars = {version = "0.18", features = ["dtype-full"] }
-polars-core = "0.44"
-polars-arrow = "0.44"
+polars = { version = "=0.43.0", features = ["ndarray"] }
+#pyo3-polars = {version = "0.17", features = ["dtype-full", "dtype-struct"] }
+pyo3-polars = { git = "https://github.com/pola-rs/pyo3-polars.git", rev = "d426148ae27410aa4fb10a4a9dc67647a058244f", features = ["dtype-full", "dtype-struct"] }
+
+polars-core = "=0.43.0"
+polars-arrow = "=0.43.0"
 thiserror = "1.0"
 rand = "0.8"
 flate2 = "1.0"
@@ -32,7 +34,7 @@ parking_lot = "0.12"
 rayon = "1.10"
 
 [dependencies.pyo3]
-version = "0.21.2"
+version = "0.22"
 features = ["extension-module", "multiple-pymethods", "anyhow"]
 
 [lib]

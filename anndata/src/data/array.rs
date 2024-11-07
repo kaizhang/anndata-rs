@@ -283,7 +283,11 @@ impl Selectable for ArrayData {
 impl Stackable for ArrayData {
     fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> {
         let mut iter = iter.peekable();
-        match iter.peek().unwrap() {
+        let item = iter.peek();
+        if item.is_none() {
+            bail!("Cannot stack empty iterator");
+        }
+        match item.unwrap() {
             ArrayData::Array(_) => {
                 DynArray::vstack(iter.map(|x| x.try_into().unwrap())).map(|x| x.into())
             }

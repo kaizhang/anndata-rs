@@ -164,7 +164,7 @@ def test_anndataset_subset(x1, x2, x3, idx1, idx2, idx3, tmp_path):
     shuffled_boolean_mask = list(i in s for i in range(dataset.n_obs))
 
     ## fancy indexing
-    dataset_subset, reorder = dataset.subset(indices, out = h5ad(tmp_path))
+    dataset_subset, reorder = dataset.subset(indices, out=h5ad(tmp_path))
     assert reorder is None
     np.testing.assert_array_equal(merged[indices, :], dataset_subset.X[:])
     np.testing.assert_array_equal(obs_names[indices].tolist(), dataset_subset.obs_names)

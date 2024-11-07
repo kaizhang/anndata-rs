@@ -11,7 +11,7 @@ use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
-    prelude::{concat, Column, IntoLazy, UnionArgs},
+    prelude::{concat, Series, IntoLazy, UnionArgs},
     series::IntoSeries,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -164,7 +164,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
         self.index.len()
     }
 
-    pub fn column(&mut self, name: &str) -> Result<&Column> {
+    pub fn column(&mut self, name: &str) -> Result<&Series> {
         self.data().and_then(|x| Ok(x.column(name)?))
     }
 
@@ -778,7 +778,7 @@ impl<B: Backend> StackedDataFrame<B> {
     }
 
     // TODO: this is not efficient, we should use the index to select the columns
-    pub fn column(&self, name: &str) -> Result<Column> {
+    pub fn column(&self, name: &str) -> Result<Series> {
         if self.column_names.contains(name) {
             Ok(self.data()?.column(name)?.clone())
         } else {
@@ -1072,7 +1072,12 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_position >= self.num_items {
-            None
+            if self.current_position == 0 {  // return an empty array
+                self.current_position = 1;
+                Some((self.elem.inner().data().unwrap(), 0, 0))
+            } else {
+                None
+            }
         } else {
             let i = self.current_position;
             let j = std::cmp::min(self.num_items, self.current_position + self.chunk_size);
@@ -1137,7 +1142,12 @@ where
                 self.next()
             }
         } else {
-            None
+            if self.current_position == 0 {  // return an empty array
+                self.current_position = 1;
+                Some((self.arrays[0].elem.inner().data().unwrap(), 0, 0))
+            } else {
+                None
+            }
         }
     }
 }

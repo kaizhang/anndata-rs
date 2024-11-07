@@ -54,7 +54,12 @@ impl Writable for DataFrame {
             anyhow::Ok(())
         })?;
 
-        Ok(DataContainer::Group(group))
+        let mut container = DataContainer::Group(group);
+
+        // Create an index as the python anndata package enforce it. This is not used by this library
+        DataFrameIndex::from(self.height()).overwrite(&mut container)?;
+
+        Ok(container)
     }
 
     /// Overwrite the data inplace.
@@ -65,10 +70,15 @@ impl Writable for DataFrame {
                     container.as_group()?.delete(&obj)?;
                 }
             }
+            let n = self.height();
+            if n != 0 && n != container.as_group()?.open_dataset(&index_name)?.shape()[0] {
+                DataFrameIndex::from(self.height()).overwrite(&mut container)?;
+            }
         } else {
             for obj in container.as_group()?.list()? {
                 container.as_group()?.delete(&obj)?;
             }
+            DataFrameIndex::from(self.height()).overwrite(&mut container)?;
         }
 
         self.iter().try_for_each(|x| {
