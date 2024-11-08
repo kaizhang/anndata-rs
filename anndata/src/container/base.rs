@@ -883,6 +883,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         S: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
+        println!("call stack select");
         let data = if self.is_empty() {
             None
         } else {
@@ -891,13 +892,19 @@ impl<B: Backend> InnerStackedArrayElem<B> {
                 .elems
                 .iter()
                 .enumerate()
-                .flat_map(|(i, el)| {
-                    indices.get(&i).map(|idx| {
+                .map(|(i, el)| {
+                    if let Some(idx) = indices.get(&i) {
                         let select: SmallVec<[_; 3]> = std::iter::once(idx)
                             .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
                             .collect();
                         el.inner().select(select.as_slice())
-                    })
+                    } else {
+                        let idx = SelectInfoElem::empty();
+                        let select: SmallVec<[_; 3]> = std::iter::once(&idx)
+                            .chain(selection.as_ref()[1..].iter().map(|x| x.as_ref()))
+                            .collect();
+                        el.inner().select(select.as_slice())
+                    }
                 })
                 .process_results(|x| Stackable::vstack(x).unwrap())?;
             if let Some(m) = mapping {

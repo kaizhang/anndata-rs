@@ -95,7 +95,7 @@ impl FromIterator<usize> for Shape {
 }
 
 /// A structure that represents a multidimensional selection, used for reading and writing to a container.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SelectInfo(pub Vec<SelectInfoElem>);
 
 impl AsRef<[SelectInfoElem]> for SelectInfo {
@@ -300,6 +300,10 @@ impl SelectInfoElem {
 
     pub fn is_slice(&self) -> bool {
         matches!(self, SelectInfoElem::Slice(_))
+    }
+
+    pub fn empty() -> Self {
+        SelectInfoElem::Index(Vec::new())
     }
 
     pub fn full() -> Self {

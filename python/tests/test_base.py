@@ -131,6 +131,8 @@ def test_nullable(tmp_path):
     assert math.isnan(adata.X[0, 0])
     assert math.isinf(adata.X[0, 1])
 
+    adata.uns['df'] = pd.DataFrame({"test": pd.Series(["a", "b", np.nan, "a"], dtype="category")})
+
 def test_type(tmp_path):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
 
