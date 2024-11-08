@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::backend::{AttributeOp, Backend, DataContainer, DatasetOp, GroupOp};
+use crate::backend::{AttributeOp, Backend, DataContainer, DatasetOp, GroupOp, ScalarType};
 use crate::data::array::{
     slice::{SelectInfoElem, Shape},
     CategoricalArray, DynArray,
@@ -8,7 +8,7 @@ use crate::data::array::{
 use crate::data::data_traits::*;
 use crate::data::index::{Index, Interval};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use log::warn;
 use ndarray::Array1;
 use polars::chunked_array::ChunkedArray;
@@ -96,10 +96,11 @@ impl Readable for DataFrame {
         let columns: Vec<String> = container.get_attr("column-order")?;
         columns
             .into_iter()
-            .map(|x| {
-                let name = x.as_str();
+            .map(|name| {
+                let name = name.as_str();
                 let series_container = DataContainer::<B>::open(container.as_group()?, name)?;
-                let mut series = read_series::<B>(&series_container)?;
+                let mut series = read_series::<B>(&series_container)
+                    .with_context(|| format!("Failed to read series: {}", name))?;
                 series.rename(name.into());
                 Ok(series)
             })
@@ -170,7 +171,8 @@ impl ReadableArray for DataFrame {
                     .as_group()?
                     .open_dataset(name)
                     .map(DataContainer::Dataset)
-                    .and_then(|x| read_series::<B>(&x))?;
+                    .and_then(|x| read_series::<B>(&x))
+                    .with_context(|| format!("Failed to read series: {}", name))?;
  
                 let indices: Vec<u32> = SelectInfoElemBounds::new(&info[0], series.len())
                     .iter().map(|x| x.try_into().unwrap()).collect();
@@ -433,11 +435,37 @@ fn write_series<B: Backend, G: GroupOp<B>>(
 }
 
 fn read_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
-    match container.encoding_type()? {
-        crate::backend::DataType::Categorical => Ok(CategoricalArray::read(container)?.into()),
+    let ty = container.encoding_type()?;
+    match ty {
+        crate::backend::DataType::Categorical => {
+            let categories = container.as_group()?.open_dataset("categories")?;
+            let s = match categories.dtype()? {
+                ScalarType::String => CategoricalArray::read(container)?.into(),
+                _ => read_cat_as_series(container)?,
+            };
+            Ok(s)
+        },
         crate::backend::DataType::Array(_) => Ok(DynArray::read(container)?.into()),
-        ty => bail!("Unsupported data type: {:?}", ty),
+        _ => bail!("Unsupported data type: {:?}", ty),
     }
+}
+
+/// Used to read non-string categorical data into regular arrays. After all, such
+/// data should not be stored as categorical data.
+fn read_cat_as_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
+    let group = container.as_group()?;
+    let codes: Array1<i32> = group.open_dataset("codes")?.read_array_cast()?;
+    let codes = codes.mapv(|x| if x < 0 { None } else { Some(x as usize) });
+    let categories = group.open_dataset("categories")?.read_dyn_array().unwrap();
+
+    macro_rules! fun {
+        ($variant:ident, $value:expr) => {
+            codes.iter().map(|x| x.map(|i| $value[i].clone())).collect()
+        };
+    }
+
+    let arr = crate::macros::dyn_map!(categories, DynArray, fun);
+    Ok(arr)
 }
 
 impl HasShape for Series {

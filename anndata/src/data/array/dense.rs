@@ -285,9 +285,9 @@ impl WritableArray for CategoricalArray {}
 impl Readable for CategoricalArray {
     fn read<B: Backend>(container: &DataContainer<B>) -> Result<Self> {
         let group = container.as_group()?;
-        let codes: ArrayD<i32> = group.open_dataset("codes")?.read_array()?;
+        let codes: ArrayD<i32> = group.open_dataset("codes")?.read_array_cast()?;
         let codes = codes.mapv(|x| if x < 0 { None } else { Some(x as u32) });
-        let categories = group.open_dataset("categories")?.read_array()?;
+        let categories = group.open_dataset("categories")?.read_array().unwrap();
         Ok(CategoricalArray { codes, categories })
     }
 }

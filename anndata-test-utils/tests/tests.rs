@@ -2,12 +2,22 @@ use anndata_test_utils as utils;
 use anndata_test_utils::with_tmp_dir;
 use anndata_hdf5::H5;
 use anndata_zarr::Zarr;
-use anndata::AnnData;
+use anndata::{AnnData, Backend};
 
 #[test]
 fn test_basic() {
     utils::test_basic::<H5>();
     utils::test_basic::<Zarr>();
+}
+
+#[test]
+fn test_complex_dataframe() {
+    let input = "tests/data/sample.h5ad";
+    with_tmp_dir(|dir| {
+        let file = dir.join("test.h5");
+        let adata = AnnData::<H5>::open(H5::open(&input).unwrap()).unwrap();
+        adata.write::<H5, _>(file).unwrap();
+    })
 }
 
 #[test]
