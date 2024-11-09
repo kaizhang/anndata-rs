@@ -17,6 +17,18 @@ pub enum DataType {
     Categorical,
 }
 
+impl DataType {
+    pub fn scalar_type(&self) -> Option<ScalarType> {
+        match self {
+            DataType::Array(t) => Some(*t),
+            DataType::CsrMatrix(t) => Some(*t),
+            DataType::CscMatrix(t) => Some(*t),
+            DataType::Scalar(t) => Some(*t),
+            _ => None,
+        }
+    }
+}
+
 impl Display for DataType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

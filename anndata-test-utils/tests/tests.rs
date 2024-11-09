@@ -17,6 +17,9 @@ fn test_complex_dataframe() {
         let file = dir.join("test.h5");
         let adata = AnnData::<H5>::open(H5::open(&input).unwrap()).unwrap();
         adata.write::<H5, _>(file).unwrap();
+
+        let file = dir.join("test.zarr");
+        adata.write::<Zarr, _>(file).unwrap();
     })
 }
 
@@ -89,4 +92,10 @@ fn test_iterator() {
         let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
         utils::test_iterator(|| adata_gen());
     })
+}
+
+#[test]
+fn test_conat() {
+    utils::test_save::<H5>();
+    utils::test_save::<Zarr>();
 }

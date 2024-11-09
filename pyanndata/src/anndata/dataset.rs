@@ -10,6 +10,7 @@ use anndata::{self, ArrayElemOp, Data, Selectable};
 use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
 use anndata_hdf5::H5;
+use anndata_zarr::Zarr;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
@@ -32,7 +33,7 @@ use super::backed::StackedAnnData;
         File name of the output file containing the AnnDataSet object.
     add_key: str
         The column name in obs to store the keys
-    backend: str
+    backend: Literal['hdf5', 'zarr']
         The backend to use for the AnnDataSet object.
 
     Note
@@ -117,14 +118,14 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=None))]
+    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=H5::NAME))]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
         add_key: &str,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<Self> {
-        match backend.unwrap_or(H5::NAME) {
+        match backend {
             H5::NAME => {
                 let anndatas = adatas.into_iter().map(|(key, data_file)| {
                     let adata = match data_file {
@@ -136,7 +137,19 @@ impl AnnDataSet {
                     (key, adata)
                 });
                 Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
-            }
+            },
+            Zarr::NAME => {
+                let anndatas = adatas.into_iter().map(|(key, data_file)| {
+                    let adata = match data_file {
+                        AnnDataFile::Data(data) => data.borrow().take_inner::<Zarr>().unwrap(),
+                        AnnDataFile::Path(path) => {
+                            anndata::AnnData::open(Zarr::open(path).unwrap()).unwrap()
+                        }
+                    };
+                    (key, adata)
+                });
+                Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
+            },
             _ => todo!(),
         }
     }
@@ -322,15 +335,15 @@ impl AnnDataSet {
     ///     If the order of input `obs_indices` has been changed, it will
     ///     return the indices that would sort the `obs_indices` array.
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
-        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)"
+        signature = (obs_indices=None, var_indices=None, out=None, backend=H5::NAME),
+        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend='hdf5')"
     )]
     pub fn subset(
         &self,
         obs_indices: Option<&Bound<'_, PyAny>>,
         var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
         if out.is_none() {
             bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
@@ -357,8 +370,8 @@ impl AnnDataSet {
 
     /// Convert AnnDataSet to AnnData object.
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=None),
-        text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
+        signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=H5::NAME),
+        text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed='hdf5')",
     )]
     pub fn to_adata(
         &self,
@@ -367,7 +380,7 @@ impl AnnDataSet {
         var_indices: Option<&Bound<'_, PyAny>>,
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<PyObject> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
@@ -471,7 +484,7 @@ trait AnnDataSetTrait: Send + Downcast {
         &self,
         slice: &[SelectInfoElem],
         out: PathBuf,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
 
     fn to_adata(
@@ -480,7 +493,7 @@ trait AnnDataSetTrait: Send + Downcast {
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<PyObject>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
@@ -685,13 +698,18 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         &self,
         slice: &[SelectInfoElem],
         out: PathBuf,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
-        match backend.unwrap_or(H5::NAME) {
+        match backend {
             H5::NAME => {
                 let order = self.inner().write_select::<H5, _, _>(slice, &out)?;
                 let file = H5::open_rw(out.join("_dataset.h5ads"))?;
                 Ok((anndata::AnnDataSet::<H5>::open::<PathBuf>(file, None)?.into(), order))
+            }
+            Zarr::NAME => {
+                let order = self.inner().write_select::<Zarr, _, _>(slice, &out)?;
+                let file = Zarr::open_rw(out.join("_dataset.zarrs"))?;
+                Ok((anndata::AnnDataSet::<Zarr>::open::<PathBuf>(file, None)?.into(), order))
             }
             x => bail!("Unsupported backend: {}", x),
         }
@@ -703,13 +721,16 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<PyObject> {
         let inner = self.inner();
         if let Some(file) = file {
-            match backend.unwrap_or(H5::NAME) {
+            match backend {
                 H5::NAME => inner
                     .to_adata_select::<H5, _, _>(slice, file, copy_x)
+                    .map(|x| AnnData::from(x).into_py(py)),
+                Zarr::NAME => inner
+                    .to_adata_select::<Zarr, _, _>(slice, file, copy_x)
                     .map(|x| AnnData::from(x).into_py(py)),
                 x => bail!("Unsupported backend: {}", x),
             }

@@ -39,6 +39,14 @@ impl Index {
         self.len() == 0
     }
 
+    pub fn contain_duplicates(&self) -> bool {
+        match self {
+            Index::Intervals(_) => false,
+            Index::List(list) => list.items.len() != list.index_map.len(),
+            Index::Range(_) => false,
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Index::Intervals(map) => map.len(),
@@ -133,7 +141,7 @@ impl From<Range<usize>> for Index {
 
 impl FromIterator<String> for Index {
     fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
-        let (items, index_map) = iter
+        let (items, index_map): (Vec<_>, HashMap<_, _>) = iter
             .into_iter()
             .enumerate()
             .map(|(i, x)| (x.clone(), (x, i)))

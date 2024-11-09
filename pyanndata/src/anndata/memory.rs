@@ -508,6 +508,15 @@ pub struct ArrayElem<'a>(Bound<'a, PyAny>);
 impl ArrayElemOp for ArrayElem<'_> {
     type ArrayIter = PyArrayIterator;
 
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+
+    fn dtype(&self) -> Option<anndata::backend::DataType> {
+        let dtype: Option<String> = self.0.getattr("dtype").unwrap().extract().unwrap();
+        panic!("{:?}", dtype);
+    }
+
     fn shape(&self) -> Option<Shape> {
         let shape: Vec<usize> = self.0.getattr("shape").unwrap().extract().unwrap();
         Some(shape.into())

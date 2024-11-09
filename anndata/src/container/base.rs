@@ -789,7 +789,7 @@ impl<B: Backend> StackedDataFrame<B> {
 
 pub struct InnerStackedArrayElem<B: Backend> {
     pub(crate) shape: Option<Shape>,
-    elems: SmallVec<[ArrayElem<B>; 96]>,
+    pub(crate) elems: SmallVec<[ArrayElem<B>; 96]>,
     index: VecVecIndex,
 }
 
@@ -810,12 +810,8 @@ impl<B: Backend> std::fmt::Display for InnerStackedArrayElem<B> {
 }
 
 impl<B: Backend> InnerStackedArrayElem<B> {
-    pub fn is_empty(&self) -> bool {
+    pub fn is_none(&self) -> bool {
         self.elems.is_empty() || self.elems.iter().all(|x| x.is_none())
-    }
-
-    pub fn dtype(&self) -> DataType {
-        self.elems[0].inner().dtype()
     }
 
     pub fn shape(&self) -> &Option<Shape> {
@@ -827,7 +823,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         D: TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let data = if self.is_empty() {
+        let data = if self.is_none() {
             None
         } else {
             let array = self
@@ -845,7 +841,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         D: TryFrom<ArrayData>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let data = if self.is_empty() {
+        let data = if self.is_none() {
             None
         } else {
             let array = self
@@ -884,7 +880,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
         println!("call stack select");
-        let data = if self.is_empty() {
+        let data = if self.is_none() {
             None
         } else {
             let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
@@ -927,7 +923,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         S: AsRef<SelectInfoElem> + Sync,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        let data = if self.is_empty() {
+        let data = if self.is_none() {
             None
         } else {
             let (indices, mapping) = self.index.split_select(selection.as_ref()[0].as_ref());
@@ -979,7 +975,7 @@ impl<B: Backend> InnerStackedArrayElem<B> {
     }
 }
 
-pub struct StackedArrayElem<B: Backend>(Arc<InnerStackedArrayElem<B>>);
+pub struct StackedArrayElem<B: Backend>(pub(crate) Arc<InnerStackedArrayElem<B>>);
 
 impl<B: Backend> Clone for StackedArrayElem<B> {
     fn clone(&self) -> Self {

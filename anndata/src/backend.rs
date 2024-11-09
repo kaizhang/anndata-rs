@@ -310,7 +310,7 @@ impl<B: Backend> DataContainer<B> {
         let enc = match self {
             DataContainer::Group(group) => group
                 .get_attr("encoding-type")
-                .unwrap_or("mapping".to_string()),
+                .unwrap_or("dict".to_string()),
             DataContainer::Dataset(dataset) => dataset
                 .get_attr("encoding-type")
                 .unwrap_or("numeric-scalar".to_string()),

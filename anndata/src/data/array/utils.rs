@@ -4,9 +4,12 @@ use crate::ArrayData;
 
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
-use ndarray::{ArrayView, RemoveAxis};
+use nalgebra_sparse::{
+    pattern::{SparsityPattern, SparsityPatternFormatError},
+    CsrMatrix,
+};
+use ndarray::{Array2, ArrayView, RemoveAxis};
 use smallvec::SmallVec;
-use nalgebra_sparse::{CsrMatrix, pattern::{ SparsityPattern, SparsityPatternFormatError}};
 
 use super::CsrNonCanonical;
 
@@ -23,7 +26,14 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
         G: GroupOp<B>,
     {
         let block_size = vec![1000; capacity.ndim()].into();
-        let dataset = group.new_empty_dataset::<T>(name, &capacity, WriteConfig { block_size: Some(block_size), ..Default::default() })?;
+        let dataset = group.new_empty_dataset::<T>(
+            name,
+            &capacity,
+            WriteConfig {
+                block_size: Some(block_size),
+                ..Default::default()
+            },
+        )?;
         Ok(Self {
             dataset,
             size: std::iter::repeat(0).take(capacity.ndim()).collect(),
@@ -74,17 +84,21 @@ impl<B: Backend, T: BackendData> ExtendableDataset<B, T> {
                 .iter()
                 .zip(data.shape())
                 .enumerate()
-                .map(|(i, (x, y))| if i == axis {
-                    let s = *x + *y;
-                    (s, (*x..s).into())
-                } else if x == y || *x == 0 {
-                    (*y, (0..*y).into())
-                } else {
-                    panic!("Cannot concatenate arrays of different shapes");
-                }).unzip();
+                .map(|(i, (x, y))| {
+                    if i == axis {
+                        let s = *x + *y;
+                        (s, (*x..s).into())
+                    } else if x == y || *x == 0 {
+                        (*y, (0..*y).into())
+                    } else {
+                        panic!("Cannot concatenate arrays of different shapes");
+                    }
+                })
+                .unzip();
             let new_size = new_size.into();
             self.check_or_grow(&new_size, 10000)?;
-            self.dataset.write_array_slice(data.into(), slice.as_ref())?;
+            self.dataset
+                .write_array_slice(data.into(), slice.as_ref())?;
             self.size = new_size;
         }
         Ok(())
@@ -124,7 +138,6 @@ where
     (new_offsets, new_indices, new_data)
 }
 
-
 /// slicing rows of csr_matrix, or columns of csc_matrix
 /// - start, end: slice buound of row_indices/col_indices of csr/csc matrix
 /// - offset: indptr
@@ -141,14 +154,13 @@ pub(crate) fn cs_major_slice<'a, T>(
     (new_offsets, &indices[i..j], &data[i..j])
 }
 
-
 /// row and column indexing of csr_matrix
 /// - major_idx: row_idx of csr_matrix, col_idx of csc_matrix
 /// - minor_idx: col_idx of csr_matrix, row_idx of csc_matrix
-/// - len_minor: ncols of csr_matrix
-/// - offset: indptr
-/// - indices: 
-/// - data:
+/// - len_minor: number of columns/rows of in the csr_matrix/csc_matrix
+/// - offset: offsets (indptr)
+/// - indices: minor indices
+/// - data: values in the matrix
 pub(crate) fn cs_major_minor_index<I1, I2, T>(
     major_idx: I1,
     minor_idx: I2,
@@ -158,15 +170,15 @@ pub(crate) fn cs_major_minor_index<I1, I2, T>(
     data: &[T],
 ) -> (Vec<usize>, Vec<usize>, Vec<T>)
 where
-    I1: ExactSizeIterator<Item = usize> + Clone,
+    I1: Iterator<Item = usize> + Clone,
     I2: Iterator<Item = usize> + Clone,
     T: Clone,
 {
-    // Compute the occurrence of each minor index
+    // Compute the occurrence of each minor index, as the same index can occur multiple times
     let mut minor_idx_count = vec![0; len_minor];
     minor_idx.clone().for_each(|j| minor_idx_count[j] += 1);
 
-    // Compute new indptr
+    // Compute new offsets (this is the row/column pointer array for the new matrix)
     let mut new_nnz = 0;
     let new_offsets = std::iter::once(0)
         .chain(major_idx.clone().map(|i| {
@@ -175,36 +187,139 @@ where
         }))
         .collect();
 
-    // cumsum in-place -> calc new offset
-    (1..len_minor).for_each(|j| minor_idx_count[j] += minor_idx_count[j - 1]);
-
+    // Get the permutation that sorts the minor indices.
+    // Position in col_order corresponds to the sorted minor index.
+    // The values in col_order can be used to sort the original minor indices.
     let col_order: Vec<usize> = minor_idx
         .enumerate()
         .sorted_by_key(|(_, k)| *k)
         .map(|(j, _)| j)
         .collect();
 
+    // Cumsum in-place to calculate the new index of each original index, assuming
+    // that the minor indices are already sorted.
+    // From the resultant vector: the index of each minor index j can be query by v[j-1].
+    // Note that v[j] - v[j-1] == 0 if j is not present in the selection.
+    (1..len_minor).for_each(|j| minor_idx_count[j] += minor_idx_count[j - 1]);
+
     // populates indices/data entries for selected columns.
     let mut new_indices = vec![0; new_nnz];
     let mut new_values: Vec<T> = Vec::with_capacity(new_nnz);
     let mut n = 0;
 
-    // iter major then minor
+    // iterate over the row indices
     major_idx.for_each(|i| {
         let new_start = n;
-        let start = offsets[i];
-        let end = offsets[i + 1];
-        (start..end).for_each(|jj| {
-            let j = indices[jj];
-            let v = &data[jj];
-            let offset = minor_idx_count[j];
+        // iterate over the columns indices of the current row from the original matrix
+        (offsets[i]..offsets[i + 1]).for_each(|jj| {
+            let j = indices[jj]; // column index
+            let v = &data[jj]; // value
+
+            // we need to compute the new indices for the current row
+            let idx_offset = minor_idx_count[j];
             let prev_offset = if j == 0 { 0 } else { minor_idx_count[j - 1] };
-            (prev_offset..offset).for_each(|k| {
+            (prev_offset..idx_offset).for_each(|k| {
+                // Note we use col_order[k] to get the permutation of the k-th sorted index.
+                // We later use sort this permutation to get the correct order of minor indices.
                 new_indices[n] = col_order[k];
                 new_values.push(v.clone());
                 n += 1;
             });
         });
+
+        // Now we need to actually sort the indices and values of the current row
+        let mut permutation = permutation::sort(&new_indices[new_start..n]);
+        permutation.apply_slice_in_place(&mut new_indices[new_start..n]);
+        permutation.apply_slice_in_place(&mut new_values[new_start..n]);
+    });
+
+    (new_offsets, new_indices, new_values)
+}
+
+/// Like `cs_major_minor_index`, but allows for the addition of empty columns/rows.
+/// Empty columns/rows are added by setting the corresponding index to `None`.
+pub(crate) fn cs_major_minor_index2<T: Clone>(
+    major_idx: &[Option<usize>],
+    minor_idx: &[Option<usize>],
+    len_minor: usize,
+    offsets: &[usize],
+    indices: &[usize],
+    data: &[T],
+) -> (Vec<usize>, Vec<usize>, Vec<T>)
+{
+    let num_added_minors = minor_idx.iter().filter(|&j| j.is_none()).count();
+    let len_minor = len_minor + num_added_minors;
+
+    // Compute the occurrence of each minor index, as the same index can occur multiple times
+    let mut minor_idx_count = vec![0; len_minor];
+    minor_idx_count[(len_minor-num_added_minors) .. len_minor].fill(1);
+    minor_idx.iter().for_each(|j| {
+        if let Some(j) = j {
+            minor_idx_count[*j] += 1;
+        }
+    });
+
+    // Compute new offsets (this is the row/column pointer array for the new matrix)
+    let mut new_nnz = 0;
+    let new_offsets = std::iter::once(0)
+        .chain(major_idx.iter().map(|i| {
+            if let Some(i) = i {
+                (offsets[*i]..offsets[i + 1]).for_each(|jj| new_nnz += minor_idx_count[indices[jj]]);
+            } 
+            new_nnz
+        }))
+        .collect();
+
+    // Get the permutation that sorts the minor indices.
+    // col_order[k] gets the unsorted minor index of the k-th sorted minor index
+    let mut t = len_minor - num_added_minors;
+    let col_order: Vec<usize> = minor_idx
+        .iter()
+        .map(|i| {
+            if let Some(i) = i {
+                *i
+            } else {
+                let i = t;
+                t += 1;
+                i
+            }
+        })
+        .enumerate()
+        .sorted_by_key(|(_, k)| *k)
+        .map(|(j, _)| j)
+        .collect();
+
+    // Cumsum in-place to calculate the new index of each original index, assuming
+    // that the minor indices are already sorted.
+    // From the resultant vector: the index of each minor index j can be query by v[j-1].
+    // Note that v[j] - v[j-1] == 0 if j is not present in the selection.
+    (1..len_minor).for_each(|j| minor_idx_count[j] += minor_idx_count[j - 1]);
+
+    // populates indices/data entries for selected columns.
+    let mut new_indices = vec![0; new_nnz];
+    let mut new_values: Vec<T> = Vec::with_capacity(new_nnz);
+    let mut n = 0;
+
+    // iterate over the row indices
+    major_idx.iter().flatten().for_each(|&i| {
+        let new_start = n;
+        // iterate over the columns indices of the current row from the original matrix
+        (offsets[i]..offsets[i + 1]).for_each(|jj| {
+            let j = indices[jj]; // column index
+            let v = &data[jj]; // value
+
+            // we need to compute the new indices for the current row
+            let idx_offset = minor_idx_count[j];
+            let prev_offset = if j == 0 { 0 } else { minor_idx_count[j - 1] };
+            (prev_offset..idx_offset).for_each(|k| {
+                // Note we use col_order[k] to get the original index of the k-th sorted index
+                new_indices[n] = col_order[k];
+                new_values.push(v.clone());
+                n += 1;
+            });
+        });
+
+        // Now we need to actually sort the indices and values of the current row
         let mut permutation = permutation::sort(&new_indices[new_start..n]);
         permutation.apply_slice_in_place(&mut new_indices[new_start..n]);
         permutation.apply_slice_in_place(&mut new_values[new_start..n]);
@@ -290,12 +405,15 @@ pub(crate) fn sort_lane<T: Clone>(
     apply_permutation(values_result, values, permutation);
 }
 
-
 /// Helper functions for sparse matrix computations
 
 /// permutes entries of in_slice according to permutation slice and puts them to out_slice
 #[inline]
-pub(crate) fn apply_permutation<T: Clone>(out_slice: &mut [T], in_slice: &[T], permutation: &[usize]) {
+pub(crate) fn apply_permutation<T: Clone>(
+    out_slice: &mut [T],
+    in_slice: &[T],
+    permutation: &[usize],
+) {
     assert_eq!(out_slice.len(), in_slice.len());
     assert_eq!(out_slice.len(), permutation.len());
     for (out_element, old_pos) in out_slice.iter_mut().zip(permutation) {
@@ -336,23 +454,23 @@ where
             };
             let csr = CsrMatrix::try_from_pattern_and_values(pattern, data).unwrap();
             Ok(csr.into())
-        },
-        Err(e) => {
-            match e {
-                SparsityPatternFormatError::DuplicateEntry => {
-                    let csr = CsrNonCanonical::from_csr_data(
-                        nrows, ncols, indptr, indices, data
-                    );
-                    Ok(csr.into())
-                },
-                _ => Err(anyhow!("cannot read csr matrix: {}", e))
-            }
         }
+        Err(e) => match e {
+            SparsityPatternFormatError::DuplicateEntry => {
+                let csr = CsrNonCanonical::from_csr_data(nrows, ncols, indptr, indices, data);
+                Ok(csr.into())
+            }
+            _ => Err(anyhow!("cannot read csr matrix: {}", e)),
+        },
     }
 }
 
-pub(crate) fn check_format(nrows: usize, ncols: usize, indptr: &[usize], indices: &[usize]) -> std::result::Result<(), SparsityPatternFormatError>
-{
+pub(crate) fn check_format(
+    nrows: usize,
+    ncols: usize,
+    indptr: &[usize],
+    indices: &[usize],
+) -> std::result::Result<(), SparsityPatternFormatError> {
     use SparsityPatternFormatError::*;
 
     if indptr.len() != nrows + 1 {
@@ -413,7 +531,10 @@ pub(crate) fn check_format(nrows: usize, ncols: usize, indptr: &[usize], indices
     }
 }
 
-pub fn to_csr_data<I, In, T>(iter: I, num_cols: usize) -> (usize, usize, Vec<usize>, Vec<usize>, Vec<T>)
+pub fn to_csr_data<I, In, T>(
+    iter: I,
+    num_cols: usize,
+) -> (usize, usize, Vec<usize>, Vec<usize>, Vec<T>)
 where
     I: IntoIterator<IntoIter = In>,
     In: ExactSizeIterator<Item = Vec<(usize, T)>>,
@@ -435,4 +556,32 @@ where
     indptr.push(nnz);
 
     (num_rows, num_cols, indptr, indices, data)
+}
+
+pub(crate) fn array_major_minor_index<T: Clone>(
+    major_idx: &[Option<usize>],
+    minor_idx: &[Option<usize>],
+    data: &Array2<T>,
+    fill_value: &T,
+) -> Array2<T>
+{
+    Array2::from_shape_fn(
+        (major_idx.len(), minor_idx.len()),
+        |(i, j)| {
+            if let (Some(i), Some(j)) = (major_idx[i], minor_idx[j]) {
+                data.get((i, j)).unwrap().clone()
+            } else {
+                fill_value.clone()
+            }
+        },
+    )
+}
+
+pub(crate) fn array_major_minor_index_default<T: Default + Clone>(
+    major_idx: &[Option<usize>],
+    minor_idx: &[Option<usize>],
+    data: &Array2<T>,
+) -> Array2<T>
+{
+    array_major_minor_index(major_idx, minor_idx, data, &T::default())
 }

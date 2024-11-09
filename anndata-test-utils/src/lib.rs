@@ -1,6 +1,7 @@
 mod common;
 pub use common::*;
 
+use anndata::concat::{concat, JoinType};
 use anndata::{data::CsrNonCanonical, *};
 use data::ArrayConvert;
 use nalgebra_sparse::{CooMatrix, CsrMatrix};
@@ -69,7 +70,13 @@ where
     assert!(adata.obsm().add("test", &arr2).is_err());
 
     // Data type casting
-    let _: Array2<f64> = adata.x().get::<ArrayData>().unwrap().unwrap().try_convert().expect("data type casting failed");
+    let _: Array2<f64> = adata
+        .x()
+        .get::<ArrayData>()
+        .unwrap()
+        .unwrap()
+        .try_convert()
+        .expect("data type casting failed");
 }
 
 pub fn test_noncanonical<F, T>(adata_gen: F)
@@ -146,5 +153,35 @@ where
             adata.obsm().add_iter("test2", adata.obsm().get_item_iter("test", 7).unwrap().map(|x| x.0)).unwrap();
             prop_assert_eq!(adata.obsm().get_item::<ArrayData>("test2").unwrap().unwrap(), x);
         }
+    });
+}
+
+pub fn test_concat<B: Backend>() {
+    with_tmp_dir(|dir| {
+        let input1 = dir.join("input1");
+        let input2 = dir.join("input2");
+        let output = dir.join("output");
+        let anndatas = (
+            (0 as usize..100),
+            (0 as usize..100),
+            (0 as usize..100),
+            (0 as usize..100),
+        )
+            .prop_flat_map(|(n_obs1, n_vars1, n_obs2, n_vars2)| {
+                (
+                    anndata_strat::<B, _>(&input1, n_obs1, n_vars1),
+                    anndata_strat::<B, _>(&input2, n_obs2, n_vars2),
+                )
+            });
+
+        proptest!(ProptestConfig::with_cases(100), |((adata1, adata2) in anndatas)| {
+            let adatas = [adata1, adata2];
+
+            let out = AnnData::<B>::new(&output).unwrap();
+            concat(&adatas, JoinType::Inner, &out).unwrap();
+
+            let out = AnnData::<B>::new(&output).unwrap();
+            concat(&adatas, JoinType::Outer, &out).unwrap();
+        })
     });
 }

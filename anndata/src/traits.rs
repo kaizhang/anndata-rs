@@ -1,4 +1,11 @@
-use crate::{anndata::{new_layers, new_obsm, new_obsp, new_varm, new_varp}, backend::GroupOp, container::{ChunkedArrayElem, InnerDataFrameElem, StackedChunkedArrayElem}, data::*, AnnData, AnnDataSet, ArrayElem, AxisArrays, Backend, ElemCollection, StackedArrayElem, StackedAxisArrays};
+use crate::{
+    anndata::{new_layers, new_obsm, new_obsp, new_varm, new_varp},
+    backend::{GroupOp, DataType},
+    container::{ChunkedArrayElem, InnerDataFrameElem, StackedChunkedArrayElem},
+    data::*,
+    AnnData, AnnDataSet, ArrayElem, AxisArrays, Backend, ElemCollection, StackedArrayElem,
+    StackedAxisArrays,
+};
 
 use anyhow::{bail, ensure, Context, Result};
 use polars::prelude::DataFrame;
@@ -148,14 +155,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         let mut obs_lock = self.n_obs.lock();
         let mut vars_lock = self.n_vars.lock();
         self.del_x()?;
-        let new_elem =
-            ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
+        let new_elem = ArrayElem::try_from(ArrayChunk::write_by_chunk(iter, &self.file, "X")?)?;
         let shape = new_elem.inner().shape().clone();
 
-        match obs_lock
-            .try_set(shape[0])
-            .and(vars_lock.try_set(shape[1]))
-        {
+        match obs_lock.try_set(shape[0]).and(vars_lock.try_set(shape[1])) {
             Ok(_) => {
                 self.x.swap(&new_elem);
                 Ok(())
@@ -200,8 +203,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_n_obs(&self, n: usize) -> Result<()> {
         let mut n_obs = self.n_obs.lock();
         if let Err(e) = n_obs.try_set(n) {
-            if self.x().is_none() && self.obs.is_none() &&
-               self.obsm().is_empty() && self.obsp().is_empty() && self.layers().is_empty() 
+            if self.x().is_none()
+                && self.obs.is_none()
+                && self.obsm().is_empty()
+                && self.obsp().is_empty()
+                && self.layers().is_empty()
             {
                 n_obs.set(n);
             } else {
@@ -213,8 +219,11 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     fn set_n_vars(&self, n: usize) -> Result<()> {
         let mut n_vars = self.n_vars.lock();
         if let Err(e) = n_vars.try_set(n) {
-            if self.x().is_none() && self.var.is_none() &&
-               self.varm().is_empty() && self.varp().is_empty() && self.layers().is_empty() 
+            if self.x().is_none()
+                && self.var.is_none()
+                && self.varm().is_empty()
+                && self.varp().is_empty()
+                && self.layers().is_empty()
             {
                 n_vars.set(n);
             } else {
@@ -260,8 +269,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         Ok(())
     }
 
-    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>>
-    {
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
         let inner = self.obs.inner();
         names
             .into_iter()
@@ -305,12 +313,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if nrows != 0 {
             self.n_obs.try_set(nrows)?;
             if self.obs.is_none() {
-                self.obs.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "obs",
-                    None,
-                    &obs,
-                )?);
+                self.obs
+                    .insert(InnerDataFrameElem::new(&self.file, "obs", None, &obs)?);
             } else {
                 self.obs.inner().save(obs)?;
             }
@@ -323,12 +327,8 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
         if nrows != 0 {
             self.n_vars.try_set(nrows)?;
             if self.var.is_none() {
-                self.var.insert(InnerDataFrameElem::new(
-                    &self.file,
-                    "var",
-                    None,
-                    &var,
-                )?);
+                self.var
+                    .insert(InnerDataFrameElem::new(&self.file, "var", None, &var)?);
             } else {
                 self.var.inner().save(var)?;
             }
@@ -346,7 +346,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn uns(&self) -> Self::ElemCollectionRef<'_> {
         if self.uns.is_none() {
-            let elems = self.file.new_group("uns").and_then(|g| ElemCollection::new(g));
+            let elems = self
+                .file
+                .new_group("uns")
+                .and_then(|g| ElemCollection::new(g));
             if let Ok(uns) = elems {
                 self.uns.swap(&uns);
             }
@@ -355,7 +358,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsm(&self) -> Self::AxisArraysRef<'_> {
         if self.obsm.is_none() {
-            let arrays = self.file.new_group("obsm")
+            let arrays = self
+                .file
+                .new_group("obsm")
                 .and_then(|g| new_obsm(g, &self.n_obs));
             if let Ok(obsm) = arrays {
                 self.obsm.swap(&obsm);
@@ -365,7 +370,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
         if self.obsp.is_none() {
-            let arrays = self.file.new_group("obsp")
+            let arrays = self
+                .file
+                .new_group("obsp")
                 .and_then(|g| new_obsp(g, &self.n_obs));
             if let Ok(obsp) = arrays {
                 self.obsp.swap(&obsp);
@@ -375,7 +382,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varm(&self) -> Self::AxisArraysRef<'_> {
         if self.varm.is_none() {
-            let arrays = self.file.new_group("varm")
+            let arrays = self
+                .file
+                .new_group("varm")
                 .and_then(|g| new_varm(g, &self.n_vars));
             if let Ok(varm) = arrays {
                 self.varm.swap(&varm);
@@ -385,7 +394,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         if self.varp.is_none() {
-            let arrays = self.file.new_group("varp")
+            let arrays = self
+                .file
+                .new_group("varp")
                 .and_then(|g| new_varp(g, &self.n_vars));
             if let Ok(varp) = arrays {
                 self.varp.swap(&varp);
@@ -395,7 +406,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn layers(&self) -> Self::AxisArraysRef<'_> {
         if self.layers.is_none() {
-            let arrays = self.file.new_group("layers")
+            let arrays = self
+                .file
+                .new_group("layers")
                 .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
             if let Ok(layers) = arrays {
                 self.layers.swap(&layers);
@@ -551,7 +564,6 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
     }
 }
 
-
 /// Trait for operations on element collections.
 pub trait ElemCollectionOp {
     /// Returns the keys of the collection.
@@ -686,11 +698,15 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
     }
 }
 
-
-
 /// Trait for operations on array elements.
 pub trait ArrayElemOp {
     type ArrayIter: ExactSizeIterator<Item = (ArrayData, usize, usize)>;
+
+    /// Returns whether the element contains no data.
+    fn is_none(&self) -> bool;
+
+    /// Return the data type of the array.
+    fn dtype(&self) -> Option<DataType>;
 
     /// Returns the shape of the array.
     fn shape(&self) -> Option<Shape>;
@@ -736,6 +752,14 @@ pub trait ArrayElemOp {
 impl<B: Backend> ArrayElemOp for ArrayElem<B> {
     type ArrayIter = ChunkedArrayElem<B>;
 
+    fn is_none(&self) -> bool {
+        self.lock().is_none()
+    }
+
+    fn dtype(&self) -> Option<DataType> {
+        self.lock().as_ref().map(|x| x.dtype())
+    }
+
     fn shape(&self) -> Option<Shape> {
         self.lock().as_ref().map(|x| x.shape().clone())
     }
@@ -777,6 +801,18 @@ impl<B: Backend> ArrayElemOp for ArrayElem<B> {
 
 impl<B: Backend> ArrayElemOp for StackedArrayElem<B> {
     type ArrayIter = StackedChunkedArrayElem<B>;
+
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+
+    fn dtype(&self) -> Option<DataType> {
+        if self.is_none() {
+            None
+        } else {
+            Some(self.elems[0].inner().dtype())
+        }
+    }
 
     fn shape(&self) -> Option<Shape> {
         self.shape.clone()

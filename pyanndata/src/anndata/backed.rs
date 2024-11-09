@@ -1,19 +1,22 @@
-use crate::container::{PyArrayElem, PyAxisArrays, PyDataFrameElem, PyElemCollection, PyChunkedArray};
-use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::anndata::PyAnnData;
+use crate::container::{
+    PyArrayElem, PyAxisArrays, PyChunkedArray, PyDataFrameElem, PyElemCollection,
+};
+use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 
-use anndata::{self, ArrayElemOp, Selectable, AxisArraysOp, Data, ElemCollectionOp};
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
+use anndata::{self, ArrayElemOp, AxisArraysOp, Data, ElemCollectionOp, Selectable};
 use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
+use anndata_zarr::Zarr;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::ops::Deref;
+use std::path::PathBuf;
 
 /** An annotated data matrix.
 
@@ -43,6 +46,8 @@ use std::ops::Deref;
         If passing a :class:`~numpy.ndarray`, it needs to have a structured datatype.
     filename
         Name of backing file.
+    backend
+        The backend to use. "hdf5" or "zarr" are supported.
 
     Note
     ----
@@ -69,16 +74,23 @@ impl Clone for AnnData {
 
 impl AnnData {
     pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnData<B>> {
-        self.0.downcast_ref::<InnerAnnData<B>>()
-            .expect("downcast to anndata failed").adata.extract()
+        self.0
+            .downcast_ref::<InnerAnnData<B>>()
+            .expect("downcast to anndata failed")
+            .adata
+            .extract()
     }
 
     pub fn inner_ref<B: Backend>(&self) -> anndata::container::Inner<'_, anndata::AnnData<B>> {
-        self.0.downcast_ref::<InnerAnnData<B>>().expect("downcast to anndata failed").adata.inner()
+        self.0
+            .downcast_ref::<InnerAnnData<B>>()
+            .expect("downcast to anndata failed")
+            .adata
+            .inner()
     }
 
-    pub fn new_from(filename: PathBuf, mode: &str, backend: Option<&str>) -> Result<Self> {
-        match backend.unwrap_or(H5::NAME) {
+    pub fn new_from(filename: PathBuf, mode: &str, backend: &str) -> Result<Self> {
+        match backend {
             H5::NAME => {
                 let file = match mode {
                     "r" => H5::open(filename)?,
@@ -87,19 +99,36 @@ impl AnnData {
                 };
                 anndata::AnnData::<H5>::open(file).map(|adata| adata.into())
             }
+            Zarr::NAME => {
+                let file = match mode {
+                    "r" => Zarr::open(filename)?,
+                    "r+" => Zarr::open_rw(filename)?,
+                    _ => bail!("Unknown mode: {}", mode),
+                };
+                anndata::AnnData::<Zarr>::open(file).map(|adata| adata.into())
+            }
             x => bail!("Unknown backend: {}", x),
         }
     }
 
     fn select_obs(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
-        let from_iter = ix.iter().and_then(|iter| 
-            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).map(|names| {
-            let index = self.0.obs_names();
-            names.into_iter().map(|name| index.get_index(&name)
-                .expect(&format!("Unknown obs name: {}", name))
-            ).collect::<Vec<_>>()
-        });
+        let from_iter = ix
+            .iter()
+            .and_then(|iter| {
+                iter.map(|x| x.unwrap().extract::<String>())
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .map(|names| {
+                let index = self.0.obs_names();
+                names
+                    .into_iter()
+                    .map(|name| {
+                        index
+                            .get_index(&name)
+                            .expect(&format!("Unknown obs name: {}", name))
+                    })
+                    .collect::<Vec<_>>()
+            });
 
         if let Ok(indices) = from_iter {
             Ok(indices.into())
@@ -110,14 +139,23 @@ impl AnnData {
     }
 
     fn select_var(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
-        let from_iter = ix.iter().and_then(|iter| 
-            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).map(|names| {
-            let index = self.0.var_names();
-            names.into_iter().map(|name| index.get_index(&name)
-                .expect(&format!("Unknown var name: {}", name))
-            ).collect::<Vec<_>>()
-        });
+        let from_iter = ix
+            .iter()
+            .and_then(|iter| {
+                iter.map(|x| x.unwrap().extract::<String>())
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .map(|names| {
+                let index = self.0.var_names();
+                names
+                    .into_iter()
+                    .map(|name| {
+                        index
+                            .get_index(&name)
+                            .expect(&format!("Unknown var name: {}", name))
+                    })
+                    .collect::<Vec<_>>()
+            });
 
         if let Ok(indices) = from_iter {
             Ok(indices.into())
@@ -141,7 +179,14 @@ impl<B: Backend> From<anndata::AnnData<B>> for AnnData {
 #[pymethods]
 impl AnnData {
     #[new]
-    #[pyo3(signature = (*, filename, X=None, obs=None, var=None, obsm=None, varm=None, uns=None, backend=None))]
+    #[pyo3(
+        signature = (
+            *, filename, X=None, obs=None, var=None, obsm=None,
+            varm=None, uns=None, backend=H5::NAME,
+        ),
+        text_signature = "($self, *, filename, X=None, obs=None, var=None, obsm=None,
+            varm=None, uns=None, backend='hdf5')"
+    )]
     pub fn new(
         filename: PathBuf,
         X: Option<PyArrayData>,
@@ -150,10 +195,11 @@ impl AnnData {
         obsm: Option<HashMap<String, PyArrayData>>,
         varm: Option<HashMap<String, PyArrayData>>,
         uns: Option<HashMap<String, PyData>>,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<Self> {
-        let adata: AnnData = match backend.unwrap_or(H5::NAME) {
+        let adata: AnnData = match backend {
             H5::NAME => anndata::AnnData::<H5>::new(filename)?.into(),
+            Zarr::NAME => anndata::AnnData::<Zarr>::new(filename)?.into(),
             backend => bail!("Unknown backend: {}", backend),
         };
 
@@ -223,7 +269,9 @@ impl AnnData {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn obs_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.obs_ix(names) }
+    fn obs_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        self.0.obs_ix(names)
+    }
 
     /// Names of variables.
     ///
@@ -240,7 +288,9 @@ impl AnnData {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn var_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.var_ix(names) }
+    fn var_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        self.0.var_ix(names)
+    }
 
     /// Data matrix of shape n_obs × n_vars.
     ///
@@ -357,15 +407,15 @@ impl AnnData {
     ///     is returned. This parameter is ignored when `inplace=True`.
     /// inplace: bool
     ///     Whether to modify the AnnData object in place or return a new AnnData object.
-    /// backend: str | None
-    ///     The backend to use. Currently "hdf5" is the only supported backend.
+    /// backend: str
+    ///     The backend to use. "hdf5" or "zarr" are supported.
     ///
     /// Returns
     /// -------
     /// Optional[AnnData]
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=None),
-        text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend=None)",
+        signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=H5::NAME),
+        text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend='hdf5')",
     )]
     pub fn subset(
         &self,
@@ -374,7 +424,7 @@ impl AnnData {
         var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
         inplace: bool,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<Option<PyObject>> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
@@ -460,12 +510,13 @@ impl AnnData {
     /// ----------
     /// filename: Path
     ///     File name of the output `.h5ad` file.
-    /// backend: str | None
+    /// backend: Literal['hdf5', 'zarr']
+    ///     The backend to use. "hdf5" or "zarr" are supported.
     #[pyo3(
-        signature = (filename, backend=None),
-        text_signature = "($self, filename, backend=None)",
+        signature = (filename, backend=H5::NAME),
+        text_signature = "($self, filename, backend='hdf5')",
     )]
-    pub fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
+    pub fn write(&self, filename: PathBuf, backend: &str) -> Result<()> {
         self.0.write(filename, backend)
     }
 
@@ -475,16 +526,17 @@ impl AnnData {
     /// ----------
     /// filename
     ///     File name of the output `.h5ad` file.
-    /// backend: str | None
+    /// backend: Literal['hdf5', 'zarr']
+    ///     The backend to use. "hdf5" or "zarr" are supported.
     ///
     /// Returns
     /// -------
     /// AnnData
     #[pyo3(
-        signature = (filename, backend=None),
-        text_signature = "($self, filename, backend=None)",
+        signature = (filename, backend=H5::NAME),
+        text_signature = "($self, filename, backend='hdf5')",
     )]
-    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<Self> {
+    fn copy(&self, filename: PathBuf, backend: &str) -> Result<Self> {
         self.0.copy(filename, backend)
     }
 
@@ -542,13 +594,13 @@ trait AnnDataTrait: Send + Downcast {
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<Option<PyObject>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
-    fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()>;
-    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData>;
+    fn write(&self, filename: PathBuf, backend: &str) -> Result<()>;
+    fn copy(&self, filename: PathBuf, backend: &str) -> Result<AnnData>;
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
@@ -590,7 +642,9 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
 
     fn obs_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
         let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
-        self.adata.inner().obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
+        self.adata
+            .inner()
+            .obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
@@ -605,7 +659,9 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
 
     fn var_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
         let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
-        self.adata.inner().var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
+        self.adata
+            .inner()
+            .var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
@@ -711,9 +767,10 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         if let Some(x) = obs {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
+                py.import_bound("polars")?
+                    .call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
+                py.import_bound("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -728,9 +785,10 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         if let Some(x) = var {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
+                py.import_bound("polars")?
+                    .call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
+                py.import_bound("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -801,18 +859,22 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
-        backend: Option<&str>,
+        backend: &str,
     ) -> Result<Option<PyObject>> {
         let inner = self.adata.inner();
         if inplace {
             inner.subset(slice)?;
             Ok(None)
         } else if let Some(file) = file {
-            match backend.unwrap_or(H5::NAME) {
+            match backend {
                 H5::NAME => {
                     inner.write_select::<H5, _, _>(slice, &file)?;
                     Ok(Some(AnnData::new_from(file, "r+", backend)?.into_py(py)))
-                }
+                },
+                Zarr::NAME => {
+                    inner.write_select::<Zarr, _, _>(slice, &file)?;
+                    Ok(Some(AnnData::new_from(file, "r+", backend)?.into_py(py)))
+                },
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
@@ -844,17 +906,19 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
             }
             {
                 // Set uns
-                inner.uns()
-                    .keys()
-                    .into_iter()
-                    .try_for_each(|k| adata.uns().add(&k, inner.uns().get_item::<Data>(&k)?.unwrap()))?;
+                inner.uns().keys().into_iter().try_for_each(|k| {
+                    adata
+                        .uns()
+                        .add(&k, inner.uns().get_item::<Data>(&k)?.unwrap())
+                })?;
             }
             {
                 // Set obsm
                 inner.obsm().keys().into_iter().try_for_each(|k| {
                     adata.obsm().add(
                         &k,
-                        inner.obsm()
+                        inner
+                            .obsm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[0])?
@@ -879,7 +943,8 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
                 inner.varm().keys().into_iter().try_for_each(|k| {
                     adata.varm().add(
                         &k,
-                        inner.varm()
+                        inner
+                            .varm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[1])?
@@ -919,14 +984,15 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         self.adata.inner().get_x().chunked(chunk_size).into()
     }
 
-    fn write(&self, filename: PathBuf, backend: Option<&str>) -> Result<()> {
-        match backend.unwrap_or(H5::NAME) {
+    fn write(&self, filename: PathBuf, backend: &str) -> Result<()> {
+        match backend {
             H5::NAME => self.adata.inner().write::<H5, _>(filename),
+            Zarr::NAME => self.adata.inner().write::<Zarr, _>(filename),
             x => bail!("Unsupported backend: {}", x),
         }
     }
 
-    fn copy(&self, filename: PathBuf, backend: Option<&str>) -> Result<AnnData> {
+    fn copy(&self, filename: PathBuf, backend: &str) -> Result<AnnData> {
         AnnDataTrait::write(self, filename.clone(), backend)?;
         AnnData::new_from(filename, "r+", backend)
     }
@@ -978,7 +1044,6 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         Box::new(self.clone())
     }
 }
-
 
 #[pyclass]
 #[repr(transparent)]

@@ -1,4 +1,5 @@
 mod anndata;
+pub mod concat;
 pub mod traits;
 pub mod backend;
 pub mod data;

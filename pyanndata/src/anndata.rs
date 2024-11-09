@@ -2,6 +2,7 @@ mod backed;
 pub mod memory;
 mod dataset;
 
+use anndata_zarr::Zarr;
 pub use backed::AnnData;
 pub use memory::PyAnnData;
 pub use dataset::AnnDataSet;
@@ -25,13 +26,13 @@ use anyhow::Result;
 ///     If `'r'`, the file is opened in read-only mode.
 ///     If `'r+'`, the file is opened in read/write mode.
 ///     If `None`, the AnnData object is read into memory.
-/// backend: Literal['hdf5'] | None
+/// backend: Literal['hdf5', 'zarr']
 #[pyfunction]
 #[pyo3(
-    signature = (filename, backed="r+", backend=None),
-    text_signature = "(filename, backed='r+', backend=None)",
+    signature = (filename, backed="r+", backend=H5::NAME),
+    text_signature = "(filename, backed='r+', backend='hdf5')",
 )]
-pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: Option<&str>) -> Result<PyObject> {
+pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: &str) -> Result<PyObject> {
     let adata = match backed {
         Some(m) => AnnData::new_from(filename, m, backend).unwrap().into_py(py),
         None => PyModule::import_bound(py, "anndata")?
@@ -40,6 +41,36 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
             .to_object(py),
     };
     Ok(adata)
+}
+
+/// Concatenates AnnData objects.
+///
+/// Parameters
+/// ----------
+///
+/// filename: Path
+///     File name of data file.
+/// backed: Literal['r', 'r+'] | None
+///     Default is `r+`.
+///     If `'r'`, the file is opened in read-only mode.
+///     If `'r+'`, the file is opened in read/write mode.
+///     If `None`, the AnnData object is read into memory.
+/// backend: Literal['hdf5'] | None
+#[pyfunction]
+#[pyo3(
+    signature = (adatas, *, join="inner", filename, backed="r+", backend=None),
+    text_signature = "(adatas, *, join='inner', filename, backed='r+', backend=None)",
+)]
+pub fn concat<'py>(
+    py: Python<'py>,
+    adatas: Vec<AnnData>,
+    join: &str,
+    filename: PathBuf,
+    backed: Option<&str>,
+    backend: Option<&str>
+) -> Result<PyObject> {
+    //let adatas = adatas.into_iter().map(|x| x.take_inner()).collect::<Vec<_>>();
+    todo!()
 }
 
 /// Read Matrix Market file.
@@ -55,15 +86,15 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
 ///     File that stores the variable names.
 /// file
 ///     File name of the output ".h5ad" file.
-/// backend
+/// backend: Literal['hdf5', 'zarr']
 ///     Backend to use for writing the output file.
 /// sorted
 ///     If true, the input matrix is assumed to be sorted by rows.
 ///     Sorted input matrix can be read faster.
 #[pyfunction]
 #[pyo3(
-    signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false),
-    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=False)",
+    signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=H5::NAME, sorted=false),
+    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend='hdf5', sorted=False)",
 )]
 pub fn read_mtx(
     py: Python<'_>,
@@ -71,7 +102,7 @@ pub fn read_mtx(
     obs_names: Option<PathBuf>,
     var_names: Option<PathBuf>,
     file: Option<PathBuf>,
-    backend: Option<&str>,
+    backend: &str,
     sorted: bool,
 ) -> Result<PyObject> {
     let mut reader = anndata::reader::MMReader::from_path(mtx_file)?;
@@ -85,9 +116,14 @@ pub fn read_mtx(
         reader = reader.is_sorted();
     }
     if let Some(file) =  file {
-        match backend.unwrap_or(H5::NAME) {
+        match backend {
             H5::NAME => {
                 let adata = anndata::AnnData::<H5>::new(file)?;
+                reader.finish(&adata)?;
+                Ok(AnnData::from(adata).into_py(py))
+            },
+            Zarr::NAME => {
+                let adata = anndata::AnnData::<Zarr>::new(file)?;
                 reader.finish(&adata)?;
                 Ok(AnnData::from(adata).into_py(py))
             },
@@ -118,28 +154,29 @@ pub fn read_mtx(
 ///     or a directory containing component anndata files.
 /// mode: str
 ///     "r": Read-only mode; "r+": can modify annotation file but not component anndata files.
-/// backend: Literal['hdf5'] | None
+/// backend: Literal['hdf5', 'zarr']
+///     Backend to use for reading the annotation file.
 ///
 /// Returns
 /// -------
 /// AnnDataSet
 #[pyfunction]
 #[pyo3(
-    signature = (filename, *, adata_files_update=None, mode="r+", backend=None),
-    text_signature = "(filename, *, adata_files_update=None, mode='r+', backend=None)",
+    signature = (filename, *, adata_files_update=None, mode="r+", backend=H5::NAME),
+    text_signature = "(filename, *, adata_files_update=None, mode='r+', backend='hdf5')",
 )]
 pub fn read_dataset(
     filename: PathBuf,
     adata_files_update: Option<LocationUpdate>,
     mode: &str,
-    backend: Option<&str>,
+    backend: &str,
 ) -> Result<AnnDataSet> {
     let adata_files_update = match adata_files_update {
         Some(LocationUpdate::Map(map)) => Some(Ok(map)),
         Some(LocationUpdate::Dir(dir)) => Some(Err(dir)),
         None => None,
     };
-    match backend.unwrap_or(H5::NAME) {
+    match backend {
         H5::NAME => {
             let file = match mode {
                 "r" => H5::open(filename)?,
@@ -147,6 +184,14 @@ pub fn read_dataset(
                 _ => panic!("Unkown mode"),
             };
             Ok(anndata::AnnDataSet::<H5>::open(file, adata_files_update )?.into())
+        },
+        Zarr::NAME => {
+            let file = match mode {
+                "r" => Zarr::open(filename)?,
+                "r+" => Zarr::open_rw(filename)?,
+                _ => panic!("Unkown mode"),
+            };
+            Ok(anndata::AnnDataSet::<Zarr>::open(file, adata_files_update )?.into())
         },
         _ => todo!(),
     }
