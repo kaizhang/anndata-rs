@@ -58,8 +58,8 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
 /// backend: Literal['hdf5'] | None
 #[pyfunction]
 #[pyo3(
-    signature = (adatas, *, join="inner", filename, backed="r+", backend=None),
-    text_signature = "(adatas, *, join='inner', filename, backed='r+', backend=None)",
+    signature = (adatas, *, join="inner", filename, backed="r+", backend=H5::NAME),
+    text_signature = "(adatas, *, join='inner', filename, backed='r+', backend='hdf5')",
 )]
 pub fn concat<'py>(
     py: Python<'py>,
@@ -67,7 +67,7 @@ pub fn concat<'py>(
     join: &str,
     filename: PathBuf,
     backed: Option<&str>,
-    backend: Option<&str>
+    backend: &str,
 ) -> Result<PyObject> {
     //let adatas = adatas.into_iter().map(|x| x.take_inner()).collect::<Vec<_>>();
     todo!()

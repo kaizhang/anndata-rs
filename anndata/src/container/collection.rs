@@ -1,8 +1,5 @@
 use crate::{
-    backend::{iter_containers, AttributeOp, Backend, GroupOp},
-    container::base::*,
-    data::*,
-    ElemCollectionOp,
+    anndata::new_mapping, backend::{iter_containers, AttributeOp, Backend, GroupOp}, container::base::*, data::*, ElemCollectionOp
 };
 
 use anyhow::{bail, ensure, Result};
@@ -71,7 +68,7 @@ impl<B: Backend> InnerElemCollection<B> {
     }
 
     pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        let group = location.new_group(name)?;
+        let group = new_mapping(location, name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
         }
@@ -389,7 +386,7 @@ impl<B: Backend> InnerAxisArrays<B> {
     }
 
     pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        let group = location.new_group(name)?;
+        let group = new_mapping(location, name)?;
         for (key, val) in self.iter() {
             val.inner().export::<O, _>(&group, key)?;
         }
@@ -409,7 +406,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         if selection.into_iter().all(|x| x.as_ref().is_full()) {
             self.export::<O, _>(location, name)
         } else {
-            let group = location.new_group(name)?;
+        let group = new_mapping(location, name)?;
             match self.axis {
                 Axis::Row => {
                     if selection.len() != 1 {

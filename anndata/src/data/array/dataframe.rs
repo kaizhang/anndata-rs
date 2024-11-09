@@ -47,7 +47,7 @@ impl Writable for DataFrame {
         } else {
             location.new_group(name)?
         };
-        self.metadata().save_metadata(&mut group)?;
+        self.metadata().save(&mut group)?;
 
         self.iter().try_for_each(|x| {
             write_series(x, &group, x.name())?;
@@ -85,7 +85,7 @@ impl Writable for DataFrame {
             write_series(x, container.as_group()?, x.name())?;
             anyhow::Ok(())
         })?;
-        self.metadata().save_metadata(&mut container)?;
+        self.metadata().save(&mut container)?;
 
         Ok(container)
     }

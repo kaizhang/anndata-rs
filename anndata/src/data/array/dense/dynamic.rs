@@ -66,7 +66,7 @@ macro_rules! impl_from_dynscalar {
                 fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
                     let dataset = location.new_scalar_dataset(name, self)?;
                     let mut container = DataContainer::Dataset(dataset);
-                    self.metadata().save_metadata(&mut container)?;
+                    self.metadata().save(&mut container)?;
                     Ok(container)
                 }
             }

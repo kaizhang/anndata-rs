@@ -1,5 +1,6 @@
 from anndata_rs import AnnData, AnnDataSet, read
 
+import pytest
 import math
 import anndata as ad
 import numpy as np
@@ -15,14 +16,15 @@ def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
     unsigned_integer_dtypes(endianness = '='),
     array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
-def test_basic(x, tmp_path):
-    adata = AnnData(filename = h5ad(tmp_path))
+def test_basic(x, tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), backend=backend)
 
     assert adata.obs is None
     assert adata.var is None
@@ -62,33 +64,37 @@ def test_basic(x, tmp_path):
         "b": ["one", "two", "three"],
     })
     output = h5ad(tmp_path)
-    adata.write(output)
-    read(output).close()
-    read(output, backed=None).write(output, compression="gzip")
-    read(output).close()
+    adata.write(output, backend=backend)
+    read(output, backend=backend).close()
+    if backend == "hdf5":
+        ad.read_h5ad(output).write(output, compression="gzip")
+        read(output, backend='hdf5').close()
 
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
     unsigned_integer_dtypes(endianness = '='),
     array_shapes(min_dims=2, max_dims=2, min_side=0, max_side=5),
 ))
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
-def test_assign_arrays(x, tmp_path):
-    adata = AnnData(filename = h5ad(tmp_path))
+def test_assign_arrays(x, tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), backend=backend)
     adata.uns['x'] = x
     x_ = adata.uns['x']
     np.testing.assert_array_equal(x_, x)
 
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
 @given(x=st.floats())
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
-def test_assign_floats(x, tmp_path):
-    adata = AnnData(filename = h5ad(tmp_path))
+def test_assign_floats(x, tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), backend=backend)
     adata.uns['x'] = x
     x_ = adata.uns['x']
     assert (x_ == x or (math.isnan(x) and math.isnan(x_)))
 
-def test_creation(tmp_path):
-    adata = AnnData(filename=h5ad(tmp_path))
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+def test_creation(tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), backend=backend)
     assert adata.n_obs == 0
     assert adata.n_vars == 0
 
@@ -116,8 +122,9 @@ def test_creation(tmp_path):
     assert adata.var_names == var_names
     assert adata.to_memory().var_names.to_list() == var_names
 
-def test_resize(tmp_path):
-    adata = AnnData(filename=h5ad(tmp_path))
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+def test_resize(tmp_path, backend):
+    adata = AnnData(filename=h5ad(tmp_path), backend=backend)
     adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
     adata.var_names = ['a', 'b', 'c', 'd']
     adata.X = np.array([[1, 2, 3, 4], [3, 4, 5, 6]])
@@ -133,8 +140,9 @@ def test_nullable(tmp_path):
 
     adata.uns['df'] = pd.DataFrame({"test": pd.Series(["a", "b", np.nan, "a"], dtype="category")})
 
-def test_type(tmp_path):
-    adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]))
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+def test_type(tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]), backend=backend)
 
     x = "test"
     adata.uns["str"] = x
@@ -149,45 +157,49 @@ def test_type(tmp_path):
     adata.uns["dict"] = x
     assert adata.uns["dict"] == x
 
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
 @given(
     x1 = arrays(np.int64, (7, 13)),
     x2 = arrays(np.int64, (9, 13)),
     x3 = arrays(np.int64, (3, 13)),
 )
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
-def test_create_anndataset(x1, x2, x3, tmp_path):
+def test_create_anndataset(x1, x2, x3, tmp_path, backend):
     # empty dataset
-    adata1 = AnnData(filename=h5ad(tmp_path))
-    adata2 = AnnData(filename=h5ad(tmp_path))
-    adata3 = AnnData(filename=h5ad(tmp_path))
+    adata1 = AnnData(filename=h5ad(tmp_path), backend=backend)
+    adata2 = AnnData(filename=h5ad(tmp_path), backend=backend)
+    adata3 = AnnData(filename=h5ad(tmp_path), backend=backend)
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
         filename=h5ad(tmp_path),
         add_key="batch",
+        backend=backend,
     )
     assert dataset.n_obs == 0
     assert dataset.n_vars == 0
  
     # dense array
-    adata1 = AnnData(X=x1, filename=h5ad(tmp_path))
-    adata2 = AnnData(X=x2, filename=h5ad(tmp_path))
-    adata3 = AnnData(X=x3, filename=h5ad(tmp_path))
+    adata1 = AnnData(X=x1, filename=h5ad(tmp_path), backend=backend)
+    adata2 = AnnData(X=x2, filename=h5ad(tmp_path), backend=backend)
+    adata3 = AnnData(X=x3, filename=h5ad(tmp_path), backend=backend)
     merged = np.concatenate([x1, x2, x3], axis=0)
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
         filename=h5ad(tmp_path),
         add_key="batch",
+        backend=backend,
     )
     np.testing.assert_array_equal(merged, dataset.X[:])
 
     # sparse array
-    adata1 = AnnData(X=csr_matrix(x1), filename=h5ad(tmp_path))
-    adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path))
-    adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path))
+    adata1 = AnnData(X=csr_matrix(x1), filename=h5ad(tmp_path), backend=backend)
+    adata2 = AnnData(X=csr_matrix(x2), filename=h5ad(tmp_path), backend=backend)
+    adata3 = AnnData(X=csr_matrix(x3), filename=h5ad(tmp_path), backend=backend)
     dataset = AnnDataSet(
         adatas=[("1", adata1), ("2", adata2), ("3", adata3)],
         filename=h5ad(tmp_path),
         add_key="batch",
+        backend=backend,
     )
     np.testing.assert_array_equal(merged, dataset.X[:].todense())
 
@@ -195,7 +207,8 @@ def test_create_anndataset(x1, x2, x3, tmp_path):
     x = dataset.X[:]
     np.testing.assert_array_equal(x[:, [1,2,3]].todense(), dataset.X[:, [1,2,3]].todense())
 
-def test_noncanonical_csr(tmp_path):
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+def test_noncanonical_csr(tmp_path, backend):
     def assert_csr_equal(a, b):
         np.testing.assert_array_equal(a.shape, b.shape)
         np.testing.assert_array_equal(a.data, b.data)
@@ -209,15 +222,16 @@ def test_noncanonical_csr(tmp_path):
     assert not csr.has_canonical_format
 
     file = h5ad(tmp_path)
-    adata = AnnData(filename = file)
+    adata = AnnData(filename=file, backend=backend)
     adata.X = csr
     adata.obs = pl.DataFrame({"a": [1, 2, 3, 4, 5]})
     assert_csr_equal(csr, adata.X[:])
     adata.close()
 
-    adata = read(file, backed=None)
-    assert_csr_equal(csr, adata.X)
-
-    adata.write(file)
-    adata = read(file, backed=None)
-    assert_csr_equal(csr, adata.X)
+    if backend == "hdf5":
+        adata = ad.read_h5ad(file)
+        assert_csr_equal(csr, adata.X)
+        file = h5ad(tmp_path)
+        adata.write(file)
+        adata = read(file, backed=None, backend='hdf5')
+        assert_csr_equal(csr, adata.X)

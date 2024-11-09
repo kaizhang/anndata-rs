@@ -1,6 +1,6 @@
 use crate::{
-    anndata::{new_layers, new_obsm, new_obsp, new_varm, new_varp},
-    backend::{GroupOp, DataType},
+    anndata::{new_layers, new_mapping, new_obsm, new_obsp, new_varm, new_varp},
+    backend::DataType,
     container::{ChunkedArrayElem, InnerDataFrameElem, StackedChunkedArrayElem},
     data::*,
     AnnData, AnnDataSet, ArrayElem, AxisArrays, Backend, ElemCollection, StackedArrayElem,
@@ -346,10 +346,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn uns(&self) -> Self::ElemCollectionRef<'_> {
         if self.uns.is_none() {
-            let elems = self
-                .file
-                .new_group("uns")
-                .and_then(|g| ElemCollection::new(g));
+            let elems = new_mapping(&self.file, "uns").and_then(ElemCollection::new);
             if let Ok(uns) = elems {
                 self.uns.swap(&uns);
             }
@@ -358,10 +355,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsm(&self) -> Self::AxisArraysRef<'_> {
         if self.obsm.is_none() {
-            let arrays = self
-                .file
-                .new_group("obsm")
-                .and_then(|g| new_obsm(g, &self.n_obs));
+            let arrays = new_mapping(&self.file, "obsm").and_then(|g|
+                new_obsm(g, &self.n_obs)
+            );
             if let Ok(obsm) = arrays {
                 self.obsm.swap(&obsm);
             }
@@ -370,10 +366,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn obsp(&self) -> Self::AxisArraysRef<'_> {
         if self.obsp.is_none() {
-            let arrays = self
-                .file
-                .new_group("obsp")
-                .and_then(|g| new_obsp(g, &self.n_obs));
+            let arrays = new_mapping(&self.file, "obsp").and_then(|g|
+                new_obsp(g, &self.n_obs)
+            );
             if let Ok(obsp) = arrays {
                 self.obsp.swap(&obsp);
             }
@@ -382,10 +377,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varm(&self) -> Self::AxisArraysRef<'_> {
         if self.varm.is_none() {
-            let arrays = self
-                .file
-                .new_group("varm")
-                .and_then(|g| new_varm(g, &self.n_vars));
+            let arrays = new_mapping(&self.file, "varm").and_then(|g|
+                new_varm(g, &self.n_vars)
+            );
             if let Ok(varm) = arrays {
                 self.varm.swap(&varm);
             }
@@ -394,10 +388,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn varp(&self) -> Self::AxisArraysRef<'_> {
         if self.varp.is_none() {
-            let arrays = self
-                .file
-                .new_group("varp")
-                .and_then(|g| new_varp(g, &self.n_vars));
+            let arrays = new_mapping(&self.file, "varp").and_then(|g|
+                new_varp(g, &self.n_vars)
+            );
             if let Ok(varp) = arrays {
                 self.varp.swap(&varp);
             }
@@ -406,10 +399,9 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
     }
     fn layers(&self) -> Self::AxisArraysRef<'_> {
         if self.layers.is_none() {
-            let arrays = self
-                .file
-                .new_group("layers")
-                .and_then(|g| new_layers(g, &self.n_obs, &self.n_vars));
+            let arrays = new_mapping(&self.file, "layers").and_then(|g|
+                new_layers(g, &self.n_obs, &self.n_vars)
+            );
             if let Ok(layers) = arrays {
                 self.layers.swap(&layers);
             }

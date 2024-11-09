@@ -30,7 +30,7 @@ jobs:
         cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
         cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
         cd ${GITHUB_WORKSPACE}/python && pip install --user .[test]
-        pytest ${GITHUB_WORKSPACE}/python/tests
+        pytest -v --durations=0 ${GITHUB_WORKSPACE}/python/tests
 
     - name: benchmark
       run: |

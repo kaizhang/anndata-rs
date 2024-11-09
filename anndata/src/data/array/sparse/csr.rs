@@ -228,7 +228,7 @@ impl<T: BackendData> Writable for CsrMatrix<T> {
         let mut group = location.new_group(name)?;
         let shape = self.shape();
 
-        self.metadata().save_metadata(&mut group)?;
+        self.metadata().save(&mut group)?;
         group.new_array_dataset("data", self.values().into(), Default::default())?;
 
         let num_cols = shape[1];

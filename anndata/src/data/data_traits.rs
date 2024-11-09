@@ -9,6 +9,12 @@ use crate::data::{
 use anyhow::Result;
 use serde_json::Value;
 
+pub(crate) const MAPPING_ENCODING: MetaData = MetaData {
+    encoding_type: "dict",
+    version: "0.1.0",
+    metadata: None,
+};
+
 pub struct MetaData {
     encoding_type: &'static str,
     version: &'static str,
@@ -28,7 +34,7 @@ impl MetaData {
         }
     }
 
-    pub(crate) fn save_metadata<B: Backend, A: AttributeOp<B>>(self, loc: &mut A) -> Result<()> {
+    pub(crate) fn save<B: Backend, A: AttributeOp<B>>(self, loc: &mut A) -> Result<()> {
         loc.new_attr("encoding-type", self.encoding_type)?;
         loc.new_attr("encoding-version", self.version)?;
         if let Some(metadata) = self.metadata {

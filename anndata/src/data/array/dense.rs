@@ -41,7 +41,7 @@ impl<'a, T: BackendData, D: Dimension> Writable for ArrayView<'a, T, D> {
     ) -> Result<DataContainer<B>> {
         let dataset = location.new_array_dataset(name, self.into(), Default::default())?;
         let mut container = DataContainer::<B>::Dataset(dataset);
-        self.metadata().save_metadata(&mut container)?;
+        self.metadata().save(&mut container)?;
         Ok(container)
     }
 }
@@ -238,7 +238,7 @@ impl Writable for CategoricalArray {
         name: &str,
     ) -> Result<DataContainer<B>> {
         let mut group = location.new_group(name)?;
-        self.metadata().save_metadata(&mut group)?;
+        self.metadata().save(&mut group)?;
 
         group.new_array_dataset(
             "codes",

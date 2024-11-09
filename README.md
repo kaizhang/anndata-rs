@@ -21,8 +21,8 @@ Here are the key features of this implementation:
 
 Limitations:
 
-- Only a subset of the h5ad specifications are implemented. For example, the `.layer`
-  and `.raw` is not supported. To request a missing feature, please open a new issue.
+- Only a subset of the h5ad specifications are implemented. For example, the
+  `.raw` is not supported. To request a missing feature, please open a new issue.
 - No views. Subsetting the AnnData will modify the data inplace or make a copy.
 
 Installation

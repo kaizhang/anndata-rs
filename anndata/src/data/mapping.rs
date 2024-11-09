@@ -36,7 +36,7 @@ impl Element for Mapping {
     }
 
     fn metadata(&self) -> MetaData {
-        MetaData::new("dict", "0.1.0", None)
+        crate::data::MAPPING_ENCODING
     }
 }
 
@@ -52,7 +52,7 @@ impl Readable for Mapping {
 impl Writable for Mapping {
     fn write<B: Backend, G: GroupOp<B>>(&self, location: &G, name: &str) -> Result<DataContainer<B>> {
         let mut group = location.new_group(name)?;
-        self.metadata().save_metadata(&mut group)?;
+        self.metadata().save(&mut group)?;
         self.0
             .iter()
             .try_for_each(|(k, v)| v.write(&group, k).map(|_| ()))?;

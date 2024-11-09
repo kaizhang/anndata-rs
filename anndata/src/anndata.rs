@@ -101,6 +101,12 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
     }
 }
 
+pub(crate) fn new_mapping<G: GroupOp<B>, B: Backend>(store: &G, name: &str) -> Result<B::Group> {
+    let mut g = store.new_group(name)?;
+    MAPPING_ENCODING.save(&mut g)?;
+    Ok(g)
+}
+
 // Helper function to create a new observation matrix (obsm)
 pub(crate) fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::Row, n_obs, None)
@@ -175,32 +181,32 @@ impl<B: Backend> AnnData<B> {
             Slot::none()
         };
 
-        let obsm = match file.open_group("obsm").or(file.new_group("obsm")) {
+        let obsm = match file.open_group("obsm").or(new_mapping(&file, "obsm")) {
             Ok(group) => new_obsm(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
-        let obsp = match file.open_group("obsp").or(file.new_group("obsp")) {
+        let obsp = match file.open_group("obsp").or(new_mapping(&file, "obsp")) {
             Ok(group) => new_obsp(group, &n_obs)?,
             _ => AxisArrays::empty(),
         };
 
-        let varm = match file.open_group("varm").or(file.new_group("varm")) {
+        let varm = match file.open_group("varm").or(new_mapping(&file, "varm")) {
             Ok(group) => new_varm(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
-        let varp = match file.open_group("varp").or(file.new_group("varp")) {
+        let varp = match file.open_group("varp").or(new_mapping(&file, "varp")) {
             Ok(group) => new_varp(group, &n_vars)?,
             _ => AxisArrays::empty(),
         };
 
-        let uns = match file.open_group("uns").or(file.new_group("uns")) {
+        let uns = match file.open_group("uns").or(new_mapping(&file, "uns")) {
             Ok(group) => ElemCollection::new(group)?,
             _ => ElemCollection::empty(),
         };
 
-        let layers = match file.open_group("layers").or(file.new_group("layers")) {
+        let layers = match file.open_group("layers").or(new_mapping(&file, "layers")) {
             Ok(group) => new_layers(group, &n_obs, &n_vars)?,
             _ => AxisArrays::empty(),
         };
@@ -230,12 +236,12 @@ impl<B: Backend> AnnData<B> {
             x: Slot::none(),
             obs: Slot::none(),
             var: Slot::none(),
-            obsm: new_obsm(file.new_group("obsm")?, &n_obs)?,
-            obsp: new_obsp(file.new_group("obsp")?, &n_obs)?,
-            varm: new_varm(file.new_group("varm")?, &n_vars)?,
-            varp: new_varp(file.new_group("varp")?, &n_vars)?,
-            uns: ElemCollection::new(file.new_group("uns")?)?,
-            layers: new_layers(file.new_group("layers")?, &n_obs, &n_vars)?,
+            obsm: new_obsm(new_mapping(&file, "obsm")?, &n_obs)?,
+            obsp: new_obsp(new_mapping(&file, "obsp")?, &n_obs)?,
+            varm: new_varm(new_mapping(&file, "varm")?, &n_vars)?,
+            varp: new_varp(new_mapping(&file, "varp")?, &n_vars)?,
+            uns: ElemCollection::new(new_mapping(&file, "uns")?)?,
+            layers: new_layers(new_mapping(&file, "layers")?, &n_obs, &n_vars)?,
             file,
             n_obs,
             n_vars,
