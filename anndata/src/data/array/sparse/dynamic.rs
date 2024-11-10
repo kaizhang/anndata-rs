@@ -82,7 +82,7 @@ impl Readable for DynCsrMatrix {
             DataContainer::Group(group) => {
                 macro_rules! fun {
                     ($variant:ident) => {
-                        CsrMatrix::read(container).map(DynCsrMatrix::$variant)
+                        CsrMatrix::<$variant>::read(container).map(Into::into)
                     };
                 }
                 crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
@@ -174,10 +174,10 @@ impl ReadableArray for DynCsrMatrix {
         if let DataType::CsrMatrix(ty) = container.encoding_type()? {
             macro_rules! fun {
                 ($variant:ident) => {
-                    CsrMatrix::read_select(container, info).map(DynCsrMatrix::$variant)
+                    CsrMatrix::<$variant>::read_select(container, info)?.into()
                 };
             }
-            crate::macros::dyn_match!(ty, ScalarType, fun)
+            Ok(crate::macros::dyn_match!(ty, ScalarType, fun))
         } else {
             bail!("the container does not contain a csr matrix");
         }
@@ -256,7 +256,7 @@ impl Readable for DynCscMatrix {
             DataContainer::Group(group) => {
                 macro_rules! fun {
                     ($variant:ident) => {
-                        CscMatrix::read(container).map(DynCscMatrix::$variant)
+                        CscMatrix::<$variant>::read(container).map(Into::into)
                     };
                 }
                 crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
@@ -304,7 +304,7 @@ impl ReadableArray for DynCscMatrix {
         if let DataType::CscMatrix(ty) = container.encoding_type()? {
             macro_rules! fun {
                 ($variant:ident) => {
-                    CscMatrix::read_select(container, info).map(DynCscMatrix::$variant)
+                    CscMatrix::<$variant>::read_select(container, info).map(Into::into)
                 };
             }
             crate::macros::dyn_match!(ty, ScalarType, fun)

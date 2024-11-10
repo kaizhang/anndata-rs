@@ -15,6 +15,7 @@ pub enum DataType {
     Mapping,
     Scalar(ScalarType),
     Categorical,
+    NullableArray,
 }
 
 impl DataType {
@@ -39,6 +40,7 @@ impl Display for DataType {
             DataType::DataFrame => write!(f, "DataFrame"),
             DataType::Scalar(t) => write!(f, "Scalar({})", t),
             DataType::Mapping => write!(f, "Mapping"),
+            DataType::NullableArray => write!(f, "Nullable array"),
         }
     }
 }

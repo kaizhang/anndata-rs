@@ -105,7 +105,7 @@ impl Readable for DynScalar {
 
         macro_rules! fun {
             ($variant:ident) => {
-                DynScalar::$variant(dataset.read_scalar()?)
+                dataset.read_scalar::<$variant>()?.into()
             };
         }
 

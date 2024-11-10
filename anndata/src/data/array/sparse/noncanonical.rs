@@ -154,7 +154,7 @@ impl Readable for DynCsrNonCanonical {
             DataContainer::Group(group) => {
                 macro_rules! fun {
                     ($variant:ident) => {
-                        CsrNonCanonical::read(container).map(DynCsrNonCanonical::$variant)
+                        CsrNonCanonical::<$variant>::read(container).map(Into::into)
                     };
                 }
                 crate::macros::dyn_match!(group.open_dataset("data")?.dtype()?, ScalarType, fun)
@@ -248,7 +248,7 @@ impl ReadableArray for DynCsrNonCanonical {
         if let DataType::CsrMatrix(ty) = container.encoding_type()? {
             macro_rules! fun {
                 ($variant:ident) => {
-                    CsrNonCanonical::read_select(container, info).map(DynCsrNonCanonical::$variant)
+                    CsrNonCanonical::<$variant>::read_select(container, info).map(Into::into)
                 };
             }
             crate::macros::dyn_match!(ty, ScalarType, fun)

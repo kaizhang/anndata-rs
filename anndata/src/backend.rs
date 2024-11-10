@@ -332,6 +332,7 @@ impl<B: Backend> DataContainer<B> {
             }
             "dataframe" => DataType::DataFrame,
             "mapping" | "dict" => DataType::Mapping,
+            "nullable-integer" | "nullable-boolean" => DataType::NullableArray,
             ty => bail!("Unsupported type '{}'", ty),
         };
         Ok(ty)

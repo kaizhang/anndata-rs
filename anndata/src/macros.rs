@@ -1,17 +1,17 @@
 macro_rules! dyn_match {
     ($scalar:expr, $enum:ident, $inner_macro:ident) => {
         match $scalar {
-            $enum::I8 => $inner_macro!(I8),
-            $enum::I16 => $inner_macro!(I16),
-            $enum::I32 => $inner_macro!(I32),
-            $enum::I64 => $inner_macro!(I64),
-            $enum::U8 => $inner_macro!(U8),
-            $enum::U16 => $inner_macro!(U16),
-            $enum::U32 => $inner_macro!(U32),
-            $enum::U64 => $inner_macro!(U64),
-            $enum::F32 => $inner_macro!(F32),
-            $enum::F64 => $inner_macro!(F64),
-            $enum::Bool => $inner_macro!(Bool),
+            $enum::I8 => $inner_macro!(i8),
+            $enum::I16 => $inner_macro!(i16),
+            $enum::I32 => $inner_macro!(i32),
+            $enum::I64 => $inner_macro!(i64),
+            $enum::U8 => $inner_macro!(u8),
+            $enum::U16 => $inner_macro!(u16),
+            $enum::U32 => $inner_macro!(u32),
+            $enum::U64 => $inner_macro!(u64),
+            $enum::F32 => $inner_macro!(f32),
+            $enum::F64 => $inner_macro!(f64),
+            $enum::Bool => $inner_macro!(bool),
             $enum::String => $inner_macro!(String),
         }
     };

@@ -50,7 +50,9 @@ where
                         Ok(null.clone())
                     }
                 }).collect();
-                anyhow::Ok(DataFrame::from_rows_and_schema(rows?.as_slice(), &var.schema())?)
+                let mut df = DataFrame::from_rows(rows?.as_slice())?;
+                df.set_column_names(var.get_column_names_owned())?;
+                Ok(df)
             }).reduce(|a, b| {
                 let mut a = a?;
                 merge_df(&mut a, &b?)?;
@@ -92,7 +94,7 @@ where
 
                 macro_rules! fun {
                     ($variant:ident) => {
-                        DynCsrMatrix::$variant(CsrMatrix::zeros(n_obs, n_vars)).into()
+                        CsrMatrix::<$variant>::zeros(n_obs, n_vars).into()
                     };
                 }
 
@@ -123,6 +125,9 @@ where
 }
 
 fn merge_df(this: &mut DataFrame, other: &DataFrame) -> Result<()> {
+    if other.is_empty() {
+        return Ok(());
+    }
     ensure!(
         this.height() == other.height(),
         "DataFrames must have the same number of rows"

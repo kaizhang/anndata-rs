@@ -154,6 +154,7 @@ impl Readable for Data {
             | DataType::CsrMatrix(_) => ArrayData::read(container).map(|x| x.into()),
             DataType::Scalar(_) => DynScalar::read(container).map(|x| x.into()),
             DataType::Mapping => Mapping::read(container).map(|x| x.into()),
+            DataType::NullableArray => bail!("Cannot read NullableArray into Data"),
         }
     }
 }

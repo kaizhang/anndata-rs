@@ -52,7 +52,6 @@ impl<'a, T, D: Dimension> HasShape for ArrayView<'a, T, D> {
     }
 }
 
-
 impl<T: BackendData, D> Element for Array<T, D> {
     fn metadata(&self) -> MetaData {
         let encoding_type = match T::DTYPE {
@@ -240,16 +239,10 @@ impl Writable for CategoricalArray {
         let mut group = location.new_group(name)?;
         self.metadata().save(&mut group)?;
 
-        group.new_array_dataset(
-            "codes",
-            self.codes.map(|x| x.map_or(-1, |x| x as i32)).into(),
-            Default::default(),
-        )?;
-        group.new_array_dataset(
-            "categories",
-            self.categories.view().into(),
-            Default::default(),
-        )?;
+        self.codes
+            .map(|x| x.map_or(-1, |x| x as i32))
+            .write(&group, "codes")?;
+        self.categories.view().write(&group, "categories")?;
 
         Ok(DataContainer::Group(group))
     }

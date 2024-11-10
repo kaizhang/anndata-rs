@@ -10,12 +10,12 @@ use crate::data::index::{Index, Interval};
 
 use anyhow::{bail, Context, Result};
 use log::warn;
-use ndarray::Array1;
+use ndarray::{Array1, Ix1};
 use polars::chunked_array::ChunkedArray;
 use polars::datatypes::DataType;
 use polars::prelude::{DataFrame, Series};
 
-use super::{SelectInfoBounds, SelectInfoElemBounds};
+use super::{BackendData, SelectInfoBounds, SelectInfoElemBounds};
 
 impl Element for DataFrame {
     fn data_type(&self) -> crate::backend::DataType {
@@ -173,9 +173,11 @@ impl ReadableArray for DataFrame {
                     .map(DataContainer::Dataset)
                     .and_then(|x| read_series::<B>(&x))
                     .with_context(|| format!("Failed to read series: {}", name))?;
- 
+
                 let indices: Vec<u32> = SelectInfoElemBounds::new(&info[0], series.len())
-                    .iter().map(|x| x.try_into().unwrap()).collect();
+                    .iter()
+                    .map(|x| x.try_into().unwrap())
+                    .collect();
                 let mut series = series.take_slice(indices.as_slice())?;
                 series.rename(name.into());
                 Ok(series)
@@ -274,7 +276,7 @@ impl DataFrameIndex {
         container.new_attr("_index", self.index_name.clone())?;
         let group = container.as_group()?;
         let arr: Array1<String> = self.clone().into_iter().collect();
-        let mut data = group.new_array_dataset(&self.index_name, arr.into(), Default::default())?;
+        let mut data = arr.write(group, &self.index_name)?;
         match &self.index {
             Index::List(_) => {
                 data.new_attr("index_type", "list")?;
@@ -341,8 +343,6 @@ where
     }
 }
 
-
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -353,78 +353,29 @@ fn write_series<B: Backend, G: GroupOp<B>>(
     name: &str,
 ) -> Result<DataContainer<B>> {
     match series.dtype() {
-        DataType::UInt8 => series
-            .u8()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::UInt16 => series
-            .u16()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::UInt32 => series
-            .u32()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::UInt64 => series
-            .u64()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::Int8 => series
-            .i8()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::Int16 => series
-            .i16()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::Int32 => series
-            .i32()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::Int64 => series
-            .i64()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
+        DataType::UInt8 => write_series_helper(series.u8()?, location, name),
+        DataType::UInt16 => write_series_helper(series.u16()?, location, name),
+        DataType::UInt32 => write_series_helper(series.u32()?, location, name),
+        DataType::UInt64 => write_series_helper(series.u64()?, location, name),
+        DataType::Int8 => write_series_helper(series.i8()?, location, name),
+        DataType::Int16 => write_series_helper(series.i16()?, location, name),
+        DataType::Int32 => write_series_helper(series.i32()?, location, name),
+        DataType::Int64 => write_series_helper(series.i64()?, location, name),
         DataType::Float32 => series
             .f32()?
             .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
+            .map(|x| x.unwrap_or(std::f32::NAN))
+            .collect::<Array1<f32>>()
             .write(location, name),
         DataType::Float64 => series
             .f64()?
             .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
+            .map(|x| x.unwrap_or(std::f64::NAN))
+            .collect::<Array1<f64>>()
             .write(location, name),
-        DataType::Boolean => series
-            .bool()?
-            .into_iter()
-            .map(|x| x.unwrap())
-            .collect::<Array1<_>>()
-            .write(location, name),
-        DataType::String => series
-            .str()?
-            .into_iter()
-            .map(|x| x.unwrap().to_string())
-            .collect::<Array1<_>>()
-            .write(location, name),
+        DataType::Boolean => write_series_helper(series.bool()?, location, name),
+        // Always store string data as categorical data
+        DataType::String => series.str()?.into_iter().collect::<CategoricalArray>().write(location, name),
         DataType::Categorical(_, _) => series
             .categorical()?
             .iter_str()
@@ -444,8 +395,9 @@ fn read_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
                 _ => read_cat_as_series(container)?,
             };
             Ok(s)
-        },
+        }
         crate::backend::DataType::Array(_) => Ok(DynArray::read(container)?.into()),
+        crate::backend::DataType::NullableArray => read_nullable(container),
         _ => bail!("Unsupported data type: {:?}", ty),
     }
 }
@@ -468,21 +420,65 @@ fn read_cat_as_series<B: Backend>(container: &DataContainer<B>) -> Result<Series
     Ok(arr)
 }
 
-impl HasShape for Series {
-    fn shape(&self) -> Shape {
-        self.len().into()
+fn write_series_helper<B, G, I, T>(data: I, location: &G, name: &str) -> Result<DataContainer<B>>
+where
+    B: Backend,
+    G: GroupOp<B>,
+    I: IntoIterator<Item = Option<T>>,
+    T: BackendData + Default,
+{
+    let mut has_null = false;
+    let (values, mask): (Vec<_>, Vec<_>) = data
+        .into_iter()
+        .map(|x| {
+            if let Some(x) = x {
+                (x, false)
+            } else {
+                has_null = true;
+                (T::default(), true)
+            }
+        })
+        .unzip();
+
+    if has_null {
+        let mut group = location.new_group(name)?;
+        let encoding = match T::DTYPE {
+            ScalarType::I8
+            | ScalarType::I16
+            | ScalarType::I32
+            | ScalarType::I64
+            | ScalarType::U8
+            | ScalarType::U16
+            | ScalarType::U32
+            | ScalarType::U64 => "nullable-integer",
+            ScalarType::Bool => "nullable-boolean",
+            ScalarType::String => "nullable-string",
+            ScalarType::F32 | ScalarType::F64 => bail!("float types are not supported"),
+        };
+        MetaData::new(encoding, "0.1.0", None).save(&mut group)?;
+        Array1::from(values).write(&group, "values")?;
+        Array1::from(mask).write(&group, "mask")?;
+        Ok(DataContainer::Group(group))
+    } else {
+        Array1::from(values).write(location, name)
     }
 }
 
-impl Selectable for Series {
-    fn select<S>(&self, info: &[S]) -> Self
-    where
-        S: AsRef<SelectInfoElem>,
-    {
-        let i = SelectInfoElemBounds::new(info.as_ref()[0].as_ref(), self.len())
-            .iter()
-            .map(|x| x as u32)
-            .collect::<Vec<_>>();
-        self.take(&ChunkedArray::from_vec("idx".into(), i)).unwrap()
+fn read_nullable<B>(container: &DataContainer<B>) -> Result<Series>
+where
+    B: Backend,
+{
+    let mask: Array1<bool> = container.as_group()?.open_dataset("mask")?.read_array()?;
+    let dataset = container.as_group()?.open_dataset("values")?;
+
+    macro_rules! fun {
+        ($variant:ident) => {
+            mask.iter()
+                .zip(dataset.read_array::<$variant, Ix1>()?.into_iter())
+                .map(|(m, v)| if *m { None } else { Some(v) })
+                .collect()
+        };
     }
+
+    Ok(crate::macros::dyn_match!(dataset.dtype()?, ScalarType, fun))
 }

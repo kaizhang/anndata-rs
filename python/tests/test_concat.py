@@ -48,13 +48,23 @@ def test_concat(tmp_path, backend):
         [0, 0, 0, 0, 1, 1],
     ])
 
+    df1 = pl.DataFrame({
+        "text": ["a", "b", "c"],
+        "int16": [2, 5, 8],
+    }, schema={"text": pl.String, "int16": pl.Int16})
+    df2 = pl.DataFrame({
+        "f32": [2.2, 5.1],
+    }, schema={ "f32": pl.Float32 })
+
     adata1.X = x1
     adata1.obs_names = ["1", "2", "3"]
     adata1.var_names = ["a", "b", "c"]
+    adata1.var = df1
 
     adata2.X = x2
     adata2.obs_names = ["1", "2", "3"]
     adata2.var_names = ["b", "d"]
+    adata2.var = df2
 
     adata3.X = x3
     adata3.obs_names = ["1", "2", "3", "4"]
@@ -65,6 +75,13 @@ def test_concat(tmp_path, backend):
     assert merged.obs_names == ["1", "2", "3", "1", "2", "3", "1", "2", "3", "4"]
     assert merged.var_names == ["a", "b", "c", "d", "e", "f"]
     np.testing.assert_array_equal(merged.X[:], x_merged)
+
+    merged.close()
+    if backend == "hdf5":
+        data = ad.read_h5ad(out)
+        #assert data.var['text'].to_list() == pd.Series(['a', 'b', 'c', pd.NA, pd.NA, pd.NA], dtype="string").to_list()
+        assert data.var['int16'].array == pd.Series([2, 5, 8, pd.NA, pd.NA, pd.NA], dtype="Int16").array
+        assert data.var['f32'].array == pd.Series([pd.NA, 2.2, pd.NA, 5.1, pd.NA, pd.NA], dtype="Float32").array
 
     adata1.X = csr_matrix(x1)
     adata2.X = csr_matrix(x2)
