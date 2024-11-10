@@ -178,10 +178,10 @@ pub fn test_concat<B: Backend>() {
             let adatas = [adata1, adata2];
 
             let out = AnnData::<B>::new(&output).unwrap();
-            concat(&adatas, JoinType::Inner, &out).unwrap();
+            concat::<_, _, String>(&adatas, JoinType::Inner, None, None, &out).unwrap();
 
             let out = AnnData::<B>::new(&output).unwrap();
-            concat(&adatas, JoinType::Outer, &out).unwrap();
+            concat::<_, _, String>(&adatas, JoinType::Outer, None, None, &out).unwrap();
         })
     });
 }

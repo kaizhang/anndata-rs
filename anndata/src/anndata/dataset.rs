@@ -210,6 +210,7 @@ impl<B: Backend> AnnDataSet<B> {
                 } else {
                     B::open(file_path.parent().unwrap_or(Path::new("./")).join(path))
                 }?;
+                println!("O3");
                 Ok((k, AnnData::open(fl)?))
             })
             .collect::<Result<_>>()?;
@@ -326,20 +327,13 @@ fn update_anndata_locations_by_map<B: Backend, P: AsRef<Path>>(
         .uns().get_item("AnnDataSet")?
         .context("key 'AnnDataSet' is not present")?;
     let keys = df.column("keys").unwrap();
-    let filenames = df
-        .column("file_path")?
-        .str()?
-        .into_iter()
-        .collect::<Option<Vec<_>>>()
-        .unwrap();
-    let new_files: Vec<_> = keys
-        .str()?
+    let filenames = as_str_vec(df.column("file_path")?);
+    let new_files: Vec<_> = as_str_vec(keys)
         .into_iter()
         .zip(filenames)
         .map(|(k, v)| {
-            let k = k.unwrap();
             let name = new_locations
-                .get(k)
+                .get(&k)
                 .map_or(PathBuf::from(v), |x| x.as_ref().to_path_buf());
             (k.to_string(), name)
         })
@@ -365,21 +359,14 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
     let file_map: HashMap<String, PathBuf> = std::fs::read_dir(dir)?.map(|x| x.map(|entry|
         (entry.file_name().into_string().unwrap(), entry.path())
     )).collect::<Result<_, std::io::Error>>()?;
-    let filenames = df
-        .column("file_path")?
-        .str()?
-        .into_iter()
-        .map(Option::unwrap)
-        .collect::<Vec<_>>();
-
-    let new_files: Vec<_> = keys
-        .str()?
+    let filenames = as_str_vec(df.column("file_path")?);
+    let new_files: Vec<_> = as_str_vec(keys)
         .into_iter()
         .zip(filenames)
         .map(|(k, filename)| {
             let path = PathBuf::from(filename);
             let name = path.file_name().unwrap().to_str().unwrap();
-            (k.unwrap().to_string(), file_map.get(name).map_or(path, |x| std::fs::canonicalize(x).unwrap()))
+            (k, file_map.get(name).map_or(path, |x| std::fs::canonicalize(x).unwrap()))
         })
         .collect();
     let data = DataFrame::new(
@@ -530,5 +517,13 @@ impl<B: Backend> StackedAnnData<B> {
             })
             .collect();
         Ok((files?, mapping))
+    }
+}
+
+fn as_str_vec(series: &Series) -> Vec<String> {
+    if let Ok(s) = series.str() {
+        s.into_iter().map(|x| x.unwrap().to_string()).collect::<Vec<_>>()
+    } else {
+        series.categorical().unwrap().iter_str().map(|x| x.unwrap().to_string()).collect::<Vec<_>>()
     }
 }

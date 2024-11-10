@@ -4,11 +4,12 @@ use crate::data::DynCsrMatrix;
 use crate::{AnnDataOp, ArrayElemOp};
 use anyhow::{ensure, Result};
 use indexmap::IndexSet;
+use itertools::Itertools;
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
 use polars::frame::row::Row;
 use polars::frame::DataFrame;
-use polars::prelude::{AnyValue, IntoLazy};
+use polars::prelude::{AnyValue, IntoLazy, NamedFrom};
 use polars::series::Series;
 
 use crate::data::{ArrayData, DynArray};
@@ -19,10 +20,17 @@ pub enum JoinType {
     Outer,
 }
 
-pub fn concat<A, O>(adatas: &[A], join: JoinType, out: &O) -> Result<()>
+pub fn concat<A, O, S>(
+    adatas: &[A],
+    join: JoinType,
+    label: Option<&str>,
+    keys: Option<&[S]>,
+    out: &O,
+) -> Result<()>
 where
     A: AnnDataOp,
     O: AnnDataOp,
+    S: ToString,
 {
     // Concatenate var_names
     let common_vars = adatas
@@ -66,10 +74,18 @@ where
         let obs_names = adatas.iter().flat_map(|adata| adata.obs_names()).collect();
         out.set_obs_names(obs_names)?;
 
-        let dfs = adatas
+        let mut dfs = adatas
             .iter()
-            .map(|adata| adata.read_obs().unwrap().lazy())
+            .map(|adata| adata.read_obs().unwrap())
             .collect::<Vec<_>>();
+        if let Some(keys) = keys {
+            dfs
+                .iter_mut().zip_eq(keys.iter()).for_each(|(df, key)| {
+                    let s = Series::new(label.unwrap_or("label").into(), vec![key.to_string(); df.height()]);
+                    df.insert_column(0, s).unwrap();
+                });
+        }
+        let dfs = dfs.into_iter().map(|df| df.lazy()).collect::<Vec<_>>();
         let mut args = polars::prelude::UnionArgs::default();
         match join {
             JoinType::Inner => args.diagonal = false,

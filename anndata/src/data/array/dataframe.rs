@@ -374,8 +374,14 @@ fn write_series<B: Backend, G: GroupOp<B>>(
             .collect::<Array1<f64>>()
             .write(location, name),
         DataType::Boolean => write_series_helper(series.bool()?, location, name),
-        // Always store string data as categorical data
-        DataType::String => series.str()?.into_iter().collect::<CategoricalArray>().write(location, name),
+        DataType::String => {
+            let series = series.str()?;
+            if let Some(str_vec) = series.iter().map(|x| x.map(|s| s.to_string())).collect::<Option<Vec<_>>>() {
+                Array1::from(str_vec).write(location, name)
+            } else {
+                series.into_iter().collect::<CategoricalArray>().write(location, name)
+            }
+        },
         DataType::Categorical(_, _) => series
             .categorical()?
             .iter_str()

@@ -171,6 +171,9 @@ impl GroupOp<Zarr> for ZarrStore {
             chunk_size,
             fill,
         )
+        .bytes_to_bytes_codecs(vec![
+            Arc::new(ZstdCodec::new(7, false))
+        ])
         .build(self.inner.clone(), &path)?;
         array.store_metadata()?;
         Ok(ZarrDataset {

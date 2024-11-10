@@ -85,13 +85,15 @@ pub fn read<'py>(
 /// backend: Literal['hdf5'] | None
 #[pyfunction]
 #[pyo3(
-    signature = (adatas, *, join="inner", file=None, backend=None),
-    text_signature = "(adatas, *, join='inner', file=None, backend=None)",
+    signature = (adatas, *, join="inner", label=None, keys=None, file=None, backend=None),
+    text_signature = "(adatas, *, join='inner', label=None, keys=None, file=None, backend=None)",
 )]
 pub fn concat<'py>(
     py: Python<'py>,
     adatas: Vec<PyObject>,
     join: &str,
+    label: Option<&str>,
+    keys: Option<Vec<String>>,
     file: Option<PathBuf>,
     backend: Option<&str>,
 ) -> Result<PyObject> {
@@ -107,6 +109,7 @@ pub fn concat<'py>(
         Py(PyAnnData<'a>),
     }
 
+    let keys = keys.as_ref().map(|x| x.as_slice());
     let out = if let Some(file) = file {
         let backend = get_backend(&file, backend);
         match backend {
@@ -135,9 +138,9 @@ pub fn concat<'py>(
                     let adatas: Vec<_> = adatas.iter().map(|x| x.inner_ref::<H5>()).collect();
                     let adatas: Vec<_> = adatas.iter().map(|x| x.deref()).collect();
                     match &out {
-                        T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
-                        T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
-                        T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::H5(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                        T::Zarr(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                        T::Py(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
                     }
                 }
                 Zarr::NAME => {
@@ -148,9 +151,9 @@ pub fn concat<'py>(
                     let adatas: Vec<_> = adatas.iter().map(|x| x.inner_ref::<Zarr>()).collect();
                     let adatas: Vec<_> = adatas.iter().map(|x| x.deref()).collect();
                     match &out {
-                        T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
-                        T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
-                        T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::H5(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                        T::Zarr(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                        T::Py(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
                     }
                 }
                 _ => todo!(),
@@ -161,9 +164,9 @@ pub fn concat<'py>(
                 .map(|x| x.extract::<PyAnnData>(py).unwrap())
                 .collect::<Vec<_>>();
             match &out {
-                T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
-                T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
-                T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+                T::H5(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                T::Zarr(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
+                T::Py(out) => anndata::concat::concat(&adatas, join, label, keys, out)?,
             }
         }
     }
