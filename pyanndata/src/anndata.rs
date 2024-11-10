@@ -1,18 +1,21 @@
 mod backed;
-pub mod memory;
 mod dataset;
+pub mod memory;
 
 use anndata_zarr::Zarr;
 pub use backed::AnnData;
-pub use memory::PyAnnData;
 pub use dataset::AnnDataSet;
+pub use memory::PyAnnData;
 
 use anndata;
+use anndata::concat::JoinType;
 use anndata::Backend;
 use anndata_hdf5::H5;
-use pyo3::prelude::*;
-use std::{collections::HashMap, path::{Path, PathBuf}};
 use anyhow::Result;
+use pyo3::prelude::*;
+use std::{
+    collections::HashMap, ops::Deref, path::{Path, PathBuf}
+};
 
 pub(crate) fn get_backend<P: AsRef<Path>>(filename: P, backend: Option<&str>) -> &str {
     if let Some(backend) = backend {
@@ -48,12 +51,17 @@ pub(crate) fn get_backend<P: AsRef<Path>>(filename: P, backend: Option<&str>) ->
     signature = (filename, backed="r+", backend=None),
     text_signature = "(filename, backed='r+', backend=None)",
 )]
-pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: Option<&str>) -> Result<PyObject> {
+pub fn read<'py>(
+    py: Python<'py>,
+    filename: PathBuf,
+    backed: Option<&str>,
+    backend: Option<&str>,
+) -> Result<PyObject> {
     let adata = match backed {
         Some(m) => {
             let backend = get_backend(&filename, backend);
             AnnData::new_from(filename, m, backend).unwrap().into_py(py)
-        },
+        }
         None => PyModule::import_bound(py, "anndata")?
             .getattr("read_h5ad")?
             .call1((filename,))?
@@ -77,19 +85,94 @@ pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backe
 /// backend: Literal['hdf5'] | None
 #[pyfunction]
 #[pyo3(
-    signature = (adatas, *, join="inner", filename, backed="r+", backend=H5::NAME),
-    text_signature = "(adatas, *, join='inner', filename, backed='r+', backend='hdf5')",
+    signature = (adatas, *, join="inner", file=None, backend=None),
+    text_signature = "(adatas, *, join='inner', file=None, backend=None)",
 )]
 pub fn concat<'py>(
     py: Python<'py>,
-    adatas: Vec<AnnData>,
+    adatas: Vec<PyObject>,
     join: &str,
-    filename: PathBuf,
-    backed: Option<&str>,
-    backend: &str,
+    file: Option<PathBuf>,
+    backend: Option<&str>,
 ) -> Result<PyObject> {
-    //let adatas = adatas.into_iter().map(|x| x.take_inner()).collect::<Vec<_>>();
-    todo!()
+    let join = match join {
+        "inner" => JoinType::Inner,
+        "outer" => JoinType::Outer,
+        _ => panic!("Unknown join type"),
+    };
+
+    enum T<'a> {
+        H5(anndata::AnnData<H5>),
+        Zarr(anndata::AnnData<Zarr>),
+        Py(PyAnnData<'a>),
+    }
+
+    let out = if let Some(file) = file {
+        let backend = get_backend(&file, backend);
+        match backend {
+            H5::NAME => {
+                let adata = anndata::AnnData::<H5>::new(file)?;
+                T::H5(adata)
+            }
+            Zarr::NAME => {
+                let adata = anndata::AnnData::<Zarr>::new(file)?;
+                T::Zarr(adata)
+            }
+            backend => todo!("Backend {} is not supported", backend),
+        }
+    } else {
+        T::Py(PyAnnData::new(py)?)
+    };
+
+    if !adatas.is_empty() {
+        if let Ok(adata) = adatas[0].extract::<AnnData>(py) {
+            match adata.backend().as_str() {
+                H5::NAME => {
+                    let adatas = adatas
+                        .into_iter()
+                        .map(|x| x.extract::<AnnData>(py).unwrap())
+                        .collect::<Vec<_>>();
+                    let adatas: Vec<_> = adatas.iter().map(|x| x.inner_ref::<H5>()).collect();
+                    let adatas: Vec<_> = adatas.iter().map(|x| x.deref()).collect();
+                    match &out {
+                        T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+                    }
+                }
+                Zarr::NAME => {
+                    let adatas = adatas
+                        .into_iter()
+                        .map(|x| x.extract::<AnnData>(py).unwrap())
+                        .collect::<Vec<_>>();
+                    let adatas: Vec<_> = adatas.iter().map(|x| x.inner_ref::<Zarr>()).collect();
+                    let adatas: Vec<_> = adatas.iter().map(|x| x.deref()).collect();
+                    match &out {
+                        T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
+                        T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+                    }
+                }
+                _ => todo!(),
+            }
+        } else {
+            let adatas = adatas
+                .into_iter()
+                .map(|x| x.extract::<PyAnnData>(py).unwrap())
+                .collect::<Vec<_>>();
+            match &out {
+                T::H5(out) => anndata::concat::concat(&adatas, join, out)?,
+                T::Zarr(out) => anndata::concat::concat(&adatas, join, out)?,
+                T::Py(out) => anndata::concat::concat(&adatas, join, out)?,
+            }
+        }
+    }
+
+    match out {
+        T::H5(adata) => Ok(AnnData::from(adata).into_py(py)),
+        T::Zarr(adata) => Ok(AnnData::from(adata).into_py(py)),
+        T::Py(adata) => Ok(adata.to_object(py)),
+    }
 }
 
 /// Read Matrix Market file.
@@ -134,19 +217,19 @@ pub fn read_mtx(
     if sorted {
         reader = reader.is_sorted();
     }
-    if let Some(file) =  file {
+    if let Some(file) = file {
         let backend = get_backend(&file, backend);
         match backend {
             H5::NAME => {
                 let adata = anndata::AnnData::<H5>::new(file)?;
                 reader.finish(&adata)?;
                 Ok(AnnData::from(adata).into_py(py))
-            },
+            }
             Zarr::NAME => {
                 let adata = anndata::AnnData::<Zarr>::new(file)?;
                 reader.finish(&adata)?;
                 Ok(AnnData::from(adata).into_py(py))
-            },
+            }
             backend => todo!("Backend {} is not supported", backend),
         }
     } else {
@@ -204,16 +287,16 @@ pub fn read_dataset(
                 "r+" => H5::open_rw(filename)?,
                 _ => panic!("Unkown mode"),
             };
-            Ok(anndata::AnnDataSet::<H5>::open(file, adata_files_update )?.into())
-        },
+            Ok(anndata::AnnDataSet::<H5>::open(file, adata_files_update)?.into())
+        }
         Zarr::NAME => {
             let file = match mode {
                 "r" => Zarr::open(filename)?,
                 "r+" => Zarr::open_rw(filename)?,
                 _ => panic!("Unkown mode"),
             };
-            Ok(anndata::AnnDataSet::<Zarr>::open(file, adata_files_update )?.into())
-        },
+            Ok(anndata::AnnDataSet::<Zarr>::open(file, adata_files_update)?.into())
+        }
         _ => todo!(),
     }
 }

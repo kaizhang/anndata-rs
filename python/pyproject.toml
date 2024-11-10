@@ -34,5 +34,5 @@ dependencies = [
     "polars>=1.9",
 ]
 
-[project.dev-dependencies]
+[project.optional-dependencies]
 test = ["pytest", "hypothesis==6.72.4"]

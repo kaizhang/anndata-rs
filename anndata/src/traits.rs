@@ -168,6 +168,193 @@ pub trait AnnDataOp {
     fn del_layers(&self) -> Result<()>;
 }
 
+impl<T: AnnDataOp> AnnDataOp for &T {
+    type X = T::X;
+    type AxisArraysRef<'a> = T::AxisArraysRef<'a> where Self: 'a;
+    type ElemCollectionRef<'a> = T::ElemCollectionRef<'a> where Self: 'a;
+
+    fn x(&self) -> Self::X {
+        (*self).x()
+    }
+
+    fn set_x_from_iter<I, D>(&self, iter: I) -> Result<()>
+    where
+        I: Iterator<Item = D>,
+        D: ArrayChunk + Into<ArrayData>,
+    {
+        (*self).set_x_from_iter(iter)
+    }
+
+    fn set_x<D: Into<ArrayData>>(&self, data: D) -> Result<()> {
+        (*self).set_x(data)
+    }
+
+    fn del_x(&self) -> Result<()> {
+        (*self).del_x()
+    }
+
+    fn n_obs(&self) -> usize {
+        (*self).n_obs()
+    }
+
+    fn n_vars(&self) -> usize {
+        (*self).n_vars()
+    }
+
+    fn set_n_obs(&self, n: usize) -> Result<()> {
+        (*self).set_n_obs(n)
+    }
+
+    fn set_n_vars(&self, n: usize) -> Result<()> {
+        (*self).set_n_vars(n)
+    }
+
+    fn obs_names(&self) -> DataFrameIndex {
+        (*self).obs_names()
+    }
+
+    fn var_names(&self) -> DataFrameIndex {
+        (*self).var_names()
+    }
+
+    fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
+        (*self).set_obs_names(index)
+    }
+
+    fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
+        (*self).set_var_names(index)
+    }
+
+    fn obs_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
+        (*self).obs_ix(names)
+    }
+
+    fn var_ix<'a, I: IntoIterator<Item = &'a str>>(&self, names: I) -> Result<Vec<usize>> {
+        (*self).var_ix(names)
+    }
+
+    fn read_obs(&self) -> Result<DataFrame> {
+        (*self).read_obs()
+    }
+
+    fn read_var(&self) -> Result<DataFrame> {
+        (*self).read_var()
+    }
+
+    fn set_obs(&self, obs: DataFrame) -> Result<()> {
+        (*self).set_obs(obs)
+    }
+
+    fn set_var(&self, var: DataFrame) -> Result<()> {
+        (*self).set_var(var)
+    }
+
+    fn del_obs(&self) -> Result<()> {
+        (*self).del_obs()
+    }
+
+    fn del_var(&self) -> Result<()> {
+        (*self).del_var()
+    }
+
+    fn uns(&self) -> Self::ElemCollectionRef<'_> {
+        (*self).uns()
+    }
+
+    fn obsm(&self) -> Self::AxisArraysRef<'_> {
+        (*self).obsm()
+    }
+
+    fn obsp(&self) -> Self::AxisArraysRef<'_> {
+        (*self).obsp()
+    }
+
+    fn varm(&self) -> Self::AxisArraysRef<'_> {
+        (*self).varm()
+    }
+
+    fn varp(&self) -> Self::AxisArraysRef<'_> {
+        (*self).varp()
+    }
+
+    fn layers(&self) -> Self::AxisArraysRef<'_> {
+        (*self).layers()
+    }
+
+    fn set_uns<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<Data>,
+    {
+        (*self).set_uns(data)
+    }
+
+    fn set_obsm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
+        (*self).set_obsm(data)
+    }
+
+    fn set_obsp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
+        (*self).set_obsp(data)
+    }
+
+    fn set_varm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
+        (*self).set_varm(data)
+    }
+
+    fn set_varp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
+        (*self).set_varp(data)
+    }
+
+    fn del_uns(&self) -> Result<()> {
+        (*self).del_uns()
+    }
+
+    fn del_obsm(&self) -> Result<()> {
+        (*self).del_obsm()
+    }
+
+    fn del_obsp(&self) -> Result<()> {
+        (*self).del_obsp()
+    }
+
+    fn del_varm(&self) -> Result<()> {
+        (*self).del_varm()
+    }
+
+    fn del_varp(&self) -> Result<()> {
+        (*self).del_varp()
+    }
+
+    fn del_layers(&self) -> Result<()> {
+        (*self).del_layers()
+    }
+
+    fn set_layers<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
+        (*self).set_layers(data)
+    }
+}
+
+
 impl<B: Backend> AnnDataOp for AnnData<B> {
     type X = ArrayElem<B>;
     type AxisArraysRef<'a> = &'a AxisArrays<B>;
