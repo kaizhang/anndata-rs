@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::PathBuf;
 
+use super::get_backend;
+
 /** An annotated data matrix.
 
     `AnnData` stores a data matrix `X` together with annotations of
@@ -182,10 +184,10 @@ impl AnnData {
     #[pyo3(
         signature = (
             *, filename, X=None, obs=None, var=None, obsm=None,
-            varm=None, uns=None, backend=H5::NAME,
+            varm=None, uns=None, backend=None,
         ),
         text_signature = "($self, *, filename, X=None, obs=None, var=None, obsm=None,
-            varm=None, uns=None, backend='hdf5')"
+            varm=None, uns=None, backend=None)"
     )]
     pub fn new(
         filename: PathBuf,
@@ -195,8 +197,9 @@ impl AnnData {
         obsm: Option<HashMap<String, PyArrayData>>,
         varm: Option<HashMap<String, PyArrayData>>,
         uns: Option<HashMap<String, PyData>>,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<Self> {
+        let backend = get_backend(&filename, backend);
         let adata: AnnData = match backend {
             H5::NAME => anndata::AnnData::<H5>::new(filename)?.into(),
             Zarr::NAME => anndata::AnnData::<Zarr>::new(filename)?.into(),
@@ -407,15 +410,15 @@ impl AnnData {
     ///     is returned. This parameter is ignored when `inplace=True`.
     /// inplace: bool
     ///     Whether to modify the AnnData object in place or return a new AnnData object.
-    /// backend: str
+    /// backend: str | None
     ///     The backend to use. "hdf5" or "zarr" are supported.
     ///
     /// Returns
     /// -------
     /// Optional[AnnData]
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=H5::NAME),
-        text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend='hdf5')",
+        signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=None),
+        text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend=None)",
     )]
     pub fn subset(
         &self,
@@ -424,7 +427,7 @@ impl AnnData {
         var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
         inplace: bool,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<Option<PyObject>> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
@@ -594,7 +597,7 @@ trait AnnDataTrait: Send + Downcast {
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<Option<PyObject>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
@@ -801,7 +804,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(u) = uns {
-            inner.set_uns(u.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_uns(u)?;
         } else {
             inner.del_uns()?;
         }
@@ -810,7 +813,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(o) = obsm {
-            inner.set_obsm(o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsm(o)?;
         } else {
             inner.del_obsm()?;
         }
@@ -819,7 +822,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(o) = obsp {
-            inner.set_obsp(o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsp(o)?;
         } else {
             inner.del_obsp()?;
         }
@@ -828,7 +831,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(v) = varm {
-            inner.set_varm(v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varm(v)?;
         } else {
             inner.del_varm()?;
         }
@@ -837,7 +840,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(v) = varp {
-            inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varp(v)?;
         } else {
             inner.del_varp()?;
         }
@@ -846,7 +849,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn set_layers(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.adata.inner();
         if let Some(v) = varp {
-            inner.set_layers(v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_layers(v)?;
         } else {
             inner.del_layers()?;
         }
@@ -859,13 +862,14 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<Option<PyObject>> {
         let inner = self.adata.inner();
         if inplace {
             inner.subset(slice)?;
             Ok(None)
         } else if let Some(file) = file {
+            let backend = get_backend(&file, backend);
             match backend {
                 H5::NAME => {
                     inner.write_select::<H5, _, _>(slice, &file)?;

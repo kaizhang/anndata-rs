@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::backed::StackedAnnData;
+use super::get_backend;
 
 /** Similar to `AnnData`, `AnnDataSet` contains annotations of
     observations `obs` (`obsm`, `obsp`), variables `var` (`varm`, `varp`),
@@ -118,13 +119,14 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=H5::NAME))]
+    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=None))]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
         add_key: &str,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<Self> {
+        let backend = get_backend(&filename, backend);
         match backend {
             H5::NAME => {
                 let anndatas = adatas.into_iter().map(|(key, data_file)| {
@@ -335,19 +337,21 @@ impl AnnDataSet {
     ///     If the order of input `obs_indices` has been changed, it will
     ///     return the indices that would sort the `obs_indices` array.
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, out=None, backend=H5::NAME),
-        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend='hdf5')"
+        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
+        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)"
     )]
     pub fn subset(
         &self,
         obs_indices: Option<&Bound<'_, PyAny>>,
         var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
         if out.is_none() {
             bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
         }
+        let out = out.unwrap();
+        let backend = get_backend(&out, backend);
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
@@ -355,7 +359,7 @@ impl AnnDataSet {
             .map(|x| self.select_var(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         self.0
-            .subset(&[i, j], out.unwrap(), backend)
+            .subset(&[i, j], out, backend)
     }
 
     /// View into the component AnnData objects.
@@ -370,8 +374,8 @@ impl AnnDataSet {
 
     /// Convert AnnDataSet to AnnData object.
     #[pyo3(
-        signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=H5::NAME),
-        text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed='hdf5')",
+        signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=None),
+        text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
     )]
     pub fn to_adata(
         &self,
@@ -380,7 +384,7 @@ impl AnnDataSet {
         var_indices: Option<&Bound<'_, PyAny>>,
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<PyObject> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
@@ -493,7 +497,7 @@ trait AnnDataSetTrait: Send + Downcast {
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<PyObject>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
@@ -647,7 +651,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn set_uns(&self, uns: Option<HashMap<String, PyData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(u) = uns {
-            inner.set_uns(u.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_uns(u)?;
         } else {
             inner.del_uns()?;
         }
@@ -656,7 +660,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn set_obsm(&self, obsm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(o) = obsm {
-            inner.set_obsm(o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsm(o)?;
         } else {
             inner.del_obsm()?;
         }
@@ -665,7 +669,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn set_obsp(&self, obsp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(o) = obsp {
-            inner.set_obsp(o.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_obsp(o)?;
         } else {
             inner.del_obsp()?;
         }
@@ -674,7 +678,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn set_varm(&self, varm: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(v) = varm {
-            inner.set_varm(v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varm(v)?;
         } else {
             inner.del_varm()?;
         }
@@ -683,7 +687,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()> {
         let inner = self.inner();
         if let Some(v) = varp {
-            inner.set_varp(v.into_iter().map(|(k, v)| (k, v.into())))?;
+            inner.set_varp(v)?;
         } else {
             inner.del_varp()?;
         }
@@ -721,10 +725,11 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
-        backend: &str,
+        backend: Option<&str>,
     ) -> Result<PyObject> {
         let inner = self.inner();
         if let Some(file) = file {
+            let backend = get_backend(&file, backend);
             match backend {
                 H5::NAME => inner
                     .to_adata_select::<H5, _, _>(slice, file, copy_x)

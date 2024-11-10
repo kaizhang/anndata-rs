@@ -11,8 +11,24 @@ use anndata;
 use anndata::Backend;
 use anndata_hdf5::H5;
 use pyo3::prelude::*;
-use std::{path::PathBuf, collections::HashMap};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 use anyhow::Result;
+
+pub(crate) fn get_backend<P: AsRef<Path>>(filename: P, backend: Option<&str>) -> &str {
+    if let Some(backend) = backend {
+        backend
+    } else {
+        if let Some(ext) = filename.as_ref().extension() {
+            match ext.to_str().unwrap() {
+                "zarr" | "zarrs" => Zarr::NAME,
+                "h5ad" | "h5" | "h5ads" => H5::NAME,
+                _ => H5::NAME,
+            }
+        } else {
+            H5::NAME
+        }
+    }
+}
 
 /// Read `.h5ad`-formatted hdf5 file.
 ///
@@ -29,12 +45,15 @@ use anyhow::Result;
 /// backend: Literal['hdf5', 'zarr']
 #[pyfunction]
 #[pyo3(
-    signature = (filename, backed="r+", backend=H5::NAME),
-    text_signature = "(filename, backed='r+', backend='hdf5')",
+    signature = (filename, backed="r+", backend=None),
+    text_signature = "(filename, backed='r+', backend=None)",
 )]
-pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: &str) -> Result<PyObject> {
+pub fn read<'py>(py: Python<'py>, filename: PathBuf, backed: Option<&str>, backend: Option<&str>) -> Result<PyObject> {
     let adata = match backed {
-        Some(m) => AnnData::new_from(filename, m, backend).unwrap().into_py(py),
+        Some(m) => {
+            let backend = get_backend(&filename, backend);
+            AnnData::new_from(filename, m, backend).unwrap().into_py(py)
+        },
         None => PyModule::import_bound(py, "anndata")?
             .getattr("read_h5ad")?
             .call1((filename,))?
@@ -93,8 +112,8 @@ pub fn concat<'py>(
 ///     Sorted input matrix can be read faster.
 #[pyfunction]
 #[pyo3(
-    signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=H5::NAME, sorted=false),
-    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend='hdf5', sorted=False)",
+    signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false),
+    text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=False)",
 )]
 pub fn read_mtx(
     py: Python<'_>,
@@ -102,7 +121,7 @@ pub fn read_mtx(
     obs_names: Option<PathBuf>,
     var_names: Option<PathBuf>,
     file: Option<PathBuf>,
-    backend: &str,
+    backend: Option<&str>,
     sorted: bool,
 ) -> Result<PyObject> {
     let mut reader = anndata::reader::MMReader::from_path(mtx_file)?;
@@ -116,6 +135,7 @@ pub fn read_mtx(
         reader = reader.is_sorted();
     }
     if let Some(file) =  file {
+        let backend = get_backend(&file, backend);
         match backend {
             H5::NAME => {
                 let adata = anndata::AnnData::<H5>::new(file)?;
@@ -162,20 +182,21 @@ pub fn read_mtx(
 /// AnnDataSet
 #[pyfunction]
 #[pyo3(
-    signature = (filename, *, adata_files_update=None, mode="r+", backend=H5::NAME),
-    text_signature = "(filename, *, adata_files_update=None, mode='r+', backend='hdf5')",
+    signature = (filename, *, adata_files_update=None, mode="r+", backend=None),
+    text_signature = "(filename, *, adata_files_update=None, mode='r+', backend=None)",
 )]
 pub fn read_dataset(
     filename: PathBuf,
     adata_files_update: Option<LocationUpdate>,
     mode: &str,
-    backend: &str,
+    backend: Option<&str>,
 ) -> Result<AnnDataSet> {
     let adata_files_update = match adata_files_update {
         Some(LocationUpdate::Map(map)) => Some(Ok(map)),
         Some(LocationUpdate::Dir(dir)) => Some(Err(dir)),
         None => None,
     };
+    let backend = get_backend(&filename, backend);
     match backend {
         H5::NAME => {
             let file = match mode {

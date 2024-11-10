@@ -92,40 +92,66 @@ pub trait AnnDataOp {
     fn layers(&self) -> Self::AxisArraysRef<'_>;
 
     /// Sets the unstructured data.
-    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, mut data: I) -> Result<()> {
+    fn set_uns<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<Data>,
+    {
         self.del_uns()?;
         let uns = self.uns();
-        data.try_for_each(|(k, v)| uns.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| uns.add(&k, v))
     }
+
     /// Sets the observation matrix.
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+    fn set_obsm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.del_obsm()?;
         let obsm = self.obsm();
-        data.try_for_each(|(k, v)| obsm.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| obsm.add(&k, v))
     }
+
     /// Sets the observation pairwise data.
-    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+    fn set_obsp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.del_obsp()?;
         let obsp = self.obsp();
-        data.try_for_each(|(k, v)| obsp.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| obsp.add(&k, v))
     }
     /// Sets the variable matrix.
-    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+    fn set_varm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.del_varm()?;
         let varm = self.varm();
-        data.try_for_each(|(k, v)| varm.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| varm.add(&k, v))
     }
     /// Sets the variable pairwise data.
-    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+    fn set_varp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.del_varp()?;
         let varp = self.varp();
-        data.try_for_each(|(k, v)| varp.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| varp.add(&k, v))
     }
     /// Sets the layers.
-    fn set_layers<I: Iterator<Item = (String, ArrayData)>>(&self, mut data: I) -> Result<()> {
+    fn set_layers<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.del_layers()?;
         let layers = self.layers();
-        data.try_for_each(|(k, v)| layers.add(&k, v))
+        data.into_iter().try_for_each(|(k, v)| layers.add(&k, v))
     }
 
     /// Deletes the unstructured data.
@@ -520,19 +546,43 @@ impl<B: Backend> AnnDataOp for AnnDataSet<B> {
         self.annotation.layers()
     }
 
-    fn set_uns<I: Iterator<Item = (String, Data)>>(&self, data: I) -> Result<()> {
+    fn set_uns<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<Data>,
+    {
         self.annotation.set_uns(data)
     }
-    fn set_obsm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+
+    fn set_obsm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.annotation.set_obsm(data)
     }
-    fn set_obsp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+
+    fn set_obsp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.annotation.set_obsp(data)
     }
-    fn set_varm<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+
+    fn set_varm<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.annotation.set_varm(data)
     }
-    fn set_varp<I: Iterator<Item = (String, ArrayData)>>(&self, data: I) -> Result<()> {
+
+    fn set_varp<I, D>(&self, data: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (String, D)>,
+        D: Into<ArrayData>,
+    {
         self.annotation.set_varp(data)
     }
 
