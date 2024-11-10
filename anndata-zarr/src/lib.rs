@@ -13,6 +13,7 @@ use zarrs::{array::{data_type::DataType, Element}, array_subset::ArraySubset, st
 use zarrs::filesystem::FilesystemStore;
 use zarrs::group::Group;
 use zarrs::{array::ElementOwned, storage::ReadableWritableListableStorageTraits};
+use zarrs::array::codec::bytes_to_bytes::zstd::ZstdCodec;
 
 /// The Zarr backend.
 pub struct Zarr;
@@ -248,9 +249,9 @@ impl GroupOp<Zarr> for ZarrGroup {
             Some(s) => s.as_ref().into_iter().map(|x| (*x).max(1) as u64).collect(),
             _ => {
                 if shape.len() == 1 {
-                    vec![shape[0].min(10000).max(1) as u64]
+                    vec![shape[0].min(20000).max(1) as u64]
                 } else {
-                    shape.iter().map(|&x| x.min(100).max(1) as u64).collect()
+                    shape.iter().map(|&x| x.min(500).max(1) as u64).collect()
                 }
             }
         };
@@ -280,6 +281,9 @@ impl GroupOp<Zarr> for ZarrGroup {
             chunk_size,
             fill,
         )
+        .bytes_to_bytes_codecs(vec![
+            Arc::new(ZstdCodec::new(7, false))
+        ])
         .build(self.store.inner.clone(), path.to_str().unwrap())?;
         array.store_metadata()?;
         Ok(ZarrDataset {
