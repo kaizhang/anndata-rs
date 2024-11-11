@@ -51,10 +51,15 @@ def test_concat(tmp_path, backend):
     df1 = pl.DataFrame({
         "text": ["a", "b", "c"],
         "int16": [2, 5, 8],
-    }, schema={"text": pl.String, "int16": pl.Int16})
+    }, schema={"text": pl.String, "int16": pl.Int16 })
     df2 = pl.DataFrame({
         "f32": [2.2, 5.1],
-    }, schema={ "f32": pl.Float32 })
+        "text": ["a", "a"],
+        "cat": ["a", "a"],
+    }, schema={ "f32": pl.Float32, "text": pl.Categorical, "cat": pl.Categorical })
+    df3 = pl.DataFrame({
+        "text": ["3", "3"],
+    }, schema={ "text": pl.String })
 
     adata1.X = x1
     adata1.obs_names = ["1", "2", "3"]
@@ -69,6 +74,7 @@ def test_concat(tmp_path, backend):
     adata3.X = x3
     adata3.obs_names = ["1", "2", "3", "4"]
     adata3.var_names = ["e", "f"]
+    adata3.var = df3
 
     out = h5ad(tmp_path)
     merged = concat([adata1, adata2, adata3], join='outer', file=out)
@@ -79,7 +85,8 @@ def test_concat(tmp_path, backend):
     merged.close()
     if backend == "hdf5":
         data = ad.read_h5ad(out)
-        #assert data.var['text'].to_list() == pd.Series(['a', 'b', 'c', pd.NA, pd.NA, pd.NA], dtype="string").to_list()
+        assert data.var['text'].to_list() == pl.Series(['a', 'a', 'c', 'a', '3', '3'], dtype=pl.Categorical).to_list()
+        print(data.var['cat'].to_list())
         assert data.var['int16'].array == pd.Series([2, 5, 8, pd.NA, pd.NA, pd.NA], dtype="Int16").array
         assert data.var['f32'].array == pd.Series([pd.NA, 2.2, pd.NA, 5.1, pd.NA, pd.NA], dtype="Float32").array
 
