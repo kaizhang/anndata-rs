@@ -846,11 +846,15 @@ pub trait AxisArraysOp {
     }
 
     /// Returns an iterator over the data.
-    fn get_item_iter(
+    fn get_item_iter<D>(
         &self,
         key: &str,
         chunk_size: usize,
-    ) -> Option<<Self::ArrayElem as ArrayElemOp>::ArrayIter> {
+    ) -> Option<<Self::ArrayElem as ArrayElemOp>::ArrayIter<D>> 
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
+    {
         self.get(key).map(|x| x.iter(chunk_size))
     }
 
@@ -929,7 +933,10 @@ impl<B: Backend> AxisArraysOp for &StackedAxisArrays<B> {
 
 /// Trait for operations on array elements.
 pub trait ArrayElemOp {
-    type ArrayIter: ExactSizeIterator<Item = (ArrayData, usize, usize)>;
+    type ArrayIter<D>: ExactSizeIterator<Item = (D, usize, usize)>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug;
 
     /// Returns whether the element contains no data.
     fn is_none(&self) -> bool;
@@ -975,11 +982,17 @@ pub trait ArrayElemOp {
     }
 
     /// Returns an iterator over the data.
-    fn iter(&self, chunk_size: usize) -> Self::ArrayIter;
+    fn iter<D>(&self, chunk_size: usize) -> Self::ArrayIter<D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug;
 }
 
 impl<B: Backend> ArrayElemOp for ArrayElem<B> {
-    type ArrayIter = ChunkedArrayElem<B>;
+    type ArrayIter<D> = ChunkedArrayElem<B, D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug;
 
     fn is_none(&self) -> bool {
         self.lock().is_none()
@@ -1023,13 +1036,20 @@ impl<B: Backend> ArrayElemOp for ArrayElem<B> {
         }
     }
 
-    fn iter(&self, chunk_size: usize) -> Self::ArrayIter {
+    fn iter<D>(&self, chunk_size: usize) -> Self::ArrayIter<D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
+    {
         self.chunked(chunk_size)
     }
 }
 
 impl<B: Backend> ArrayElemOp for StackedArrayElem<B> {
-    type ArrayIter = StackedChunkedArrayElem<B>;
+    type ArrayIter<D> = StackedChunkedArrayElem<B, D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug;
 
     fn is_none(&self) -> bool {
         self.0.is_none()
@@ -1064,7 +1084,11 @@ impl<B: Backend> ArrayElemOp for StackedArrayElem<B> {
         self.select(slice.as_ref())
     }
 
-    fn iter(&self, chunk_size: usize) -> Self::ArrayIter {
+    fn iter<D>(&self, chunk_size: usize) -> Self::ArrayIter<D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
+    {
         self.chunked(chunk_size)
     }
 }

@@ -341,14 +341,15 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 }
 
-pub struct PyArrayIterator {
+pub struct PyArrayIterator<D> {
     array: PyArrayData,
     chunk_size: usize,
     total_rows: usize,
     current_row: usize,
+    phamtom: std::marker::PhantomData<D>,
 }
 
-impl PyArrayIterator {
+impl<D> PyArrayIterator<D> {
     pub(crate) fn new(array: PyArrayData, chunk_size: usize) -> PyResult<Self> {
         let total_rows = array.shape()[0];
         Ok(Self {
@@ -356,13 +357,17 @@ impl PyArrayIterator {
             chunk_size,
             total_rows,
             current_row: 0,
+            phamtom: std::marker::PhantomData,
         })
     }
 }
 
-impl Iterator for PyArrayIterator
+impl<D> Iterator for PyArrayIterator<D>
+where
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
-    type Item = (ArrayData, usize, usize);
+    type Item = (D, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_row >= self.total_rows {
@@ -373,12 +378,15 @@ impl Iterator for PyArrayIterator
             self.current_row = j;
             let slice = SelectInfoElem::from(i..j);
             let data = self.array.select_axis(0, slice);
-            Some((data, i, j))
+            Some((data.try_into().unwrap(), i, j))
         }
     }
 }
 
-impl ExactSizeIterator for PyArrayIterator
+impl<D> ExactSizeIterator for PyArrayIterator<D>
+where
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
     fn len(&self) -> usize {
         let n = self.total_rows / self.chunk_size;
@@ -506,7 +514,10 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
 pub struct ArrayElem<'a>(Bound<'a, PyAny>);
 
 impl ArrayElemOp for ArrayElem<'_> {
-    type ArrayIter = PyArrayIterator;
+    type ArrayIter<D> = PyArrayIterator<D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug;
 
     fn is_none(&self) -> bool {
         self.0.is_none()
@@ -544,10 +555,13 @@ impl ArrayElemOp for ArrayElem<'_> {
         }
     }
 
-    fn iter(
+    fn iter<D>(
         &self,
         chunk_size: usize,
-    ) -> Self::ArrayIter
+    ) -> Self::ArrayIter<D>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
     {
         let array = self.0.extract::<PyArrayData>().unwrap();
         PyArrayIterator::new(array, chunk_size).unwrap()

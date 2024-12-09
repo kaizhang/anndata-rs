@@ -366,5 +366,5 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
 
 pub trait ChunkedArrayTrait: ExactSizeIterator<Item = (ArrayData, usize, usize)> + Send {}
 
-impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B> {}
-impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B> {}
+impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B, ArrayData> {}
+impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B, ArrayData> {}

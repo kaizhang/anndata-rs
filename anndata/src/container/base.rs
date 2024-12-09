@@ -626,7 +626,10 @@ impl<B: Backend> ArrayElem<B> {
         Ok(())
     }
 
-    pub fn chunked(&self, chunk_size: usize) -> ChunkedArrayElem<B> {
+    pub fn chunked<D>(&self, chunk_size: usize) -> ChunkedArrayElem<B, D>
+    where
+        D: TryFrom<ArrayData>,
+    {
         ChunkedArrayElem::new(self.clone(), chunk_size)
     }
 }
@@ -1040,22 +1043,26 @@ impl<B: Backend> StackedArrayElem<B> {
         })))
     }
 
-    pub fn chunked(&self, chunk_size: usize) -> StackedChunkedArrayElem<B> {
+    pub fn chunked<D>(&self, chunk_size: usize) -> StackedChunkedArrayElem<B, D>
+    where
+        D: TryFrom<ArrayData>,
+    {
         StackedChunkedArrayElem::new(self.elems.iter().map(|x| x.clone()), chunk_size)
     }
 }
 
 /// Chunked Arrays
-pub struct ChunkedArrayElem<B: Backend> {
+pub struct ChunkedArrayElem<B: Backend, D> {
     /// The underlying array element.
     elem: ArrayElem<B>,
     /// The chunk size.
     chunk_size: usize,
     num_items: usize,
     current_position: usize,
+    phantom: std::marker::PhantomData<D>,
 }
 
-impl<B: Backend> ChunkedArrayElem<B> {
+impl<B: Backend, D> ChunkedArrayElem<B, D> {
     pub fn new(elem: ArrayElem<B>, chunk_size: usize) -> Self {
         let num_items = elem.inner().shape()[0];
         Self {
@@ -1063,21 +1070,25 @@ impl<B: Backend> ChunkedArrayElem<B> {
             chunk_size,
             num_items,
             current_position: 0,
+            phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<B> Iterator for ChunkedArrayElem<B>
+impl<B, D> Iterator for ChunkedArrayElem<B, D>
 where
     B: Backend,
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
-    type Item = (ArrayData, usize, usize);
+    type Item = (D, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_position >= self.num_items {
-            if self.current_position == 0 {  // return an empty array
+            if self.current_position == 0 {
+                // return an empty array
                 self.current_position = 1;
-                Some((self.elem.inner().data().unwrap(), 0, 0))
+                Some((self.elem.inner().data().unwrap().try_into().unwrap(), 0, 0))
             } else {
                 None
             }
@@ -1089,15 +1100,19 @@ where
                 .elem
                 .inner()
                 .select_axis(0, SelectInfoElem::from(i..j))
+                .unwrap()
+                .try_into()
                 .unwrap();
             Some((data, i, j))
         }
     }
 }
 
-impl<B> ExactSizeIterator for ChunkedArrayElem<B>
+impl<B, D> ExactSizeIterator for ChunkedArrayElem<B, D>
 where
     B: Backend,
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
     fn len(&self) -> usize {
         let (n, remain) = div_rem(self.num_items, self.chunk_size);
@@ -1109,13 +1124,13 @@ where
     }
 }
 
-pub struct StackedChunkedArrayElem<B: Backend> {
-    arrays: SmallVec<[ChunkedArrayElem<B>; 96]>,
+pub struct StackedChunkedArrayElem<B: Backend, D> {
+    arrays: SmallVec<[ChunkedArrayElem<B, D>; 96]>,
     current_position: usize,
     current_array: usize,
 }
 
-impl<B: Backend> StackedChunkedArrayElem<B> {
+impl<B: Backend, D> StackedChunkedArrayElem<B, D> {
     pub(crate) fn new<I: Iterator<Item = ArrayElem<B>>>(elems: I, chunk_size: usize) -> Self {
         Self {
             arrays: elems
@@ -1127,11 +1142,13 @@ impl<B: Backend> StackedChunkedArrayElem<B> {
     }
 }
 
-impl<B> Iterator for StackedChunkedArrayElem<B>
+impl<B, D> Iterator for StackedChunkedArrayElem<B, D>
 where
     B: Backend,
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
-    type Item = (ArrayData, usize, usize);
+    type Item = (D, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(mat) = self.arrays.get_mut(self.current_array) {
@@ -1145,9 +1162,20 @@ where
                 self.next()
             }
         } else {
-            if self.current_position == 0 {  // return an empty array
+            if self.current_position == 0 {
+                // return an empty array
                 self.current_position = 1;
-                Some((self.arrays[0].elem.inner().data().unwrap(), 0, 0))
+                Some((
+                    self.arrays[0]
+                        .elem
+                        .inner()
+                        .data()
+                        .unwrap()
+                        .try_into()
+                        .unwrap(),
+                    0,
+                    0,
+                ))
             } else {
                 None
             }
@@ -1155,9 +1183,11 @@ where
     }
 }
 
-impl<B> ExactSizeIterator for StackedChunkedArrayElem<B>
+impl<B, D> ExactSizeIterator for StackedChunkedArrayElem<B, D>
 where
     B: Backend,
+    D: TryFrom<ArrayData>,
+    <D as TryFrom<ArrayData>>::Error: std::fmt::Debug,
 {
     fn len(&self) -> usize {
         self.arrays.iter().map(|x| x.len()).sum()

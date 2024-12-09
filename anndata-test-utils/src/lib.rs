@@ -150,7 +150,7 @@ where
             adata.obsm().add_iter("test", array_chunks(&x, 7)).unwrap();
             prop_assert_eq!(adata.obsm().get_item::<ArrayData>("test").unwrap().unwrap(), x.clone());
 
-            adata.obsm().add_iter("test2", adata.obsm().get_item_iter("test", 7).unwrap().map(|x| x.0)).unwrap();
+            adata.obsm().add_iter("test2", adata.obsm().get_item_iter::<ArrayData>("test", 7).unwrap().map(|x| x.0)).unwrap();
             prop_assert_eq!(adata.obsm().get_item::<ArrayData>("test2").unwrap().unwrap(), x);
         }
     });

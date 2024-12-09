@@ -19,7 +19,7 @@ jobs:
 
     - name: Install dependency
       run: |
-        sudo pip install --upgrade pip
+        pip install --user --upgrade pip
         pip install --user Pygments sphinx==8.* pandoc nbsphinx \
           sphinx-autodoc-typehints sphinx_rtd_theme \
           markupsafe
