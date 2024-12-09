@@ -11,7 +11,7 @@ use num::integer::div_rem;
 use parking_lot::{Mutex, MutexGuard};
 use polars::{
     frame::DataFrame,
-    prelude::{concat, Series, IntoLazy, UnionArgs},
+    prelude::{concat, Column, IntoLazy, UnionArgs},
     series::IntoSeries,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -164,7 +164,7 @@ impl<B: Backend> InnerDataFrameElem<B> {
         self.index.len()
     }
 
-    pub fn column(&mut self, name: &str) -> Result<&Series> {
+    pub fn column(&mut self, name: &str) -> Result<&Column> {
         self.data().and_then(|x| Ok(x.column(name)?))
     }
 
@@ -778,7 +778,7 @@ impl<B: Backend> StackedDataFrame<B> {
     }
 
     // TODO: this is not efficient, we should use the index to select the columns
-    pub fn column(&self, name: &str) -> Result<Series> {
+    pub fn column(&self, name: &str) -> Result<Column> {
         if self.column_names.contains(name) {
             Ok(self.data()?.column(name)?.clone())
         } else {

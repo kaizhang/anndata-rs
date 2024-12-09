@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-ndarray = { version = "0.16" }
+ndarray = "0.16"
 anndata = { workspace = true }
 num = "0.4"
 tempfile = "3.2"

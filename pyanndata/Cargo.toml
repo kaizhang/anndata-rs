@@ -21,12 +21,10 @@ numpy = "0.22"
 ndarray = "0.16"
 nalgebra-sparse = "0.10"
 hdf5 = { package = "hdf5-metno", version = "0.9" }
-polars = { version = "=0.43.0", features = ["ndarray"] }
-#pyo3-polars = {version = "0.17", features = ["dtype-full", "dtype-struct"] }
-pyo3-polars = { git = "https://github.com/pola-rs/pyo3-polars.git", rev = "d426148ae27410aa4fb10a4a9dc67647a058244f", features = ["dtype-full", "dtype-struct"] }
-
-polars-core = "=0.43.0"
-polars-arrow = "=0.43.0"
+polars = { version = "0.45.0", features = ["ndarray"] }
+pyo3-polars = {version = "0.19", features = ["dtype-full", "dtype-struct"] }
+polars-core = "0.45.0"
+polars-arrow = "0.45.0"
 thiserror = "1.0"
 rand = "0.8"
 flate2 = "1.0"

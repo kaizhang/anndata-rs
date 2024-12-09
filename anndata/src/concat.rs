@@ -8,7 +8,7 @@ use itertools::Itertools;
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
 use polars::frame::DataFrame;
-use polars::prelude::{AnyValue, CategoricalChunkedBuilder, DataType, IntoLazy, NamedFrom};
+use polars::prelude::{AnyValue, CategoricalChunkedBuilder, Column, DataType, IntoLazy, NamedFrom};
 use polars::series::{IntoSeries, Series};
 
 use crate::data::{ArrayData, DynArray};
@@ -152,8 +152,10 @@ fn merge_df(this: &mut DataFrame, other: &DataFrame) -> Result<()> {
         if let Some(i) = this.get_column_index(name) {
             let this_s = this.column(name)?;
             let new_column = this_s
+                .as_series()
+                .unwrap()
                 .iter()
-                .zip(other_s.iter())
+                .zip(other_s.as_series().unwrap().iter())
                 .map(|(this_v, other_v)| {
                     if other_v.is_null() {
                         this_v.clone()
@@ -186,12 +188,12 @@ fn merge_df(this: &mut DataFrame, other: &DataFrame) -> Result<()> {
     Ok(())
 }
 
-/// Reorganize a series to match the new row names, filling in missing values with `None`.
+/// Reorganize a column to match the new row names, filling in missing values with `None`.
 fn align_series(
-    series: &Series,
+    series: &Column,
     row_names: &DataFrameIndex,
     new_row_names: &IndexSet<String>,
-) -> Result<Series> {
+) -> Result<Column> {
     let name = series.name();
     let new_series = match series.dtype() {
         DataType::Categorical(_, ord) => {
@@ -225,7 +227,7 @@ fn align_series(
             Series::from_any_values_and_dtype(name.clone(), &values?, &dtype, false)?
         }
     };
-    Ok(new_series)
+    Ok(new_series.into())
 }
 
 fn index_array(
