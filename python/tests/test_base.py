@@ -135,8 +135,8 @@ def test_nullable(tmp_path):
     adata.write(file)
 
     adata = read(file)
-    assert math.isnan(adata.X[0, 0])
-    assert math.isinf(adata.X[0, 1])
+    assert math.isnan(adata.X[:][0, 0])
+    assert math.isinf(adata.X[:][0, 1])
 
     adata.uns['df'] = pd.DataFrame({"test": pd.Series(["a", "b", np.nan, "a"], dtype="category")})
 
@@ -177,6 +177,8 @@ def test_create_anndataset(x1, x2, x3, tmp_path, backend):
     )
     assert dataset.n_obs == 0
     assert dataset.n_vars == 0
+
+    dataset.to_adata()
  
     # dense array
     adata1 = AnnData(X=x1, filename=h5ad(tmp_path), backend=backend)

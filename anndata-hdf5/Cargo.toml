@@ -1,6 +1,6 @@
 [package]
 name = "anndata-hdf5"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.65"
 authors = ["Kai Zhang <kai@kzhang.org>"]
@@ -13,7 +13,8 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 [dependencies]
 anndata = { workspace = true }
 anyhow = "1.0"
-hdf5 = { package = "hdf5-metno", version = "0.9" }
+hdf5 = { package = "hdf5-metno", version = "0.9", features = ["blosc"] }
+blosc-src = { version = "0.3.0", features = ["zstd"] }
 hdf5-sys = { package = "hdf5-metno-sys", version = "0.9", features = ["static", "zlib", "threadsafe"] }
 libz-sys = { version = "1", features = ["libc"], default-features = false }
 ndarray = { version = "0.16" }

@@ -107,7 +107,8 @@ fn new_dataset<T: BackendData>(
     shape: &Shape,
     config: WriteConfig,
 ) -> Result<H5Dataset> {
-    let mut builder = match T::DTYPE {
+    let dtype = T::DTYPE;
+    let mut builder = match dtype {
         ScalarType::U8 => group.new_dataset::<u8>(),
         ScalarType::U16 => group.new_dataset::<u16>(),
         ScalarType::U32 => group.new_dataset::<u32>(),
@@ -123,8 +124,10 @@ fn new_dataset<T: BackendData>(
     };
 
     builder = if let Some(compression) = config.compression {
-        builder.deflate(compression)
-        //builder.blosc_blosclz(compression, hdf5::filters::BloscShuffle::Byte)
+        match dtype {
+            ScalarType::String => builder.deflate(compression),
+            _ => builder.blosc_zstd(compression, hdf5::filters::BloscShuffle::Byte),
+        }
     } else {
         builder
     };
