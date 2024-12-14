@@ -124,9 +124,13 @@ fn new_dataset<T: BackendData>(
     };
 
     builder = if let Some(compression) = config.compression {
-        match dtype {
-            ScalarType::String => builder.deflate(compression),
-            _ => builder.blosc_zstd(compression, hdf5::filters::BloscShuffle::Byte),
+        match compression {
+            Compression::Gzip(lvl) => builder.deflate(lvl),
+            Compression::Lzf => builder.lzf(),
+            Compression::Zstd(lvl) => match dtype {
+                ScalarType::String => builder.deflate(lvl),
+                _ => builder.blosc_zstd(lvl, hdf5::filters::BloscShuffle::Byte),
+            }
         }
     } else {
         builder

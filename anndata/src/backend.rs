@@ -9,17 +9,23 @@ use std::path::{Path, PathBuf};
 pub use serde_json::Value;
 use serde::Deserialize;
 
+#[derive(Debug, Copy, Clone)]
+pub enum Compression {
+    Gzip(u8),
+    Lzf,
+    Zstd(u8),
+}
+
 #[derive(Debug, Clone)]
 pub struct WriteConfig {
-    pub compression: Option<u8>,
+    pub compression: Option<Compression>,
     pub block_size: Option<Shape>,
 }
 
 impl Default for WriteConfig {
     fn default() -> Self {
         Self {
-            compression: Some(1),
-            //compression: None,
+            compression: Some(Compression::Zstd(3)),
             block_size: None,
         }
     }
