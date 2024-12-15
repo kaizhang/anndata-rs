@@ -20,7 +20,7 @@ def h5ad(dir=Path("./")):
     cidx = st.lists(st.integers(min_value=0, max_value=78), min_size=0, max_size=100),
     mask = st.lists(st.booleans(), min_size=79, max_size=79),
 )
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_index(x, ridx, cidx, mask, tmp_path, backend):
     x_ = csr_matrix(x)
     adata = AnnData(

@@ -127,10 +127,6 @@ fn new_dataset<T: BackendData>(
         match compression {
             Compression::Gzip(lvl) => builder.deflate(lvl),
             Compression::Lzf => builder.lzf(),
-            Compression::Zstd(lvl) => match dtype {
-                ScalarType::String => builder.deflate(lvl),
-                _ => builder.blosc_zstd(lvl, hdf5::filters::BloscShuffle::Byte),
-            }
         }
     } else {
         builder

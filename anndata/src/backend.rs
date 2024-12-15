@@ -13,7 +13,6 @@ use serde::Deserialize;
 pub enum Compression {
     Gzip(u8),
     Lzf,
-    Zstd(u8),
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +24,7 @@ pub struct WriteConfig {
 impl Default for WriteConfig {
     fn default() -> Self {
         Self {
-            compression: Some(Compression::Zstd(3)),
+            compression: Some(Compression::Lzf),
             block_size: None,
         }
     }
