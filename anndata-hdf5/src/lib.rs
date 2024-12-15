@@ -126,7 +126,10 @@ fn new_dataset<T: BackendData>(
     builder = if let Some(compression) = config.compression {
         match compression {
             Compression::Gzip(lvl) => builder.deflate(lvl),
-            Compression::Lzf => builder.lzf(),
+            Compression::Lzf => match dtype {
+                ScalarType::String => builder.deflate(1),
+                _ => builder.lzf(),
+            }
         }
     } else {
         builder
