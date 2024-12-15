@@ -237,7 +237,6 @@ impl<B: Backend> AnnDataSet<B> {
                 } else {
                     B::open(file_path.parent().unwrap_or(Path::new("./")).join(path))
                 }?;
-                println!("O3");
                 Ok((k, AnnData::open(fl)?))
             })
             .collect::<Result<_>>()?;

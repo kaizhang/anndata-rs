@@ -882,7 +882,6 @@ impl<B: Backend> InnerStackedArrayElem<B> {
         S: AsRef<SelectInfoElem>,
         <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
     {
-        println!("call stack select");
         let data = if self.is_none() {
             None
         } else {
