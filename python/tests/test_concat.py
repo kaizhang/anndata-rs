@@ -1,6 +1,7 @@
 from anndata_rs import AnnData, read, concat
 
 import pytest
+import hdf5plugin
 import anndata as ad
 import numpy as np
 import pandas as pd
