@@ -21,7 +21,7 @@ use rand::SeedableRng;
 use super::{PyArrayElem, PyElem, PyChunkedArray};
 
 /// Trait for `Elem` to abtract over different backends.
-pub trait ElemTrait: Send {
+pub trait ElemTrait: Send + Sync {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn is_scalar(&self) -> bool;
@@ -58,7 +58,7 @@ impl<B: Backend> ElemTrait for Elem<B> {
     }
 }
 
-pub trait ArrayElemTrait: Send {
+pub trait ArrayElemTrait: Send + Sync {
     fn enable_cache(&self);
     fn disable_cache(&self);
     fn show(&self) -> String;
@@ -167,25 +167,25 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
     }
 }
 
-pub trait DataFrameElemTrait: Send {
-    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject>;
+pub trait DataFrameElemTrait: Send + Sync {
+    fn get<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>>;
     fn set(&self, key: &str, data: Series) -> Result<()>;
     fn contains(&self, key: &str) -> bool;
     fn show(&self) -> String;
 }
 
 impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
-    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
+    fn get<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(PySeries(self.inner().column(key)?.clone().take_materialized_series()).into_py(py))
+            Ok(PySeries(self.inner().column(key)?.clone().take_materialized_series()).into_pyobject(py)?)
         } else {
             let width = self.inner().width();
             let height = self.inner().height();
             let shape = [width, height].as_slice().into();
             let slice = to_select_info(subscript, &shape)?;
             let df = self.inner().select(slice.as_ref())?;
-            Ok(PyDataFrame(df).into_py(py))
+            Ok(PyDataFrame(df).into_pyobject(py)?)
         }
     }
 
@@ -207,17 +207,17 @@ impl<B: Backend> DataFrameElemTrait for DataFrameElem<B> {
 }
 
 impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
-    fn get(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
+    fn get<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>> {
         let py = subscript.py();
         if let Ok(key) = subscript.extract::<&str>() {
-            Ok(PySeries(self.column(key)?.clone().take_materialized_series()).into_py(py))
+            Ok(PySeries(self.column(key)?.clone().take_materialized_series()).into_pyobject(py)?)
         } else {
             let width = self.width();
             let height = self.height();
             let shape = [width, height].as_slice().into();
             let slice = to_select_info(subscript, &shape)?;
             let df = self.select(slice.as_ref())?;
-            Ok(PyDataFrame(df).into_py(py))
+            Ok(PyDataFrame(df).into_pyobject(py)?)
         }
     }
 
@@ -234,7 +234,7 @@ impl<B: Backend> DataFrameElemTrait for StackedDataFrame<B> {
     }
 }
 
-pub trait AxisArrayTrait: Send {
+pub trait AxisArrayTrait: Send + Sync {
     fn keys(&self) -> Vec<String>;
     fn contains(&self, key: &str) -> bool;
     fn get(&self, key: &str) -> Result<PyArrayData>;
@@ -318,7 +318,7 @@ impl<B: Backend + 'static> AxisArrayTrait for StackedAxisArrays<B> {
 
 
 
-pub trait ElemCollectionTrait: Send {
+pub trait ElemCollectionTrait: Send + Sync {
     fn keys(&self) -> Vec<String>;
     fn contains(&self, key: &str) -> bool;
     fn get(&self, key: &str) -> Result<PyData>;
@@ -364,7 +364,7 @@ impl<B: Backend + 'static> ElemCollectionTrait for ElemCollection<B> {
     }
 }
 
-pub trait ChunkedArrayTrait: ExactSizeIterator<Item = (ArrayData, usize, usize)> + Send {}
+pub trait ChunkedArrayTrait: ExactSizeIterator<Item = (ArrayData, usize, usize)> + Send + Sync {}
 
 impl<B: Backend> ChunkedArrayTrait for ChunkedArrayElem<B, ArrayData> {}
 impl<B: Backend> ChunkedArrayTrait for StackedChunkedArrayElem<B, ArrayData> {}

@@ -31,22 +31,19 @@ impl<'py> FromPyObject<'py> for PyAnnData<'py> {
     }
 }
 
-impl ToPyObject for PyAnnData<'_> {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.as_ref().into_py(py)
-    }
-}
+impl<'py> IntoPyObject<'py> for PyAnnData<'py> {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
 
-
-impl IntoPy<PyObject> for PyAnnData<'_> {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        self.0.into_py(py)
+    fn into_pyobject(self, _: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.0)
     }
 }
 
 impl<'py> PyAnnData<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        PyModule::import_bound(py, "anndata")?
+        PyModule::import(py, "anndata")?
             .call_method0("AnnData")?
             .extract()
     }
@@ -125,18 +122,17 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
         let shape = array.shape();
         self.set_n_obs(shape[0])?;
         self.set_n_vars(shape[1])?;
-        self.setattr("X", PyArrayData::from(array).into_py(self.py()))?;
+        self.setattr("X", PyArrayData::from(array))?;
         Ok(())
     }
 
     fn set_x<D: Into<ArrayData>>(&self, data: D) -> Result<()> {
         let data = data.into();
-        let py = self.py();
         let shape = data.shape();
         self.set_n_obs(shape[0])?;
         self.set_n_vars(shape[1])?;
         let ob: ArrayData = data.into();
-        self.setattr("X", PyArrayData::from(ob).into_py(py))?;
+        self.setattr("X", PyArrayData::from(ob))?;
         Ok(())
     }
 
@@ -196,10 +192,10 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn set_obs_names(&self, index: DataFrameIndex) -> Result<()> {
         if self.getattr("obs")?.getattr("empty")?.downcast().unwrap().is_true() {
             let py = self.py();
-            let df = py.import_bound("pandas")?.call_method(
+            let df = py.import("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.into_vec())].into_py_dict_bound(py)),
+                Some(&[("index", index.into_vec())].into_py_dict(py)?),
             )?;
             self.setattr("obs", df)?;
         } else {
@@ -210,10 +206,10 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn set_var_names(&self, index: DataFrameIndex) -> Result<()> {
         if self.getattr("var")?.getattr("empty")?.downcast().unwrap().is_true() {
             let py = self.py();
-            let df = py.import_bound("pandas")?.call_method(
+            let df = py.import("pandas")?.call_method(
                 "DataFrame",
                 (),
-                Some(&[("index", index.into_vec())].into_py_dict_bound(py)),
+                Some(&[("index", index.into_vec())].into_py_dict(py)?),
             )?;
             self.setattr("var", df)?;
         } else {
@@ -227,14 +223,14 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
 
     fn read_obs(&self) -> Result<DataFrame> {
         let df: PyDataFrame = self.py()
-            .import_bound("polars")?
+            .import("polars")?
             .call_method1("from_pandas", (self.0.getattr("obs")?,))?
             .extract()?;
         Ok(df.into())
     }
     fn read_var(&self) -> Result<DataFrame> {
         let df: PyDataFrame = self.py()
-            .import_bound("polars")?
+            .import("polars")?
             .call_method1("from_pandas", (self.0.getattr("var")?,))?
             .extract()?;
         Ok(df.into())
@@ -243,9 +239,9 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn set_obs(&self, obs: DataFrame) -> Result<()> {
         let py = self.py();
         let index = self.getattr("obs")?.getattr("index")?;
-        let df = PyDataFrame(obs).into_py(py)
-            .call_method0(py, "to_pandas")?
-            .call_method1(py, "set_index", (index,))?;
+        let df = PyDataFrame(obs).into_pyobject(py)?
+            .call_method0("to_pandas")?
+            .call_method1("set_index", (index,))?;
         self.setattr("obs", df)?;
         Ok(())
     }
@@ -253,9 +249,9 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     fn set_var(&self, var: DataFrame) -> Result<()> {
         let py = self.py();
         let index = self.getattr("var")?.getattr("index")?;
-        let df = PyDataFrame(var).into_py(py)
-            .call_method0(py, "to_pandas")?
-            .call_method1(py, "set_index", (index,))?;
+        let df = PyDataFrame(var).into_pyobject(py)?
+            .call_method0("to_pandas")?
+            .call_method1("set_index", (index,))?;
         self.setattr("var", df)?;
         Ok(())
     }
@@ -311,7 +307,7 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn del_uns(&self) -> Result<()> {
-        self.0.setattr("uns", pyo3::types::PyDict::new_bound(self.py()))?;
+        self.0.setattr("uns", pyo3::types::PyDict::new(self.py()))?;
         Ok(())
     }
 
@@ -402,7 +398,7 @@ pub struct ElemCollection<'a>(Bound<'a, PyAny>);
 
 impl ElemCollectionOp for ElemCollection<'_> {
     fn keys(&self) -> Vec<String> {
-        self.0.call_method0("keys").unwrap().iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
+        self.0.call_method0("keys").unwrap().try_iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
     }
 
     fn get_item<D>(&self, key: &str) -> Result<Option<D>>
@@ -423,9 +419,9 @@ impl ElemCollectionOp for ElemCollection<'_> {
         ) -> Result<()>
     {
         let py = self.0.py();
-        let d = PyData::from(data.into()).into_py(py);
-        let new_d = if isinstance_of_polars(d.bind(py))? {
-            d.call_method0(py, "to_pandas")?
+        let d = PyData::from(data.into()).into_pyobject(py)?.into_any();
+        let new_d = if isinstance_of_polars(&d)? {
+            d.call_method0("to_pandas")?
         } else {
             d
         };
@@ -449,7 +445,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
     type ArrayElem = ArrayElem<'py>;
 
     fn keys(&self) -> Vec<String> {
-        self.arrays.call_method0("keys").unwrap().iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
+        self.arrays.call_method0("keys").unwrap().try_iter().unwrap().map(|x| x.unwrap().extract().unwrap()).collect()
     }
 
     fn get(&self, key: &str) -> Option<Self::ArrayElem> {
@@ -473,9 +469,9 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             self.adata.set_n_obs(shape[0])?;
             self.adata.set_n_vars(shape[1])?;
         }
-        let d = PyArrayData::from(data).into_py(py);
-        let new_d = if isinstance_of_polars(d.bind(py))? {
-            d.call_method0(py, "to_pandas")?
+        let d = PyArrayData::from(data).into_pyobject(py)?.into_any();
+        let new_d = if isinstance_of_polars(&d)? {
+            d.call_method0("to_pandas")?
         } else {
             d
         };
@@ -488,7 +484,6 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             I: Iterator<Item = D>,
             D: ArrayChunk + Into<ArrayData>,
     {
-        let py = self.arrays.py();
         let array = Stackable::vstack(data.map(|x| x.into()))?;
         let shape = array.shape();
         if self.axis == 0 {
@@ -500,7 +495,7 @@ impl<'py> AxisArraysOp for AxisArrays<'py> {
             self.adata.set_n_vars(shape[1])?;
         }
         self.arrays
-            .call_method1("__setitem__", (key, PyArrayData::from(array).into_py(py)))?;
+            .call_method1("__setitem__", (key, PyArrayData::from(array)))?;
         Ok(())
     }
 

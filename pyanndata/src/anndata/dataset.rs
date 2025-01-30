@@ -5,7 +5,7 @@ use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
 use crate::{AnnData, PyAnnData};
 
 use anndata::container::Slot;
-use anndata::data::{ArrayData, SelectInfoElemBounds, DataFrameIndex, SelectInfoElem};
+use anndata::data::{ArrayData, DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anndata::{self, ArrayElemOp, Data, Selectable};
 use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
@@ -65,23 +65,37 @@ impl<B: Backend> From<anndata::AnnDataSet<B>> for AnnDataSet {
 
 impl AnnDataSet {
     pub fn take_inner<B: Backend>(&self) -> Option<anndata::AnnDataSet<B>> {
-        self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>()
-            .expect("downcast to AnnDataSet failed").extract()
+        self.0
+            .downcast_ref::<Slot<anndata::AnnDataSet<B>>>()
+            .expect("downcast to AnnDataSet failed")
+            .extract()
     }
 
     pub fn inner_ref<B: Backend>(&self) -> anndata::container::Inner<'_, anndata::AnnDataSet<B>> {
-        self.0.downcast_ref::<Slot<anndata::AnnDataSet<B>>>().expect("downcast to AnnDataSet failed").inner()
+        self.0
+            .downcast_ref::<Slot<anndata::AnnDataSet<B>>>()
+            .expect("downcast to AnnDataSet failed")
+            .inner()
     }
 
     fn select_obs(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
-        let from_iter = ix.iter().and_then(|iter| 
-            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).map(|names| {
-            let index = self.0.obs_names();
-            names.into_iter().map(|name| index.get_index(&name)
-                .expect(&format!("Unknown obs name: {}", name))
-            ).collect::<Vec<_>>()
-        });
+        let from_iter = ix
+            .try_iter()
+            .and_then(|iter| {
+                iter.map(|x| x.unwrap().extract::<String>())
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .map(|names| {
+                let index = self.0.obs_names();
+                names
+                    .into_iter()
+                    .map(|name| {
+                        index
+                            .get_index(&name)
+                            .expect(&format!("Unknown obs name: {}", name))
+                    })
+                    .collect::<Vec<_>>()
+            });
 
         if let Ok(indices) = from_iter {
             Ok(indices.into())
@@ -92,14 +106,23 @@ impl AnnDataSet {
     }
 
     fn select_var(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
-        let from_iter = ix.iter().and_then(|iter| 
-            iter.map(|x| x.unwrap().extract::<String>()).collect::<PyResult<Vec<_>>>()
-        ).map(|names| {
-            let index = self.0.var_names();
-            names.into_iter().map(|name| index.get_index(&name)
-                .expect(&format!("Unknown obs name: {}", name))
-            ).collect::<Vec<_>>()
-        });
+        let from_iter = ix
+            .try_iter()
+            .and_then(|iter| {
+                iter.map(|x| x.unwrap().extract::<String>())
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .map(|names| {
+                let index = self.0.var_names();
+                names
+                    .into_iter()
+                    .map(|name| {
+                        index
+                            .get_index(&name)
+                            .expect(&format!("Unknown obs name: {}", name))
+                    })
+                    .collect::<Vec<_>>()
+            });
 
         if let Ok(indices) = from_iter {
             Ok(indices.into())
@@ -139,7 +162,7 @@ impl AnnDataSet {
                     (key, adata)
                 });
                 Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
-            },
+            }
             Zarr::NAME => {
                 let anndatas = adatas.into_iter().map(|(key, data_file)| {
                     let adata = match data_file {
@@ -151,7 +174,7 @@ impl AnnDataSet {
                     (key, adata)
                 });
                 Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
-            },
+            }
             _ => todo!(),
         }
     }
@@ -201,7 +224,9 @@ impl AnnDataSet {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn obs_ix(&self, names: &Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.obs_ix(names) }
+    fn obs_ix(&self, names: &Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        self.0.obs_ix(names)
+    }
 
     /// Names of variables.
     ///
@@ -218,7 +243,9 @@ impl AnnDataSet {
     }
 
     #[pyo3(text_signature = "($self, names)")]
-    fn var_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> { self.0.var_ix(names) }
+    fn var_ix(&self, names: Bound<'_, PyAny>) -> Result<Vec<usize>> {
+        self.0.var_ix(names)
+    }
 
     /// Data matrix of shape n_obs × n_vars.
     ///
@@ -358,8 +385,7 @@ impl AnnDataSet {
         let j = var_indices
             .map(|x| self.select_var(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
-        self.0
-            .subset(&[i, j], out, backend)
+        self.0.subset(&[i, j], out, backend)
     }
 
     /// View into the component AnnData objects.
@@ -377,23 +403,22 @@ impl AnnDataSet {
         signature = (obs_indices=None, var_indices=None, copy_x=true, file=None, backend=None),
         text_signature = "($self, obs_indices=None, var_indices=None, copy_x=True, file=None, backed=None)",
     )]
-    pub fn to_adata(
+    pub fn to_adata<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         obs_indices: Option<&Bound<'_, PyAny>>,
         var_indices: Option<&Bound<'_, PyAny>>,
         copy_x: bool,
         file: Option<PathBuf>,
         backend: Option<&str>,
-    ) -> Result<PyObject> {
+    ) -> Result<Bound<'py, PyAny>> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
         let j = var_indices
             .map(|x| self.select_var(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
-        self.0
-            .to_adata(py, &[i, j], copy_x, file, backend)
+        self.0.to_adata(py, &[i, j], copy_x, file, backend)
     }
 
     /// Parameters
@@ -456,7 +481,7 @@ impl AnnDataSet {
 pub struct StackedAnnData(pub Slot<anndata::StackedAnnData>);
 */
 
-trait AnnDataSetTrait: Send + Downcast {
+trait AnnDataSetTrait: Send + Sync + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()>;
@@ -491,14 +516,14 @@ trait AnnDataSetTrait: Send + Downcast {
         backend: &str,
     ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
 
-    fn to_adata(
+    fn to_adata<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
         backend: Option<&str>,
-    ) -> Result<PyObject>;
+    ) -> Result<Bound<'py, PyAny>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
@@ -522,14 +547,17 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     }
 
     fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
-        let obs_names: Result<DataFrameIndex> =
-            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
+        let obs_names: Result<DataFrameIndex> = names
+            .try_iter()?
+            .map(|x| Ok(x?.extract::<String>()?))
+            .collect();
         self.inner().set_obs_names(obs_names?)
     }
 
     fn obs_ix(&self, index: &Bound<'_, PyAny>) -> Result<Vec<usize>> {
-        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
-        self.inner().obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
+        let bounds: Vec<_> = index.try_iter()?.map(|x| x.unwrap()).collect();
+        self.inner()
+            .obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn var_names(&self) -> DataFrameIndex {
@@ -537,14 +565,17 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
     }
 
     fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
-        let var_names: Result<DataFrameIndex> =
-            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
+        let var_names: Result<DataFrameIndex> = names
+            .try_iter()?
+            .map(|x| Ok(x?.extract::<String>()?))
+            .collect();
         self.inner().set_var_names(var_names?)
     }
 
     fn var_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
-        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
-        self.inner().var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
+        let bounds: Vec<_> = index.try_iter()?.map(|x| x.unwrap()).collect();
+        self.inner()
+            .var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn get_x(&self) -> Option<PyArrayElem> {
@@ -619,9 +650,9 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         if let Some(x) = obs {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
+                py.import("polars")?.call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
+                py.import("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -636,9 +667,9 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
         if let Some(x) = var {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?.call_method1("from_pandas", (x, ))?
+                py.import("polars")?.call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x, ))?
+                py.import("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -708,35 +739,43 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             H5::NAME => {
                 let order = self.inner().write_select::<H5, _, _>(slice, &out)?;
                 let file = H5::open_rw(out.join("_dataset.h5ads"))?;
-                Ok((anndata::AnnDataSet::<H5>::open::<PathBuf>(file, None)?.into(), order))
+                Ok((
+                    anndata::AnnDataSet::<H5>::open::<PathBuf>(file, None)?.into(),
+                    order,
+                ))
             }
             Zarr::NAME => {
                 let order = self.inner().write_select::<Zarr, _, _>(slice, &out)?;
                 let file = Zarr::open_rw(out.join("_dataset.zarrs"))?;
-                Ok((anndata::AnnDataSet::<Zarr>::open::<PathBuf>(file, None)?.into(), order))
+                Ok((
+                    anndata::AnnDataSet::<Zarr>::open::<PathBuf>(file, None)?.into(),
+                    order,
+                ))
             }
             x => bail!("Unsupported backend: {}", x),
         }
     }
 
-    fn to_adata(
+    fn to_adata<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         slice: &[SelectInfoElem],
         copy_x: bool,
         file: Option<PathBuf>,
         backend: Option<&str>,
-    ) -> Result<PyObject> {
+    ) -> Result<Bound<'py, PyAny>> {
         let inner = self.inner();
         if let Some(file) = file {
             let backend = get_backend(&file, backend);
             match backend {
-                H5::NAME => inner
-                    .to_adata_select::<H5, _, _>(slice, file, copy_x)
-                    .map(|x| AnnData::from(x).into_py(py)),
-                Zarr::NAME => inner
-                    .to_adata_select::<Zarr, _, _>(slice, file, copy_x)
-                    .map(|x| AnnData::from(x).into_py(py)),
+                H5::NAME => {
+                    let adata = inner.to_adata_select::<H5, _, _>(slice, file, copy_x)?;
+                    Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
+                }
+                Zarr::NAME => {
+                    let adata = inner.to_adata_select::<Zarr, _, _>(slice, file, copy_x)?;
+                    Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
+                }
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
@@ -763,17 +802,19 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             }
             {
                 // Set uns
-                inner.uns()
-                    .keys()
-                    .into_iter()
-                    .try_for_each(|k| adata.uns().add(&k, inner.uns().get_item::<Data>(&k)?.unwrap()))?;
+                inner.uns().keys().into_iter().try_for_each(|k| {
+                    adata
+                        .uns()
+                        .add(&k, inner.uns().get_item::<Data>(&k)?.unwrap())
+                })?;
             }
             {
                 // Set obsm
                 inner.obsm().keys().into_iter().try_for_each(|k| {
                     adata.obsm().add(
                         &k,
-                        inner.obsm()
+                        inner
+                            .obsm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[0])?
@@ -798,7 +839,8 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
                 inner.varm().keys().into_iter().try_for_each(|k| {
                     adata.varm().add(
                         &k,
-                        inner.varm()
+                        inner
+                            .varm()
                             .get(&k)
                             .unwrap()
                             .slice_axis::<ArrayData, _>(0, &slice[1])?
@@ -818,7 +860,7 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
                     adata.varp().add(&k, data)
                 })?;
             }
-            Ok(adata.to_object(py))
+            Ok(adata.into_pyobject(py)?)
         }
     }
 

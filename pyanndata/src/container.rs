@@ -149,12 +149,12 @@ impl<T: DataFrameElemTrait + 'static> From<T> for PyDataFrameElem {
 
 #[pymethods]
 impl PyDataFrameElem {
-    fn __getitem__(&self, subscript: &Bound<'_, PyAny>) -> Result<PyObject> {
+    fn __getitem__<'py>(&self, subscript: &Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>> {
         self.0.get(subscript)
     }
 
     fn __setitem__(&self, key: &str, data: &Bound<'_, PyAny>) -> Result<()> {
-        let data: PySeries = data.py().import_bound("polars")?.call_method1("Series", (data, ))?.extract()?;
+        let data: PySeries = data.py().import("polars")?.call_method1("Series", (data, ))?.extract()?;
         self.0.set(key, data.into())
     }
 

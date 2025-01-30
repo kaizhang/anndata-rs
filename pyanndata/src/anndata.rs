@@ -14,7 +14,9 @@ use anndata_hdf5::H5;
 use anyhow::Result;
 use pyo3::prelude::*;
 use std::{
-    collections::HashMap, ops::Deref, path::{Path, PathBuf}
+    collections::HashMap,
+    ops::Deref,
+    path::{Path, PathBuf},
 };
 
 pub(crate) fn get_backend<P: AsRef<Path>>(filename: P, backend: Option<&str>) -> &str {
@@ -56,16 +58,20 @@ pub fn read<'py>(
     filename: PathBuf,
     backed: Option<&str>,
     backend: Option<&str>,
-) -> Result<PyObject> {
+) -> Result<Bound<'py, PyAny>> {
     let adata = match backed {
         Some(m) => {
             let backend = get_backend(&filename, backend);
-            AnnData::new_from(filename, m, backend).unwrap().into_py(py)
+            AnnData::new_from(filename, m, backend)
+                .unwrap()
+                .into_pyobject(py)?
+                .into_any()
         }
-        None => PyModule::import_bound(py, "anndata")?
+        None => PyModule::import(py, "anndata")?
             .getattr("read_h5ad")?
             .call1((filename,))?
-            .to_object(py),
+            .into_pyobject(py)?
+            .into_any(),
     };
     Ok(adata)
 }
@@ -96,7 +102,7 @@ pub fn concat<'py>(
     keys: Option<Vec<String>>,
     file: Option<PathBuf>,
     backend: Option<&str>,
-) -> Result<PyObject> {
+) -> Result<Bound<'py, PyAny>> {
     let join = match join {
         "inner" => JoinType::Inner,
         "outer" => JoinType::Outer,
@@ -172,9 +178,9 @@ pub fn concat<'py>(
     }
 
     match out {
-        T::H5(adata) => Ok(AnnData::from(adata).into_py(py)),
-        T::Zarr(adata) => Ok(AnnData::from(adata).into_py(py)),
-        T::Py(adata) => Ok(adata.to_object(py)),
+        T::H5(adata) => Ok(AnnData::from(adata).into_pyobject(py)?.into_any()),
+        T::Zarr(adata) => Ok(AnnData::from(adata).into_pyobject(py)?.into_any()),
+        T::Py(adata) => Ok(adata.into_pyobject(py)?.into_any()),
     }
 }
 
@@ -201,15 +207,15 @@ pub fn concat<'py>(
     signature = (mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=false),
     text_signature = "(mtx_file, *, obs_names=None, var_names=None, file=None, backend=None, sorted=False)",
 )]
-pub fn read_mtx(
-    py: Python<'_>,
+pub fn read_mtx<'py>(
+    py: Python<'py>,
     mtx_file: PathBuf,
     obs_names: Option<PathBuf>,
     var_names: Option<PathBuf>,
     file: Option<PathBuf>,
     backend: Option<&str>,
     sorted: bool,
-) -> Result<PyObject> {
+) -> Result<Bound<'py, PyAny>> {
     let mut reader = anndata::reader::MMReader::from_path(mtx_file)?;
     if let Some(obs_names) = obs_names {
         reader = reader.obs_names(obs_names)?;
@@ -226,19 +232,19 @@ pub fn read_mtx(
             H5::NAME => {
                 let adata = anndata::AnnData::<H5>::new(file)?;
                 reader.finish(&adata)?;
-                Ok(AnnData::from(adata).into_py(py))
+                Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
             }
             Zarr::NAME => {
                 let adata = anndata::AnnData::<Zarr>::new(file)?;
                 reader.finish(&adata)?;
-                Ok(AnnData::from(adata).into_py(py))
+                Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
             }
             backend => todo!("Backend {} is not supported", backend),
         }
     } else {
         let adata = PyAnnData::new(py)?;
         reader.finish(&adata)?;
-        Ok(adata.to_object(py))
+        Ok(adata.into_pyobject(py)?)
     }
 }
 

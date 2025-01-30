@@ -115,7 +115,7 @@ impl AnnData {
 
     fn select_obs(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
         let from_iter = ix
-            .iter()
+            .try_iter()
             .and_then(|iter| {
                 iter.map(|x| x.unwrap().extract::<String>())
                     .collect::<PyResult<Vec<_>>>()
@@ -142,7 +142,7 @@ impl AnnData {
 
     fn select_var(&self, ix: &Bound<'_, PyAny>) -> PyResult<SelectInfoElem> {
         let from_iter = ix
-            .iter()
+            .try_iter()
             .and_then(|iter| {
                 iter.map(|x| x.unwrap().extract::<String>())
                     .collect::<PyResult<Vec<_>>>()
@@ -420,15 +420,15 @@ impl AnnData {
         signature = (obs_indices=None, var_indices=None, *, out=None, inplace=true, backend=None),
         text_signature = "($self, obs_indices=None, var_indices=None, *, out=None, inplace=True, backend=None)",
     )]
-    pub fn subset(
+    pub fn subset<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         obs_indices: Option<&Bound<'_, PyAny>>,
         var_indices: Option<&Bound<'_, PyAny>>,
         out: Option<PathBuf>,
         inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<PyObject>> {
+    ) -> Result<Option<Bound<'py, PyAny>>> {
         let i = obs_indices
             .map(|x| self.select_obs(x).unwrap())
             .unwrap_or(SelectInfoElem::full());
@@ -562,7 +562,7 @@ impl AnnData {
     }
 }
 
-trait AnnDataTrait: Send + Downcast {
+trait AnnDataTrait: Send + Sync + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
     fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()>;
@@ -591,14 +591,14 @@ trait AnnDataTrait: Send + Downcast {
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
     fn set_layers(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
 
-    fn subset(
+    fn subset<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<PyObject>>;
+    ) -> Result<Option<Bound<'py, PyAny>>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
@@ -644,15 +644,17 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     }
 
     fn obs_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
-        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
+        let bounds: Vec<_> = index.try_iter()?.map(|x| x.unwrap()).collect();
         self.adata
             .inner()
             .obs_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn set_obs_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
-        let obs_names: Result<DataFrameIndex> =
-            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
+        let obs_names: Result<DataFrameIndex> = names
+            .try_iter()?
+            .map(|x| Ok(x?.extract::<String>()?))
+            .collect();
         self.adata.inner().set_obs_names(obs_names?)
     }
 
@@ -661,15 +663,17 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     }
 
     fn var_ix(&self, index: Bound<'_, PyAny>) -> Result<Vec<usize>> {
-        let bounds: Vec<_> = index.iter()?.map(|x| x.unwrap()).collect();
+        let bounds: Vec<_> = index.try_iter()?.map(|x| x.unwrap()).collect();
         self.adata
             .inner()
             .var_ix(bounds.iter().map(|x| x.extract::<&str>().unwrap()))
     }
 
     fn set_var_names(&self, names: Bound<'_, PyAny>) -> Result<()> {
-        let var_names: Result<DataFrameIndex> =
-            names.iter()?.map(|x| Ok(x?.extract::<String>()?)).collect();
+        let var_names: Result<DataFrameIndex> = names
+            .try_iter()?
+            .map(|x| Ok(x?.extract::<String>()?))
+            .collect();
         self.adata.inner().set_var_names(var_names?)
     }
 
@@ -770,10 +774,9 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         if let Some(x) = obs {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?
-                    .call_method1("from_pandas", (x,))?
+                py.import("polars")?.call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x,))?
+                py.import("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -788,10 +791,9 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         if let Some(x) = var {
             let py = x.py();
             let ob = if isinstance_of_pandas(&x)? {
-                py.import_bound("polars")?
-                    .call_method1("from_pandas", (x,))?
+                py.import("polars")?.call_method1("from_pandas", (x,))?
             } else if x.is_instance_of::<pyo3::types::PyDict>() {
-                py.import_bound("polars")?.call_method1("from_dict", (x,))?
+                py.import("polars")?.call_method1("from_dict", (x,))?
             } else {
                 x
             };
@@ -856,14 +858,14 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         Ok(())
     }
 
-    fn subset(
+    fn subset<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         slice: &[SelectInfoElem],
         file: Option<PathBuf>,
         inplace: bool,
         backend: Option<&str>,
-    ) -> Result<Option<PyObject>> {
+    ) -> Result<Option<Bound<'py, PyAny>>> {
         let inner = self.adata.inner();
         if inplace {
             inner.subset(slice)?;
@@ -873,12 +875,20 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
             match backend {
                 H5::NAME => {
                     inner.write_select::<H5, _, _>(slice, &file)?;
-                    Ok(Some(AnnData::new_from(file, "r+", backend)?.into_py(py)))
-                },
+                    Ok(Some(
+                        AnnData::new_from(file, "r+", backend)?
+                            .into_pyobject(py)?
+                            .into_any(),
+                    ))
+                }
                 Zarr::NAME => {
                     inner.write_select::<Zarr, _, _>(slice, &file)?;
-                    Ok(Some(AnnData::new_from(file, "r+", backend)?.into_py(py)))
-                },
+                    Ok(Some(
+                        AnnData::new_from(file, "r+", backend)?
+                            .into_pyobject(py)?
+                            .into_any(),
+                    ))
+                }
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
@@ -980,7 +990,7 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
                     adata.layers().add(&k, data)
                 })?;
             }
-            Ok(Some(adata.to_object(py)))
+            Ok(Some(adata.into_pyobject(py)?.into_any()))
         }
     }
 
@@ -1082,7 +1092,7 @@ impl StackedAnnData {
     }
 }
 
-trait StackedAnnDataTrait: Send + Downcast {
+trait StackedAnnDataTrait: Send + Sync + Downcast {
     fn get_obs(&self) -> Option<PyDataFrameElem>;
     fn get_obsm(&self) -> Option<PyAxisArrays>;
     fn show(&self) -> String;

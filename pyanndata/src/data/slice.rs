@@ -8,7 +8,7 @@ pub fn to_select_info(ob: &Bound<'_, PyAny>, shape: &Shape) -> PyResult<SelectIn
     if is_none_slice(ob)? {
         Ok(std::iter::repeat(SelectInfoElem::full()).take(ndim).collect())
     } else if ob.is_instance_of::<pyo3::types::PyTuple>() {
-        ob.iter()?.zip(shape.as_ref())
+        ob.try_iter()?.zip(shape.as_ref())
             .map(|(x, len)| to_select_elem(&x?, *len))
             .collect()
     } else {
@@ -38,7 +38,7 @@ pub fn to_select_elem(ob: &Bound<'_, PyAny>, length: usize) -> PyResult<SelectIn
         }
     } else {
         let boolean_mask: PyResult<Vec<bool>> =
-            ob.iter()?.map(|x| x.unwrap().extract()).collect();
+            ob.try_iter()?.map(|x| x.unwrap().extract()).collect();
         match boolean_mask {
             Ok(mask) => {
                 if mask.len() == length {
@@ -49,7 +49,7 @@ pub fn to_select_elem(ob: &Bound<'_, PyAny>, length: usize) -> PyResult<SelectIn
                     panic!("boolean mask dimension mismatched")
                 }
             }
-            _ => ob.iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<usize>>>()?.into(),
+            _ => ob.try_iter()?.map(|x| x.unwrap().extract()).collect::<PyResult<Vec<usize>>>()?.into(),
         }
     };
     Ok(select)

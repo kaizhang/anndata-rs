@@ -17,18 +17,18 @@ anndata-hdf5 = { workspace = true }
 anndata-zarr = { workspace = true }
 anyhow = "1.0"
 downcast-rs = "1.2"
-numpy = "0.22"
+numpy = "0.23"
 ndarray = "0.16"
 nalgebra-sparse = "0.10"
 hdf5 = { package = "hdf5-metno", version = "0.9" }
-polars = { version = "0.45.0", features = ["ndarray"] }
-pyo3-polars = {version = "0.19", features = ["dtype-full", "dtype-struct"] }
+polars = { version = "0.46.0", features = ["ndarray"] }
+pyo3-polars = {version = "0.20", features = ["dtype-full", "dtype-struct"] }
 rand = "0.8"
 flate2 = "1.0"
 rayon = "1.10"
 
 [dependencies.pyo3]
-version = "0.22"
+version = "0.23"
 features = ["extension-module", "multiple-pymethods", "anyhow"]
 
 [lib]
