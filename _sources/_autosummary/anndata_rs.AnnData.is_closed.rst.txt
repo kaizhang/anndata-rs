@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.is\_closed
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.is_closed

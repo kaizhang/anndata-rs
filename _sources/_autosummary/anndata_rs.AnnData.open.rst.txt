@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.open
+========================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.open

@@ -1,0 +1,6 @@
+﻿anndata\_rs.read\_mtx
+=====================
+
+.. currentmodule:: anndata_rs
+
+.. autofunction:: read_mtx

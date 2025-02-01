@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.shape
+=========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.shape

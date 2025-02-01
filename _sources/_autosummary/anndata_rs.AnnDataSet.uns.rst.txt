@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.uns
+==========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnDataSet.uns
