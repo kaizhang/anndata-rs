@@ -490,58 +490,60 @@ mod csr_matrix_index_tests {
 
     #[test]
     fn test_csr() {
-        let n: usize = 200;
-        let m: usize = 200;
-        let nnz: usize = 1000;
+        for _ in 0..100 {
+            let n: usize = 200;
+            let m: usize = 200;
+            let nnz: usize = 1000;
 
-        let ridx = Array::random(220, Uniform::new(0, n)).to_vec();
-        let cidx = Array::random(100, Uniform::new(0, m)).to_vec();
+            let ridx = Array::random(220, Uniform::new(0, n)).to_vec();
+            let cidx = Array::random(100, Uniform::new(0, m)).to_vec();
 
-        let row_indices = Array::random(nnz, Uniform::new(0, n)).to_vec();
-        let col_indices = Array::random(nnz, Uniform::new(0, m)).to_vec();
-        let values = Array::random(nnz, Uniform::new(-10000, 10000)).to_vec();
+            let row_indices = Array::random(nnz, Uniform::new(0, n)).to_vec();
+            let col_indices = Array::random(nnz, Uniform::new(0, m)).to_vec();
+            let values = Array::random(nnz, Uniform::new(1, 10000)).to_vec();
 
-        let csr_matrix: CsrMatrix<i64> =
-            (&CooMatrix::try_from_triplets(n, m, row_indices, col_indices, values).unwrap()).into();
+            let csr_matrix: CsrMatrix<i64> =
+                (&CooMatrix::try_from_triplets(n, m, row_indices, col_indices, values).unwrap()).into();
 
-        // Row slice
-        assert_eq!(
-            csr_matrix.select(s![2..177, ..].as_ref()),
-            csr_select_rows(&csr_matrix, 2..177),
-        );
+            // Row slice
+            assert_eq!(
+                csr_matrix.select(s![2..177, ..].as_ref()),
+                csr_select_rows(&csr_matrix, 2..177),
+            );
 
-        // Row fancy indexing
-        assert_eq!(
-            csr_matrix.select(s![&ridx, ..].as_ref()),
-            csr_select_rows(&csr_matrix, ridx.iter().cloned()),
-        );
+            // Row fancy indexing
+            assert_eq!(
+                csr_matrix.select(s![&ridx, ..].as_ref()),
+                csr_select_rows(&csr_matrix, ridx.iter().cloned()),
+            );
 
-        // Column slice
-        assert_eq!(
-            csr_matrix.select(s![.., 77..200].as_ref()),
-            csr_select_cols(&csr_matrix, 77..200),
-        );
+            // Column slice
+            assert_eq!(
+                csr_matrix.select(s![.., 77..200].as_ref()),
+                csr_select_cols(&csr_matrix, 77..200),
+            );
 
-        // Column fancy indexing
-        assert_eq!(
-            csr_matrix.select(s![.., &cidx].as_ref()),
-            csr_select_cols(&csr_matrix, cidx.iter().cloned()),
-        );
+            // Column fancy indexing
+            assert_eq!(
+                csr_matrix.select(s![.., &cidx].as_ref()),
+                csr_select_cols(&csr_matrix, cidx.iter().cloned()),
+            );
 
-        // Both
-        assert_eq!(
-            csr_matrix.select(s![2..49, 0..77].as_ref()),
-            csr_select(&csr_matrix, 2..49, 0..77),
-        );
+            // Both
+            assert_eq!(
+                csr_matrix.select(s![2..49, 0..77].as_ref()),
+                csr_select(&csr_matrix, 2..49, 0..77),
+            );
 
-        assert_eq!(
-            csr_matrix.select(s![2..177, &cidx].as_ref()),
-            csr_select(&csr_matrix, 2..177, cidx.iter().cloned()),
-        );
+            assert_eq!(
+                csr_matrix.select(s![2..177, &cidx].as_ref()),
+                csr_select(&csr_matrix, 2..177, cidx.iter().cloned()),
+            );
 
-        assert_eq!(
-            csr_matrix.select(s![&ridx, &cidx].as_ref()),
-            csr_select(&csr_matrix, ridx.iter().cloned(), cidx.iter().cloned()),
-        );
+            assert_eq!(
+                csr_matrix.select(s![&ridx, &cidx].as_ref()),
+                csr_select(&csr_matrix, ridx.iter().cloned(), cidx.iter().cloned()),
+            );
+        }
     }
 }

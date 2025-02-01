@@ -192,6 +192,7 @@ def test_create_anndataset(x1, x2, x3, tmp_path, backend):
         backend=backend,
     )
     np.testing.assert_array_equal(merged, dataset.X[:])
+    dataset.obs['obs'] = [1] * (x1.shape[0] + x2.shape[0] + x3.shape[0])
 
     # sparse array
     adata1 = AnnData(X=csr_matrix(x1), filename=h5ad(tmp_path), backend=backend)
