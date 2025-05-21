@@ -13,7 +13,7 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 [dependencies]
 anndata = { workspace = true }
 anyhow = "1.0"
-hdf5 = { package = "hdf5-metno", version = "0.9", features = ["blosc"] }
+hdf5 = { package = "hdf5-metno", version = "0.10", features = ["blosc", "blosc-zstd"] }
 blosc-src = { version = "0.3.0", features = ["zstd"] }
 hdf5-sys = { package = "hdf5-metno-sys", version = "0.10", features = ["static", "zlib", "threadsafe"] }
 libz-sys = { version = "1", features = ["libc"], default-features = false }

@@ -43,6 +43,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path, bac
     adata.obsp = dict(x=obsp, y=csr_matrix(obsp))
     adata.varp = dict(x=varp, y=csr_matrix(varp))
     adata.layers["raw"] = x
+    np.testing.assert_array_equal(adata.obs["txt"], obs)
 
     for adata_subset in [ adata.subset(indices, indices2, out=h5ad(tmp_path), inplace=False, backend=backend),
                          adata.subset(indices, indices2, inplace=False)]:
