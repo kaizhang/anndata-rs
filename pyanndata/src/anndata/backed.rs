@@ -560,6 +560,10 @@ impl AnnData {
     fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    fn __len__(&self) -> usize {
+        self.n_obs()
+    }
 }
 
 trait AnnDataTrait: Send + Sync + Downcast {
