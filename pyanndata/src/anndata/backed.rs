@@ -564,6 +564,14 @@ impl AnnData {
     fn __len__(&self) -> usize {
         self.n_obs()
     }
+    
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &Bound<'py, PyAny>) -> Result<Option<Bound<'py, PyAny>>> { 
+        let i = Some(key)
+            .map(|x| self.select_obs(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        
+        self.0.subset(py, &[i, SelectInfoElem::full()], None, false, Some(self.0.backend()))
+    }
 }
 
 trait AnnDataTrait: Send + Sync + Downcast {
