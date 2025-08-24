@@ -6,14 +6,20 @@ use anndata::{
 use anyhow::{bail, Context, Result};
 use ndarray::{Array, ArrayD, ArrayView, CowArray, Dimension, IxDyn, SliceInfoElem};
 use std::{
-    borrow::Cow, ops::{Deref, Index}, path::{Path, PathBuf}
+    borrow::Cow,
+    ops::{Deref, Index},
+    path::{Path, PathBuf},
 };
 use std::{sync::Arc, vec};
-use zarrs::{array::{data_type::DataType, Element}, array_subset::ArraySubset, storage::StorePrefix};
+use zarrs::array::codec::bytes_to_bytes::zstd::ZstdCodec;
 use zarrs::filesystem::FilesystemStore;
 use zarrs::group::Group;
 use zarrs::{array::ElementOwned, storage::ReadableWritableListableStorageTraits};
-use zarrs::array::codec::bytes_to_bytes::zstd::ZstdCodec;
+use zarrs::{
+    array::{codec::ShardingCodecBuilder, data_type::DataType, ArrayShardedReadableExt, Element},
+    array_subset::ArraySubset,
+    storage::StorePrefix,
+};
 
 /// The Zarr backend.
 pub struct Zarr;
@@ -39,6 +45,7 @@ pub struct ZarrGroup {
 
 pub struct ZarrDataset {
     dataset: zarrs::array::Array<dyn ReadableWritableListableStorageTraits>,
+    cache: zarrs::array::ArrayShardedReadableExtCache,
     store: ZarrStore,
 }
 
@@ -63,7 +70,9 @@ impl Backend for Zarr {
         }
 
         let inner = Arc::new(FilesystemStore::new(path.as_ref())?);
-        zarrs::group::GroupBuilder::new().build(inner.clone(), "/")?.store_metadata()?;
+        zarrs::group::GroupBuilder::new()
+            .build(inner.clone(), "/")?
+            .store_metadata()?;
         Ok(ZarrStore {
             path: path.as_ref().to_path_buf(),
             inner,
@@ -104,7 +113,11 @@ impl GroupOp<Zarr> for ZarrStore {
     /// List all groups and datasets in this group.
     fn list(&self) -> Result<Vec<String>> {
         let result = self.list_dir(&StorePrefix::root())?;
-        Ok(result.prefixes().into_iter().map(|x| x.as_str().trim_end_matches("/").to_string()).collect())
+        Ok(result
+            .prefixes()
+            .into_iter()
+            .map(|x| x.as_str().trim_end_matches("/").to_string())
+            .collect())
     }
 
     /// Create a new group.
@@ -135,57 +148,22 @@ impl GroupOp<Zarr> for ZarrStore {
         config: WriteConfig,
     ) -> Result<<Zarr as Backend>::Dataset> {
         let path = canoincalize_path(name);
-        let shape = shape.as_ref();
-        let sizes: Vec<u64> = match config.block_size {
-            Some(s) => s.as_ref().into_iter().map(|x| (*x).max(1) as u64).collect(),
-            _ => {
-                if shape.len() == 1 {
-                    vec![shape[0].min(10000).max(1) as u64]
-                } else {
-                    shape.iter().map(|&x| x.min(100).max(1) as u64).collect()
-                }
-            }
-        };
-        let chunk_size = zarrs::array::chunk_grid::ChunkGrid::new(
-            zarrs::array::chunk_grid::regular::RegularChunkGrid::new(sizes.try_into().unwrap()),
-        );
-
-        let (datatype, fill) = match T::DTYPE {
-            ScalarType::U8 => (DataType::UInt8, 0u8.into()),
-            ScalarType::U16 => (DataType::UInt16, 0u16.into()),
-            ScalarType::U32 => (DataType::UInt32, 0u32.into()),
-            ScalarType::U64 => (DataType::UInt64, 0u64.into()),
-            ScalarType::I8 => (DataType::Int8, 0i8.into()),
-            ScalarType::I16 => (DataType::Int16, 0i16.into()),
-            ScalarType::I32 => (DataType::Int32, 0i32.into()),
-            ScalarType::I64 => (DataType::Int64, 0i64.into()),
-            ScalarType::F32 => (DataType::Float32, zarrs::array::ZARR_NAN_F32.into()),
-            ScalarType::F64 => (DataType::Float64, zarrs::array::ZARR_NAN_F64.into()),
-            ScalarType::Bool => (DataType::Bool, false.into()),
-            ScalarType::String => (DataType::String, "".into()),
-        };
-
-        let array = zarrs::array::ArrayBuilder::new(
-            shape.iter().map(|x| *x as u64).collect(),
-            datatype,
-            chunk_size,
-            fill,
-        )
-        .bytes_to_bytes_codecs(vec![
-            Arc::new(ZstdCodec::new(7, false))
-        ])
-        .build(self.inner.clone(), &path)?;
+        let array = new_empty_dataset_helper::<T, _>(self.inner.clone(), &path, shape, config)?;
         array.store_metadata()?;
+        let cache = zarrs::array::ArrayShardedReadableExtCache::new(&array);
         Ok(ZarrDataset {
             dataset: array,
+            cache,
             store: self.clone(),
         })
     }
 
     fn open_dataset(&self, name: &str) -> Result<<Zarr as Backend>::Dataset> {
         let array = zarrs::array::Array::open(self.inner.clone(), &canoincalize_path(name))?;
+        let cache = zarrs::array::ArrayShardedReadableExtCache::new(&array);
         Ok(ZarrDataset {
             dataset: array,
+            cache,
             store: self.clone(),
         })
     }
@@ -214,7 +192,14 @@ impl GroupOp<Zarr> for ZarrGroup {
             .list_dir(&current_path.as_str().try_into()?)?
             .prefixes()
             .into_iter()
-            .map(|x| x.as_str().strip_prefix(current_path.as_str()).unwrap().strip_suffix("/").unwrap().to_owned())
+            .map(|x| {
+                x.as_str()
+                    .strip_prefix(current_path.as_str())
+                    .unwrap()
+                    .strip_suffix("/")
+                    .unwrap()
+                    .to_owned()
+            })
             .collect();
         Ok(result)
     }
@@ -222,7 +207,8 @@ impl GroupOp<Zarr> for ZarrGroup {
     /// Create a new group.
     fn new_group(&self, name: &str) -> Result<<Zarr as Backend>::Group> {
         let path = self.group.path().as_path().join(name);
-        let group = zarrs::group::GroupBuilder::new().build(self.store.inner.clone(), path.to_str().unwrap())?;
+        let group = zarrs::group::GroupBuilder::new()
+            .build(self.store.inner.clone(), path.to_str().unwrap())?;
         group.store_metadata()?;
         Ok(ZarrGroup {
             group,
@@ -247,50 +233,18 @@ impl GroupOp<Zarr> for ZarrGroup {
         shape: &Shape,
         config: WriteConfig,
     ) -> Result<<Zarr as Backend>::Dataset> {
-        let shape = shape.as_ref();
-        let sizes: Vec<u64> = match config.block_size {
-            Some(s) => s.as_ref().into_iter().map(|x| (*x).max(1) as u64).collect(),
-            _ => {
-                if shape.len() == 1 {
-                    vec![shape[0].min(20000).max(1) as u64]
-                } else {
-                    shape.iter().map(|&x| x.min(500).max(1) as u64).collect()
-                }
-            }
-        };
-        let chunk_size = zarrs::array::chunk_grid::ChunkGrid::new(
-            zarrs::array::chunk_grid::regular::RegularChunkGrid::new(sizes.try_into().unwrap()),
-        );
-
-        let (datatype, fill) = match T::DTYPE {
-            ScalarType::U8 => (DataType::UInt8, 0u8.into()),
-            ScalarType::U16 => (DataType::UInt16, 0u16.into()),
-            ScalarType::U32 => (DataType::UInt32, 0u32.into()),
-            ScalarType::U64 => (DataType::UInt64, 0u64.into()),
-            ScalarType::I8 => (DataType::Int8, 0i8.into()),
-            ScalarType::I16 => (DataType::Int16, 0i16.into()),
-            ScalarType::I32 => (DataType::Int32, 0i32.into()),
-            ScalarType::I64 => (DataType::Int64, 0i64.into()),
-            ScalarType::F32 => (DataType::Float32, zarrs::array::ZARR_NAN_F32.into()),
-            ScalarType::F64 => (DataType::Float64, zarrs::array::ZARR_NAN_F64.into()),
-            ScalarType::Bool => (DataType::Bool, false.into()),
-            ScalarType::String => (DataType::String, "".into()),
-        };
-
         let path = self.group.path().as_path().join(name);
-        let array = zarrs::array::ArrayBuilder::new(
-            shape.iter().map(|x| *x as u64).collect(),
-            datatype,
-            chunk_size,
-            fill,
-        )
-        .bytes_to_bytes_codecs(vec![
-            Arc::new(ZstdCodec::new(7, false))
-        ])
-        .build(self.store.inner.clone(), path.to_str().unwrap())?;
+        let array = new_empty_dataset_helper::<T, _>(
+            self.store.inner.clone(),
+            path.to_str().unwrap(),
+            shape,
+            config,
+        )?;
         array.store_metadata()?;
+        let cache = zarrs::array::ArrayShardedReadableExtCache::new(&array);
         Ok(ZarrDataset {
             dataset: array,
+            cache,
             store: self.store.clone(),
         })
     }
@@ -298,8 +252,10 @@ impl GroupOp<Zarr> for ZarrGroup {
     fn open_dataset(&self, name: &str) -> Result<<Zarr as Backend>::Dataset> {
         let path = self.group.path().as_path().join(name);
         let array = zarrs::array::Array::open(self.store.inner.clone(), path.to_str().unwrap())?;
+        let cache = zarrs::array::ArrayShardedReadableExtCache::new(&array);
         Ok(ZarrDataset {
             dataset: array,
+            cache,
             store: self.store.clone(),
         })
     }
@@ -339,7 +295,9 @@ impl AttributeOp<Zarr> for ZarrGroup {
 
     /// Write an attribute at a given location.
     fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
-        self.group.attributes_mut().insert(name.to_string(), value.clone());
+        self.group
+            .attributes_mut()
+            .insert(name.to_string(), value.clone());
         self.group.store_metadata()?;
         Ok(())
     }
@@ -349,8 +307,8 @@ impl AttributeOp<Zarr> for ZarrGroup {
             .group
             .attributes()
             .get(name)
-            .with_context(|| format!("Attribute {} not found", name))?.clone()
-        )
+            .with_context(|| format!("Attribute {} not found", name))?
+            .clone())
     }
 }
 
@@ -367,7 +325,9 @@ impl AttributeOp<Zarr> for ZarrDataset {
 
     /// Write an attribute at a given location.
     fn new_json_attr(&mut self, name: &str, value: &Value) -> Result<()> {
-        self.dataset.attributes_mut().insert(name.to_string(), value.clone());
+        self.dataset
+            .attributes_mut()
+            .insert(name.to_string(), value.clone());
         self.dataset.store_metadata()?;
         Ok(())
     }
@@ -377,8 +337,8 @@ impl AttributeOp<Zarr> for ZarrDataset {
             .dataset
             .attributes()
             .get(name)
-            .with_context(|| format!("Attribute {} not found", name))?.clone()
-        )
+            .with_context(|| format!("Attribute {} not found", name))?
+            .clone())
     }
 }
 
@@ -432,14 +392,22 @@ impl DatasetOp<Zarr> for ZarrDataset {
             if let Some(subset) = to_array_subset(sel) {
                 let arr = dataset
                     .dataset
-                    .retrieve_array_subset_ndarray(&subset)?
+                    .retrieve_array_subset_ndarray_sharded_opt(
+                        &dataset.cache,
+                        &subset,
+                        &zarrs::array::codec::CodecOptions::default(),
+                    )?
                     .into_dimensionality::<D>()?;
                 Ok(arr)
             } else {
                 // Read the entire array and then select the slice.
                 let arr = dataset
                     .dataset
-                    .retrieve_array_subset_ndarray(&dataset.dataset.subset_all())?
+                    .retrieve_array_subset_ndarray_sharded_opt(
+                        &dataset.cache,
+                        &dataset.dataset.subset_all(),
+                        &zarrs::array::codec::CodecOptions::default(),
+                    )?
                     .into_dimensionality::<D>()?;
                 Ok(select(arr.view(), selection))
             }
@@ -575,22 +543,88 @@ fn canoincalize_path<'a>(path: &'a str) -> Cow<'a, str> {
 }
 
 fn to_array_subset(info: SelectInfoBounds) -> Option<ArraySubset> {
-    let ranges = info.iter().map(|x| {
-        if let SelectInfoElemBounds::Slice(slice) = x {
-            if slice.step == 1 {
-                Some(slice.start as u64 .. slice.end as u64)
+    let ranges = info
+        .iter()
+        .map(|x| {
+            if let SelectInfoElemBounds::Slice(slice) = x {
+                if slice.step == 1 {
+                    Some(slice.start as u64..slice.end as u64)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    })
-    .collect::<Option<Vec<_>>>()?;
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(ArraySubset::new_with_ranges(&ranges))
 }
 
+fn new_empty_dataset_helper<T: BackendData, S: ?Sized>(
+    store: Arc<S>,
+    path: &str,
+    shape: &Shape,
+    config: WriteConfig,
+) -> Result<zarrs::array::Array<S>> {
+    let (datatype, fill) = match T::DTYPE {
+        ScalarType::U8 => (DataType::UInt8, 0u8.into()),
+        ScalarType::U16 => (DataType::UInt16, 0u16.into()),
+        ScalarType::U32 => (DataType::UInt32, 0u32.into()),
+        ScalarType::U64 => (DataType::UInt64, 0u64.into()),
+        ScalarType::I8 => (DataType::Int8, 0i8.into()),
+        ScalarType::I16 => (DataType::Int16, 0i16.into()),
+        ScalarType::I32 => (DataType::Int32, 0i32.into()),
+        ScalarType::I64 => (DataType::Int64, 0i64.into()),
+        ScalarType::F32 => (DataType::Float32, zarrs::array::ZARR_NAN_F32.into()),
+        ScalarType::F64 => (DataType::Float64, zarrs::array::ZARR_NAN_F64.into()),
+        ScalarType::Bool => (DataType::Bool, false.into()),
+        ScalarType::String => (DataType::String, "".into()),
+    };
 
+    let shape = shape.as_ref();
+    let chunk_size: Vec<u64> = match config.block_size {
+        Some(s) => s.as_ref().into_iter().map(|x| (*x).max(1) as u64).collect(),
+        _ => {
+            if shape.len() == 1 {
+                vec![shape[0].min(16384).max(1) as u64]
+            } else {
+                shape.iter().map(|&x| x.min(128).max(1) as u64).collect()
+            }
+        }
+    };
+
+    let mut use_sharding = true;
+    if matches!(datatype, DataType::String) {//|| shape.iter().sum::<usize>() == 0 {
+        // Strings are not sharded, they are stored as a single chunk.
+        use_sharding = false;
+    }
+
+    let array = if use_sharding {
+        let shard_shape = chunk_size.iter().map(|&x| x * 8).collect::<Vec<_>>();
+        let mut sharding_codec_builder =
+            ShardingCodecBuilder::new(chunk_size.try_into()?);
+        sharding_codec_builder.bytes_to_bytes_codecs(vec![Arc::new(ZstdCodec::new(7, false))]);
+        zarrs::array::ArrayBuilder::new(
+            shape.iter().map(|x| *x as u64).collect(),
+            datatype,
+            shard_shape.try_into()?,
+            fill,
+        )
+        .array_to_bytes_codec(sharding_codec_builder.build_arc())
+        .build(store, path)?
+    } else {
+        zarrs::array::ArrayBuilder::new(
+            shape.iter().map(|x| *x as u64).collect(),
+            datatype,
+            chunk_size.try_into()?,
+            fill,
+        )
+        .bytes_to_bytes_codecs(vec![Arc::new(ZstdCodec::new(7, false))])
+        .build(store, path)?
+    };
+
+    Ok(array)
+}
 
 /// test module
 #[cfg(test)]
@@ -673,7 +707,8 @@ mod tests {
         };
 
         let group = store.new_group("group")?;
-        let mut dataset = group.new_empty_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
+        let mut dataset =
+            group.new_empty_dataset::<i32>("test", &[20, 50].as_slice().into(), config)?;
 
         let arr = Array::random((10, 10), Uniform::new(0, 100));
         dataset.write_array_slice(arr.view().into(), s![5..15, 10..20].as_ref())?;

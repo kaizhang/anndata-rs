@@ -69,7 +69,7 @@ fn test_io() {
 }
 
 #[test]
-fn test_index_h5() {
+fn test_index() {
     with_tmp_dir(|dir| {
         let file = dir.join("test.h5");
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();

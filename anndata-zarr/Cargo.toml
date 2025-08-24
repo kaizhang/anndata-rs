@@ -15,7 +15,7 @@ anndata = { workspace = true }
 serde_json = "1.0"
 anyhow = "1.0"
 ndarray = { version = "0.16", features = ["serde"] }
-zarrs = "0.20"
+zarrs = "0.21"
 smallvec = "1.15"
 
 [dev-dependencies]

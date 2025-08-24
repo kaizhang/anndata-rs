@@ -22,6 +22,10 @@ anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
 rand = "0.8.5"
+bincode = { version = "2", features = ["serde"] }
+zstd = "0.13"
+lz4_flex = "0.11"
+rayon = "1.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]

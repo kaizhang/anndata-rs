@@ -237,26 +237,22 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
     }
 
     fn set_obs(&self, obs: DataFrame) -> Result<()> {
-        if obs.size() > 0 {
-            let py = self.py();
-            let index = self.getattr("obs")?.getattr("index")?;
-            let df = PyDataFrame(obs).into_pyobject(py)?
-                .call_method0("to_pandas")?
-                .call_method1("set_index", (index,))?;
-            self.setattr("obs", df)?;
-        }
+        let py = self.py();
+        let index = self.getattr("obs")?.getattr("index")?;
+        let df = PyDataFrame(obs).into_pyobject(py)?
+            .call_method0("to_pandas")?
+            .call_method1("set_index", (index,))?;
+        self.setattr("obs", df)?;
         Ok(())
     }
 
     fn set_var(&self, var: DataFrame) -> Result<()> {
-        if var.size() > 0 {
-            let py = self.py();
-            let index = self.getattr("var")?.getattr("index")?;
-            let df = PyDataFrame(var).into_pyobject(py)?
-                .call_method0("to_pandas")?
-                .call_method1("set_index", (index,))?;
-            self.setattr("var", df)?;
-        }
+        let py = self.py();
+        let index = self.getattr("var")?.getattr("index")?;
+        let df = PyDataFrame(var).into_pyobject(py)?
+            .call_method0("to_pandas")?
+            .call_method1("set_index", (index,))?;
+        self.setattr("var", df)?;
         Ok(())
     }
 

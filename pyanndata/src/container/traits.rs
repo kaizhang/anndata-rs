@@ -106,7 +106,7 @@ impl<B: Backend + 'static> ArrayElemTrait for ArrayElem<B> {
         let length = self.shape()[0];
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
-            std::iter::repeat_with(|| rng.gen_range(0..length))
+            std::iter::repeat_with(|| rng.random_range(0..length))
                 .take(size)
                 .collect()
         } else {
@@ -152,7 +152,7 @@ impl<B: Backend + 'static> ArrayElemTrait for StackedArrayElem<B> {
         let length = self.shape()[0];
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let idx: Vec<usize> = if replace {
-            std::iter::repeat_with(|| rng.gen_range(0..length))
+            std::iter::repeat_with(|| rng.random_range(0..length))
                 .take(size)
                 .collect()
         } else {

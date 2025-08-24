@@ -14,12 +14,12 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 anyhow = "1.0"
 flate2 = "1.0"
 log = "0.4"
-indexmap = { version = "2.9", features = ["rayon"] }
+indexmap = { version = "2.10", features = ["rayon"] }
 itertools = "0.14"
 ndarray = "0.16"
 nalgebra-sparse = "0.10"
 num = "0.4"
-polars = { version = "0.48", features = ["lazy", "ndarray", "dtype-full"] }
+polars = { version = "0.49", features = ["lazy", "ndarray", "dtype-full"] }
 paste = "1.0"
 parking_lot = "0.12"
 smallvec = "1.15"

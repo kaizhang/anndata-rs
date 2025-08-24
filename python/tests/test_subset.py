@@ -45,6 +45,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path, bac
     adata.layers["raw"] = x
     np.testing.assert_array_equal(adata.obs["txt"], obs)
 
+    # Subsetting using indices
     for adata_subset in [ adata.subset(indices, indices2, out=h5ad(tmp_path), inplace=False, backend=backend),
                          adata.subset(indices, indices2, inplace=False)]:
         np.testing.assert_array_equal(adata_subset.X[:], x[np.ix_(indices, indices2)])
@@ -59,6 +60,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path, bac
         np.testing.assert_array_equal(adata_subset.varp["y"].todense(), varp[np.ix_(indices2, indices2)])
         np.testing.assert_array_equal(adata_subset.layers["raw"], x[np.ix_(indices, indices2)])
 
+    # Subsetting using names
     for adata_subset in [ adata.subset([str(x) for x in indices], out=h5ad(tmp_path), inplace=False, backend=backend),
                          adata.subset([str(x) for x in indices], inplace=False) ]:
         np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])
@@ -67,6 +69,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path, bac
         np.testing.assert_array_equal(adata_subset.obsm["y"].todense(), obsm[indices, :])
         np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
+    # Subsetting using polars series
     for adata_subset in [ adata.subset(pl.Series([str(x) for x in indices]), out=h5ad(tmp_path), inplace=False, backend=backend),
                          adata.subset(pl.Series([str(x) for x in indices]), inplace=False) ]:
         np.testing.assert_array_equal(adata_subset.X[:], x[indices, :])

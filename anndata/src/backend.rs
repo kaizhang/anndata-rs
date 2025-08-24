@@ -99,12 +99,12 @@ pub trait GroupOp<B: Backend + ?Sized> {
         let shape = arr.shape();
         let block_size = config.block_size.unwrap_or_else(|| {
             if shape.len() == 1 {
-                shape[0].min(10000).into()
+                shape[0].min(16384).into()
             } else {
-                shape.iter().map(|&x| x.min(100)).collect()
+                shape.iter().map(|&x| x.min(128)).collect()
             }
         });
-        let compression = if arr.len() > 100 {
+        let compression = if arr.len() > 128 {
             config.compression
         } else {
             None
