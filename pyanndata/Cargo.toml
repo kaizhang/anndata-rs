@@ -19,7 +19,7 @@ anyhow = "1.0"
 downcast-rs = "2"
 numpy = "0.25"
 ndarray = "0.16"
-nalgebra-sparse = "0.10"
+nalgebra-sparse = "0.11"
 hdf5 = { package = "hdf5-metno", version = "0.10" }
 polars = { version = "0.49", features = ["ndarray"] }
 pyo3-polars = {version = "0.22", features = ["dtype-full", "dtype-struct"] }

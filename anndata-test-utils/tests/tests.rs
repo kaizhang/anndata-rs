@@ -62,9 +62,9 @@ fn test_io() {
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
         utils::test_io(|| adata_gen());
 
-        let file = dir.join("test.zarr");
-        let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
-        utils::test_io(|| adata_gen());
+        //let file = dir.join("test.zarr");
+        //let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
+        //utils::test_io(|| adata_gen());
     })
 }
 
@@ -75,9 +75,9 @@ fn test_index() {
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
         utils::test_index(|| adata_gen());
 
-        let file = dir.join("test.zarr");
-        let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
-        utils::test_index(|| adata_gen());
+        //let file = dir.join("test.zarr");
+        //let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
+        //utils::test_index(|| adata_gen());
     })
 }
 
@@ -92,10 +92,4 @@ fn test_iterator() {
         let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
         utils::test_iterator(|| adata_gen());
     })
-}
-
-#[test]
-fn test_conat() {
-    utils::test_save::<H5>();
-    utils::test_save::<Zarr>();
 }

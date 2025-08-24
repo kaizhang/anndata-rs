@@ -276,7 +276,7 @@ pub fn rand_csr<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> Csr
 where
     T: Scalar + Zero + ClosedAddAssign + SampleUniform,
 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let values: Vec<T> = Array::random((nnz,), Uniform::new(low, high)).to_vec();
     let (row_indices, col_indices) = (0..nrow)
         .cartesian_product(0..ncol)
@@ -291,7 +291,7 @@ pub fn rand_csc<T>(nrow: usize, ncol: usize, nnz: usize, low: T, high: T) -> Csc
 where
     T: Scalar + Zero + ClosedAddAssign + SampleUniform,
 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let values: Vec<T> = Array::random((nnz,), Uniform::new(low, high)).to_vec();
     let (row_indices, col_indices) = (0..nrow)
         .cartesian_product(0..ncol)
