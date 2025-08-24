@@ -1,8 +1,8 @@
 [package]
 name = "pyanndata"
-version = "0.5.1"
-edition = "2021"
-rust-version = "1.70"
+version = "0.5.2"
+edition = "2024"
+rust-version = "1.88"
 authors = ["Kai Zhang <kai@kzhang.org>"]
 description = "Rust APIs"
 license = "MIT"
@@ -25,7 +25,7 @@ polars = { version = "0.49", features = ["ndarray"] }
 pyo3-polars = {version = "0.22", features = ["dtype-full", "dtype-struct"] }
 rand = "0.9"
 flate2 = "1.0"
-rayon = "1.10"
+rayon = "1.11"
 
 [dependencies.pyo3]
 version = "0.25"

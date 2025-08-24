@@ -10,12 +10,9 @@ use crate::{
     },
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ndarray::{Array, Array1, ArrayD, ArrayView, Axis, Dimension, RemoveAxis, SliceInfoElem};
-use polars::{
-    prelude::CategoricalChunkedBuilder,
-    series::{IntoSeries, Series},
-};
+use polars::series::Series;
 use std::collections::HashMap;
 use std::ops::Index;
 
@@ -170,19 +167,17 @@ pub struct CategoricalArray {
     pub categories: Array1<String>,
 }
 
-impl Into<Series> for CategoricalArray {
-    fn into(self) -> Series {
-        CategoricalChunkedBuilder::new(
-            "".into(),
-            self.codes.len(),
-            polars::datatypes::CategoricalOrdering::Lexical,
-        )
-        .drain_iter_and_finish(
-            self.codes
-                .into_iter()
-                .map(|i| Some(self.categories[i? as usize].as_str())),
-        )
-        .into_series()
+impl TryInto<Series> for CategoricalArray {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Series, Self::Error> {
+        if self.codes.shape().len() != 1 {
+            return Err(anyhow!("Can only convert 1D CategoricalArray to Series"));
+        }
+        let series = self.codes.into_iter().map(|x|
+            x.and_then(|idx| self.categories.get(idx as usize).cloned())
+        ).collect();
+        Ok(series)
     }
 }
 

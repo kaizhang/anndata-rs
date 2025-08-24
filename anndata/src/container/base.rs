@@ -97,8 +97,8 @@ impl<T> Deref for Inner<'_, T> {
 
     fn deref(&self) -> &Self::Target {
         match &self.0.deref() {
-            None => panic!("accessing an empty slot"),
             Some(x) => x,
+            None => panic!("accessing an empty slot"),
         }
     }
 }
@@ -107,7 +107,7 @@ impl<T> DerefMut for Inner<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self.0.deref_mut() {
             None => panic!("accessing an empty slot"),
-            Some(ref mut x) => x,
+            Some(x) => x,
         }
     }
 }
@@ -714,7 +714,6 @@ impl<B: Backend> StackedDataFrame<B> {
         let df = if self.column_names.is_empty() || self.elems.is_empty() {
             DataFrame::empty()
         } else {
-            let _sc = polars::datatypes::string_cache::StringCacheHolder::hold();
             let mut elems = self.elems.iter();
             let mut columns = elems
                 .next()

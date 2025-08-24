@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::backend::{Backend, DataContainer, GroupOp, AttributeOp, DataType};
+use crate::backend::{AttributeOp, Backend, DataContainer, DataType, GroupOp};
 use crate::data::{
     array::slice::{SelectInfoElem, Shape},
     array::DynScalar,
@@ -25,7 +25,7 @@ impl MetaData {
     pub(crate) fn new(
         encoding_type: &'static str,
         version: &'static str,
-        metadata: Option<HashMap<String, Value>>
+        metadata: Option<HashMap<String, Value>>,
     ) -> Self {
         Self {
             encoding_type,
@@ -80,7 +80,7 @@ pub trait Writable: Element {
         name: &str,
     ) -> Result<DataContainer<B>>;
 
-    /// Overwrite the data in the container. The default implementation deletes the 
+    /// Overwrite the data in the container. The default implementation deletes the
     /// container and creates a new one. The data is then written to the new container.
     /// Specialized implementations may choose to overwrite the data in place.
     fn overwrite<B: Backend>(&self, container: DataContainer<B>) -> Result<DataContainer<B>> {
@@ -102,7 +102,7 @@ where
         location: &G,
         name: &str,
     ) -> Result<DataContainer<B>> {
-            (*self).write(location, name)
+        (*self).write(location, name)
     }
 }
 
@@ -146,7 +146,9 @@ pub trait Selectable: HasShape {
 }
 
 pub trait Stackable: HasShape {
-    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self> where Self: Sized;
+    fn vstack<I: Iterator<Item = Self>>(iter: I) -> Result<Self>
+    where
+        Self: Sized;
 }
 
 pub trait ReadableArray: Readable {

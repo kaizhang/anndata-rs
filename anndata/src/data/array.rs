@@ -119,7 +119,8 @@ impl TryFrom<ArrayData> for DataFrame {
 }
 
 impl<T, D> TryFrom<ArrayData> for Array<T, D>
-where Array<T, D>: TryFrom<DynArray, Error = anyhow::Error>
+where
+    Array<T, D>: TryFrom<DynArray, Error = anyhow::Error>,
 {
     type Error = anyhow::Error;
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
@@ -128,7 +129,8 @@ where Array<T, D>: TryFrom<DynArray, Error = anyhow::Error>
 }
 
 impl<T> TryFrom<ArrayData> for CsrMatrix<T>
-where CsrMatrix<T>: TryFrom<DynCsrMatrix, Error = anyhow::Error>
+where
+    CsrMatrix<T>: TryFrom<DynCsrMatrix, Error = anyhow::Error>,
 {
     type Error = anyhow::Error;
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
@@ -137,7 +139,8 @@ where CsrMatrix<T>: TryFrom<DynCsrMatrix, Error = anyhow::Error>
 }
 
 impl<T> TryFrom<ArrayData> for CscMatrix<T>
-where CscMatrix<T>: TryFrom<DynCscMatrix, Error = anyhow::Error>
+where
+    CscMatrix<T>: TryFrom<DynCscMatrix, Error = anyhow::Error>,
 {
     type Error = anyhow::Error;
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
@@ -146,7 +149,8 @@ where CscMatrix<T>: TryFrom<DynCscMatrix, Error = anyhow::Error>
 }
 
 impl<T> TryFrom<ArrayData> for CsrNonCanonical<T>
-where CsrNonCanonical<T>: TryFrom<DynCsrNonCanonical, Error = anyhow::Error>
+where
+    CsrNonCanonical<T>: TryFrom<DynCsrNonCanonical, Error = anyhow::Error>,
 {
     type Error = anyhow::Error;
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
@@ -155,7 +159,8 @@ where CsrNonCanonical<T>: TryFrom<DynCsrNonCanonical, Error = anyhow::Error>
 }
 
 impl<T, D> ArrayConvert<Array<T, D>> for ArrayData
-where DynArray: ArrayConvert<Array<T, D>>
+where
+    DynArray: ArrayConvert<Array<T, D>>,
 {
     fn try_convert(self) -> Result<Array<T, D>> {
         DynArray::try_from(self)?.try_convert()

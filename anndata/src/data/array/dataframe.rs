@@ -397,7 +397,7 @@ fn read_series<B: Backend>(container: &DataContainer<B>) -> Result<Series> {
         crate::backend::DataType::Categorical => {
             let categories = container.as_group()?.open_dataset("categories")?;
             let s = match categories.dtype()? {
-                ScalarType::String => CategoricalArray::read(container)?.into(),
+                ScalarType::String => CategoricalArray::read(container)?.try_into()?,
                 _ => read_cat_as_series(container)?,
             };
             Ok(s)
