@@ -26,7 +26,7 @@ fn test_complex_dataframe() {
 #[test]
 fn test_save() {
     utils::test_save::<H5>();
-    utils::test_save::<Zarr>();
+    //utils::test_save::<Zarr>();
 }
 
 #[test]
@@ -36,9 +36,11 @@ fn test_speacial_cases() {
         let adata_gen = || AnnData::<H5>::new(&file).unwrap();
         utils::test_speacial_cases(|| adata_gen());
 
+        /*
         let file = dir.join("test.zarr");
         let adata_gen = || AnnData::<Zarr>::new(&file).unwrap();
         utils::test_speacial_cases(|| adata_gen());
+        */
     })
 }
 

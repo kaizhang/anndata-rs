@@ -3,8 +3,63 @@ name: Continuous integration
 on: [push, pull_request]
 
 jobs:
-  build_and_test:
+  test_rust_code:
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Cache rust build
+      uses: Swatinem/rust-cache@v2
+
+    - name: Test Rust package
+      run: |
+        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
+        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
+
+    - name: benchmark
+      run: |
+        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
+        cd ${GITHUB_WORKSPACE}
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: benchmark
+        path: target/criterion
+ 
+  test_python_code:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        anndata_version: ['0.9.*', '0.10.*', '0.11.*', '0.12.*']
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Cache rust build
+      uses: Swatinem/rust-cache@v2
+
+    - name: Build and test package
+      run: |
+        pip install --user --upgrade pip
+        cd ${GITHUB_WORKSPACE}/python
+        pip install --user .[test] anndata==${{ matrix.anndata_version }}
+        pytest -v --durations=0 ${GITHUB_WORKSPACE}/python/tests
+
+  build_doc:
+    runs-on: ubuntu-latest
+    needs: [test_python_code]
     steps:
     - uses: actions/checkout@v3
 
@@ -24,23 +79,8 @@ jobs:
           sphinx-autodoc-typehints sphinx_rtd_theme \
           markupsafe
 
-    - name: Build and test package
-      run: |
-        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/python && pip install --user .[test]
-        pytest -v --durations=0 ${GITHUB_WORKSPACE}/python/tests
-
-    - name: benchmark
-      run: |
-        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
-        cd ${GITHUB_WORKSPACE}
-
-    - uses: actions/upload-artifact@v4
-      with:
-        name: benchmark
-        path: target/criterion
+    - name: Build package
+      run: cd ${GITHUB_WORKSPACE}/python && pip install --user .
 
     - name: Build doc
       run: |
@@ -56,7 +96,7 @@ jobs:
   upload_gh-page:
     name: Publish
     runs-on: ubuntu-latest
-    needs: [build_and_test]
+    needs: [build_doc]
     steps:
     - name: Download
       uses: actions/download-artifact@v4
