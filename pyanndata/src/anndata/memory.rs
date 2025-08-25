@@ -238,20 +238,34 @@ impl<'py> AnnDataOp for PyAnnData<'py> {
 
     fn set_obs(&self, obs: DataFrame) -> Result<()> {
         let py = self.py();
+        let is_empty = obs.is_empty();
         let index = self.getattr("obs")?.getattr("index")?;
-        let df = PyDataFrame(obs).into_pyobject(py)?
-            .call_method0("to_pandas")?
-            .call_method1("set_index", (index,))?;
+        let mut df = PyDataFrame(obs).into_pyobject(py)?
+            .call_method0("to_pandas")?;
+
+        if is_empty {
+            df = df.call_method1("reindex", (index,))?;
+        } else {
+            df = df.call_method1("set_index", (index,))?;
+        }
+
         self.setattr("obs", df)?;
         Ok(())
     }
 
     fn set_var(&self, var: DataFrame) -> Result<()> {
         let py = self.py();
+        let is_empty = var.is_empty();
         let index = self.getattr("var")?.getattr("index")?;
-        let df = PyDataFrame(var).into_pyobject(py)?
-            .call_method0("to_pandas")?
-            .call_method1("set_index", (index,))?;
+        let mut df = PyDataFrame(var).into_pyobject(py)?
+            .call_method0("to_pandas")?;
+
+        if is_empty {
+            df = df.call_method1("reindex", (index,))?;
+        } else {
+            df = df.call_method1("set_index", (index,))?;
+        }
+
         self.setattr("var", df)?;
         Ok(())
     }

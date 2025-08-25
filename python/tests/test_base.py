@@ -123,6 +123,18 @@ def test_creation(tmp_path, backend):
     assert adata.to_memory().var_names.to_list() == var_names
 
 @pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+def test_to_memory(tmp_path, backend):
+    adata = AnnData(X=np.array([[1,2,3], [4,5,6]]), filename = h5ad(tmp_path), backend=backend)
+    adata.obs_names = ['a', 'b']
+    adata.var_names = ['a', 'b', 'c']
+
+    adata.to_memory()
+    assert adata.n_obs == 2
+    assert adata.n_vars == 3
+    assert adata.obs_names == ['a', 'b']
+    assert adata.var_names == ['a', 'b', 'c']
+
+@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
 def test_resize(tmp_path, backend):
     adata = AnnData(filename=h5ad(tmp_path), backend=backend)
     adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))

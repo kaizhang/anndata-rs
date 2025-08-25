@@ -21,7 +21,6 @@ anndata-hdf5 = { workspace = true }
 anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
-rand = "0.8.5"
 bincode = { version = "2", features = ["serde"] }
 zstd = "0.13"
 lz4_flex = "0.11"

@@ -28,7 +28,7 @@ dependencies = [
     'anndata >= 0.8.0, < 0.11.0',
     'hdf5plugin >= 5.0.0',
     "numpy>=2, <3",
-    "pandas>=2, <3",
+    "pandas>=2.2, <3",
     "pyarrow",
     "scipy>=1.4",
     "polars>=1.9, <1.32",
