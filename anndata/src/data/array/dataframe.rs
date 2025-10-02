@@ -383,7 +383,7 @@ fn write_series<B: Backend, G: GroupOp<B>>(
             }
         },
         DataType::Categorical(_, _) => series
-            .categorical()?
+            .cat32()?
             .iter_str()
             .collect::<CategoricalArray>()
             .write(location, name),

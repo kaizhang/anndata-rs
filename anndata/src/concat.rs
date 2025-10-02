@@ -7,8 +7,9 @@ use indexmap::IndexSet;
 use itertools::Itertools;
 use nalgebra_sparse::csr::CsrMatrix;
 use nalgebra_sparse::pattern::SparsityPattern;
+use polars::chunked_array::builder::CategoricalChunkedBuilder;
 use polars::frame::DataFrame;
-use polars::prelude::{AnyValue, CategoricalChunkedBuilder, Column, DataType, IntoLazy, NamedFrom};
+use polars::prelude::{AnyValue, Categorical32Type, Column, DataType, IntoLazy, NamedFrom};
 use polars::series::{IntoSeries, Series};
 
 use crate::data::{ArrayData, DynArray};
@@ -170,12 +171,20 @@ fn merge_df(this: &mut DataFrame, other: &DataFrame) -> Result<()> {
                 _ => this_s.dtype(),
             };
             let new_column = match dtype {
-                DataType::Categorical(_, ord) => {
-                    CategoricalChunkedBuilder::new(name.clone(), this.height(), ord.clone())
-                        .drain_iter_and_finish(new_column.iter().map(|x| x.get_str()))
-                        .into_series()
+                DataType::Categorical(_, _) => {
+                    let mut builder: CategoricalChunkedBuilder<Categorical32Type> = CategoricalChunkedBuilder::new(name.clone(), dtype.clone());
+                    new_column
+                        .iter()
+                        .for_each(|x| {
+                            if let Some(x) = x.get_str() {
+                                builder.append_str(x).unwrap();
+                            } else {
+                                builder.append_null();
+                            }
+                        });
+                    builder.finish().into_series()
                 }
-                dtype => {
+                _ => {
                     Series::from_any_values_and_dtype(name.clone(), &new_column, dtype, false)?
                 }
             };
@@ -195,25 +204,23 @@ fn align_series(
     new_row_names: &IndexSet<String>,
 ) -> Result<Column> {
     let name = series.name();
-    let new_series = match series.dtype() {
-        DataType::Categorical(_, ord) => {
-            let builder =
-                CategoricalChunkedBuilder::new(name.clone(), new_row_names.len(), ord.clone());
-            let values: Vec<_> = new_row_names
+    let dtype = series.dtype();
+    let new_series = match dtype {
+        DataType::Categorical(_, _) => {
+            let mut builder: CategoricalChunkedBuilder<Categorical32Type> = CategoricalChunkedBuilder::new(name.clone(), dtype.clone());
+            new_row_names
                 .iter()
-                .map(|key| row_names.get_index(key).map(|i| series.get(i).unwrap()))
-                .collect();
-            builder
-                .drain_iter_and_finish(values.iter().map(|v| {
-                    if let Some(v) = v {
-                        v.get_str()
+                .for_each(|key| {
+                    let item = row_names.get_index(key).map(|i| series.get(i).unwrap());
+                    if let Some(s) = item.as_ref().and_then(|x| x.get_str()) {
+                        builder.append_str(s).unwrap();
                     } else {
-                        None
+                        builder.append_null();
                     }
-                }))
-                .into_series()
+                });
+            builder.finish().into_series()
         }
-        dtype => {
+        _ => {
             let values: Result<Vec<_>> = new_row_names
                 .iter()
                 .map(|key| {

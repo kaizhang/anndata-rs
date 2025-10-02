@@ -579,7 +579,7 @@ fn as_str_vec(series: &Column) -> Vec<String> {
             .collect::<Vec<_>>()
     } else {
         series
-            .categorical()
+            .cat32()
             .unwrap()
             .iter_str()
             .map(|x| x.unwrap().to_string())
