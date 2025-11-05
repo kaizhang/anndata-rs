@@ -18,7 +18,6 @@ itertools = "0.14"
 
 [dev-dependencies]
 anndata-hdf5 = { workspace = true }
-anndata-zarr = { workspace = true }
 tempfile = "3.2"
 proptest = "1"
 bincode = { version = "2", features = ["serde"] }

@@ -9,11 +9,13 @@ from pathlib import Path
 import uuid
 from scipy.sparse import csr_matrix
 
+BACKENDS = ["hdf5"]
+
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x = arrays(integer_dtypes(endianness='='), (47, 79)),
     ridx = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
@@ -50,7 +52,7 @@ def test_index(x, ridx, cidx, mask, tmp_path, backend):
     np.testing.assert_array_equal(adata.obsm.el('x')[:, np.array(mask)].todense(), x[:, np.array(mask)])
     np.testing.assert_array_equal(adata.obsm.el('x')[:, pl.Series(mask)].todense(), x[:, np.array(mask)])
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x1 = arrays(np.int64, (15, 179)),
     x2 = arrays(np.int64, (47, 179)),

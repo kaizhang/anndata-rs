@@ -12,11 +12,13 @@ from scipy.sparse import csr_matrix, csc_matrix
 from hypothesis import given, settings, HealthCheck, strategies as st
 from hypothesis.extra.numpy import *
 
+BACKENDS = ["hdf5"]
+
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
     unsigned_integer_dtypes(endianness = '='),
@@ -70,7 +72,7 @@ def test_basic(x, tmp_path, backend):
         ad.read_h5ad(output).write(output, compression="gzip")
         read(output, backend='hdf5').close()
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(x=arrays(
     integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |
     unsigned_integer_dtypes(endianness = '='),
@@ -83,7 +85,7 @@ def test_assign_arrays(x, tmp_path, backend):
     x_ = adata.uns['x']
     np.testing.assert_array_equal(x_, x)
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(x=st.floats())
 @settings(deadline=None, suppress_health_check = [HealthCheck.function_scoped_fixture])
 def test_assign_floats(x, tmp_path, backend):
@@ -92,7 +94,7 @@ def test_assign_floats(x, tmp_path, backend):
     x_ = adata.uns['x']
     assert (x_ == x or (math.isnan(x) and math.isnan(x_)))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_creation(tmp_path, backend):
     adata = AnnData(filename = h5ad(tmp_path), backend=backend)
     assert adata.n_obs == 0
@@ -122,7 +124,7 @@ def test_creation(tmp_path, backend):
     assert adata.var_names == var_names
     assert adata.to_memory().var_names.to_list() == var_names
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_to_memory(tmp_path, backend):
     adata = AnnData(X=np.array([[1,2,3], [4,5,6]]), filename = h5ad(tmp_path), backend=backend)
     adata.obs_names = ['a', 'b']
@@ -134,7 +136,7 @@ def test_to_memory(tmp_path, backend):
     assert adata.obs_names == ['a', 'b']
     assert adata.var_names == ['a', 'b', 'c']
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_resize(tmp_path, backend):
     adata = AnnData(filename=h5ad(tmp_path), backend=backend)
     adata.obsm = dict(X_pca=np.array([[1, 2], [3, 4]]))
@@ -152,7 +154,7 @@ def test_nullable(tmp_path):
 
     adata.uns['df'] = pd.DataFrame({"test": pd.Series(["a", "b", np.nan, "a"], dtype="category")})
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_type(tmp_path, backend):
     adata = AnnData(filename = h5ad(tmp_path), X = np.array([[1, 2], [3, 4]]), backend=backend)
 
@@ -169,7 +171,7 @@ def test_type(tmp_path, backend):
     adata.uns["dict"] = x
     assert adata.uns["dict"] == x
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x1 = arrays(np.int64, (7, 13)),
     x2 = arrays(np.int64, (9, 13)),
@@ -222,7 +224,7 @@ def test_create_anndataset(x1, x2, x3, tmp_path, backend):
     x = dataset.X[:]
     np.testing.assert_array_equal(x[:, [1,2,3]].todense(), dataset.X[:, [1,2,3]].todense())
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_noncanonical_csr(tmp_path, backend):
     def assert_csr_equal(a, b):
         np.testing.assert_array_equal(a.shape, b.shape)

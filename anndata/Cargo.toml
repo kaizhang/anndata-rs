@@ -14,7 +14,7 @@ homepage = "https://github.com/kaizhang/anndata-rs"
 anyhow = "1.0"
 flate2 = "1.0"
 log = "0.4"
-indexmap = { version = "2.11", features = ["rayon"] }
+indexmap = { version = "2", features = ["rayon"] }
 itertools = "0.14"
 ndarray = "0.16"
 nalgebra-sparse = "0.11"

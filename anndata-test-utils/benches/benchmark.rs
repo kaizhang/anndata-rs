@@ -2,7 +2,6 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use anndata_hdf5::H5;
-use anndata_zarr::Zarr;
 use bincode::config::Configuration;
 use criterion::{criterion_group, criterion_main, Criterion};
 use anndata_test_utils::with_tmp_dir;

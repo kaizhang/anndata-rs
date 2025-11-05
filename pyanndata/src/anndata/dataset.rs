@@ -10,7 +10,6 @@ use anndata::{self, ArrayElemOp, Data, Selectable};
 use anndata::{AnnDataOp, Backend};
 use anndata::{AxisArraysOp, ElemCollectionOp};
 use anndata_hdf5::H5;
-use anndata_zarr::Zarr;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
@@ -157,18 +156,6 @@ impl AnnDataSet {
                         AnnDataFile::Data(data) => data.borrow().take_inner::<H5>().unwrap(),
                         AnnDataFile::Path(path) => {
                             anndata::AnnData::open(H5::open(path).unwrap()).unwrap()
-                        }
-                    };
-                    (key, adata)
-                });
-                Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
-            }
-            Zarr::NAME => {
-                let anndatas = adatas.into_iter().map(|(key, data_file)| {
-                    let adata = match data_file {
-                        AnnDataFile::Data(data) => data.borrow().take_inner::<Zarr>().unwrap(),
-                        AnnDataFile::Path(path) => {
-                            anndata::AnnData::open(Zarr::open(path).unwrap()).unwrap()
                         }
                     };
                     (key, adata)
@@ -744,14 +731,6 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
                     order,
                 ))
             }
-            Zarr::NAME => {
-                let order = self.inner().write_select::<Zarr, _, _>(slice, &out)?;
-                let file = Zarr::open_rw(out.join("_dataset.zarrs"))?;
-                Ok((
-                    anndata::AnnDataSet::<Zarr>::open::<PathBuf>(file, None)?.into(),
-                    order,
-                ))
-            }
             x => bail!("Unsupported backend: {}", x),
         }
     }
@@ -770,10 +749,6 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             match backend {
                 H5::NAME => {
                     let adata = inner.to_adata_select::<H5, _, _>(slice, file, copy_x)?;
-                    Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
-                }
-                Zarr::NAME => {
-                    let adata = inner.to_adata_select::<Zarr, _, _>(slice, file, copy_x)?;
                     Ok(AnnData::from(adata).into_pyobject(py)?.into_any())
                 }
                 x => bail!("Unsupported backend: {}", x),

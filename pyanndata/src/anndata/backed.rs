@@ -9,7 +9,6 @@ use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anndata::{self, ArrayElemOp, AxisArraysOp, Data, ElemCollectionOp, Selectable};
 use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
-use anndata_zarr::Zarr;
 use anyhow::{bail, Result};
 use downcast_rs::{impl_downcast, Downcast};
 use pyo3::prelude::*;
@@ -100,14 +99,6 @@ impl AnnData {
                     _ => bail!("Unknown mode: {}", mode),
                 };
                 anndata::AnnData::<H5>::open(file).map(|adata| adata.into())
-            }
-            Zarr::NAME => {
-                let file = match mode {
-                    "r" => Zarr::open(filename)?,
-                    "r+" => Zarr::open_rw(filename)?,
-                    _ => bail!("Unknown mode: {}", mode),
-                };
-                anndata::AnnData::<Zarr>::open(file).map(|adata| adata.into())
             }
             x => bail!("Unknown backend: {}", x),
         }
@@ -202,7 +193,6 @@ impl AnnData {
         let backend = get_backend(&filename, backend);
         let adata: AnnData = match backend {
             H5::NAME => anndata::AnnData::<H5>::new(filename)?.into(),
-            Zarr::NAME => anndata::AnnData::<Zarr>::new(filename)?.into(),
             backend => bail!("Unknown backend: {}", backend),
         };
 
@@ -881,14 +871,6 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
                             .into_any(),
                     ))
                 }
-                Zarr::NAME => {
-                    inner.write_select::<Zarr, _, _>(slice, &file)?;
-                    Ok(Some(
-                        AnnData::new_from(file, "r+", backend)?
-                            .into_pyobject(py)?
-                            .into_any(),
-                    ))
-                }
                 x => bail!("Unsupported backend: {}", x),
             }
         } else {
@@ -1001,7 +983,6 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     fn write(&self, filename: PathBuf, backend: &str) -> Result<()> {
         match backend {
             H5::NAME => self.adata.inner().write::<H5, _>(filename),
-            Zarr::NAME => self.adata.inner().write::<Zarr, _>(filename),
             x => bail!("Unsupported backend: {}", x),
         }
     }

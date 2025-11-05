@@ -10,11 +10,13 @@ from pathlib import Path
 import uuid
 from scipy.sparse import csr_matrix, csc_matrix
 
+BACKENDS = ["hdf5"]
+
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_concat(tmp_path, backend):
     adata1 = AnnData(filename = h5ad(tmp_path), backend=backend)
     adata2 = AnnData(filename = h5ad(tmp_path), backend=backend)

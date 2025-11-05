@@ -8,11 +8,13 @@ from pathlib import Path
 import uuid
 from scipy.sparse import csr_matrix
 
+BACKENDS = ["hdf5"]
+
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x=arrays(
         integer_dtypes(endianness='=') | floating_dtypes(endianness='=', sizes=(32, 64)) |

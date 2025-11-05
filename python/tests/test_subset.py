@@ -10,11 +10,13 @@ from pathlib import Path
 import uuid
 from scipy.sparse import csr_matrix, random, vstack
 
+BACKENDS = ["hdf5"]
+
 def h5ad(dir=Path("./")):
     dir.mkdir(exist_ok=True)
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x = arrays(integer_dtypes(endianness='='), (47, 79)),
     indices = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
@@ -82,7 +84,7 @@ def test_subset(x, obs, obsm, obsp, varm, varp, indices, indices2, tmp_path, bac
     np.testing.assert_array_equal(adata.obsm["y"].todense(), obsm[indices, :])
     np.testing.assert_array_equal(adata_subset.layers["raw"], x[indices, :])
 
-@pytest.mark.parametrize("backend", ["hdf5", "zarr"])
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_chunk(tmp_path, backend):
     X = random(5000, 50, 0.1, format="csr", dtype=np.int64)
     adata = AnnData(
@@ -124,7 +126,7 @@ def test_chunk(tmp_path, backend):
         s_ += m.sum(axis = 0)
     np.testing.assert_array_equal(s, s_)
 
-@pytest.mark.parametrize("backend", ["hdf5"])
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x1 = arrays(np.int64, (15, 179)),
     x2 = arrays(np.int64, (47, 179)),

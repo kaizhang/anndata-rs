@@ -14,7 +14,6 @@ keywords = ["data"]
 [dependencies]
 anndata = { workspace = true }
 anndata-hdf5 = { workspace = true }
-anndata-zarr = { workspace = true }
 anyhow = "1.0"
 downcast-rs = "2"
 numpy = "0.25"
