@@ -28,7 +28,10 @@ rayon = "1.11"
 
 [dependencies.pyo3]
 version = "0.25"
-features = ["extension-module", "multiple-pymethods", "anyhow"]
+features = ["multiple-pymethods", "anyhow"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
 
 [lib]
 crate-type = ["lib"]
