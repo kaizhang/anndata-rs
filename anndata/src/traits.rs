@@ -520,10 +520,10 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
             .as_mut()
             .map_or(Ok(DataFrame::empty()), |x| x.data().map(Clone::clone))
     }
-    // TODO: empty dataframe should be allowed
+
     fn set_obs(&self, obs: DataFrame) -> Result<()> {
         let nrows = obs.height();
-        if nrows != 0 {
+        if nrows != 0 || obs.width() != 0 {
             self.n_obs.try_set(nrows)?;
             if self.obs.is_none() {
                 self.obs
@@ -537,7 +537,7 @@ impl<B: Backend> AnnDataOp for AnnData<B> {
 
     fn set_var(&self, var: DataFrame) -> Result<()> {
         let nrows = var.height();
-        if nrows != 0 {
+        if nrows != 0 || var.width() != 0 {
             self.n_vars.try_set(nrows)?;
             if self.var.is_none() {
                 self.var
@@ -804,6 +804,17 @@ pub trait ElemCollectionOp {
         D: TryFrom<Data>,
         <D as TryFrom<Data>>::Error: Into<anyhow::Error>;
 
+    fn iter_item<D>(&self) -> impl Iterator<Item = (String, D)>
+    where
+        D: TryFrom<Data>,
+        <D as TryFrom<Data>>::Error: Into<anyhow::Error>,
+    {
+        self.keys().into_iter().flat_map(|key| {
+            let data = self.get_item::<D>(&key).unwrap()?;
+            Some((key, data))
+        })
+    }
+
     /// Adds an item to the collection.
     fn add<D: Into<Data>>(&self, key: &str, data: D) -> Result<()>;
 
@@ -831,6 +842,29 @@ pub trait AxisArraysOp {
             .and_then(|x| x.get().transpose())
             .transpose()
             .map_err(|e| e.context(format!("key: {}", key)))
+    }
+
+    fn iter_item<D>(&self) -> impl Iterator<Item = (String, D)>
+    where
+        D: TryFrom<ArrayData>,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.keys().into_iter().flat_map(|key| {
+            let data = self.get_item::<D>(&key).unwrap()?;
+            Some((key, data))
+        })
+    }
+
+    fn iter_item_slice<'a, D, S>(&'a self, slice: S) -> impl Iterator<Item = (String, D)> + 'a
+    where
+        D: TryFrom<ArrayData> + 'a,
+        S: AsRef<[SelectInfoElem]> + 'a,
+        <D as TryFrom<ArrayData>>::Error: Into<anyhow::Error>,
+    {
+        self.keys().into_iter().flat_map(move |key| {
+            let data = self.get_item_slice::<D, _>(&key, &slice).unwrap()?;
+            Some((key, data))
+        })
     }
 
     /// Gets a slice of the array data by key.

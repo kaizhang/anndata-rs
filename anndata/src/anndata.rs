@@ -1,16 +1,16 @@
 mod dataset;
 
 pub use dataset::{AnnDataSet, StackedAnnData};
-use smallvec::SmallVec;
 
 use crate::{
+    ArrayElemOp, AxisArraysOp, ElemCollectionOp,
     backend::{Backend, DataContainer, GroupOp, StoreOp},
     container::{ArrayElem, Axis, AxisArrays, DataFrameElem, Dim, ElemCollection, Slot},
     data::*,
     traits::AnnDataOp,
 };
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{Result, ensure};
 use itertools::Itertools;
 use std::path::{Path, PathBuf};
 
@@ -128,7 +128,11 @@ pub(crate) fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<Axis
 }
 
 // Helper function to create new layers of data
-pub(crate) fn new_layers<B: Backend>(group: B::Group, n_obs: &Dim, n_vars: &Dim) -> Result<AxisArrays<B>> {
+pub(crate) fn new_layers<B: Backend>(
+    group: B::Group,
+    n_obs: &Dim,
+    n_vars: &Dim,
+) -> Result<AxisArrays<B>> {
     AxisArrays::new(group, Axis::RowColumn, n_obs, Some(n_vars))
 }
 
@@ -249,57 +253,48 @@ impl<B: Backend> AnnData<B> {
     }
 
     /// Write the AnnData object to a new file.
-    pub fn write<O: Backend, P: AsRef<Path>>(&self, filename: P) -> Result<()> {
-        let file = O::new(filename)?;
-        let _obs_lock = self.n_obs.lock();
-        let _vars_lock = self.n_vars.lock();
-        self.get_x()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "X"))
-            .transpose()?;
-        self.get_obs()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "obs"))
-            .transpose()?;
-        self.get_var()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "var"))
-            .transpose()?;
-        self.obsm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "obsm"))
-            .transpose()?;
-        self.obsp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "obsp"))
-            .transpose()?;
-        self.varm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "varm"))
-            .transpose()?;
-        self.varp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "varp"))
-            .transpose()?;
-        self.uns()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "uns"))
-            .transpose()?;
-        self.layers()
-            .lock()
-            .as_mut()
-            .map(|x| x.export::<O, _>(&file, "layers"))
-            .transpose()?;
-        file.close()?;
-        Ok(())
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - The path to the output file.
+    /// * `chunk_size` - If None, writes the entire data matrix at once. Otherwise,
+    ///                  writes the data matrix in chunks of the specified size.
+    ///              This can be useful for saving large datasets that do not fit into memory.
+    pub fn write<O: Backend, P: AsRef<Path>>(
+        &self,
+        filename: P,
+        chunk_size: Option<usize>,
+    ) -> Result<()> {
+        let adata = AnnData::<O>::new(filename)?;
+
+        adata.set_n_obs(self.n_obs())?;
+        adata.set_n_vars(self.n_vars())?;
+
+        if !self.get_obs().is_none() {
+            adata.set_obs_names(self.obs_names())?;
+            adata.set_obs(self.read_obs()?)?;
+        }
+        if !self.get_var().is_none() {
+            adata.set_var_names(self.var_names())?;
+            adata.set_var(self.read_var()?)?;
+        }
+
+        if !self.x().is_none() {
+            if let Some(chunk_size) = chunk_size {
+                adata.set_x_from_iter(self.x().iter::<ArrayData>(chunk_size).map(|x| x.0))?;
+            } else {
+                adata.set_x(self.x().get::<ArrayData>()?.unwrap())?;
+            }
+        }
+
+        adata.set_obsm(self.obsm().iter_item::<ArrayData>())?;
+        adata.set_obsp(self.obsp().iter_item::<ArrayData>())?;
+        adata.set_varm(self.varm().iter_item::<ArrayData>())?;
+        adata.set_varp(self.varp().iter_item::<ArrayData>())?;
+        adata.set_uns(self.uns().iter_item::<Data>())?;
+        adata.set_layers(self.layers().iter_item::<ArrayData>())?;
+
+        adata.close()
     }
 
     /// Write a subset of the AnnData object to a new file.
@@ -309,64 +304,51 @@ impl<B: Backend> AnnData<B> {
         S: AsRef<[SelectInfoElem]>,
         P: AsRef<Path>,
     {
-        selection.as_ref()[0]
-            .bound_check(self.n_obs())
-            .map_err(|e| anyhow!("AnnData obs {}", e))?;
-        selection.as_ref()[1]
-            .bound_check(self.n_vars())
-            .map_err(|e| anyhow!("AnnData var {}", e))?;
-        let slice: SmallVec<[_; 3]> = selection.as_ref().iter().collect();
-        let file = O::new(filename)?;
-        let _obs_lock = self.n_obs.lock();
-        let _vars_lock = self.n_vars.lock();
-        self.get_x()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select::<O, _>(slice.as_slice(), &file, "X"))
-            .transpose()?;
+        let adata = AnnData::<O>::new(filename)?;
+        let obs_idx = &selection.as_ref()[0];
+        let var_idx = &selection.as_ref()[1];
+        let full = SelectInfoElem::full();
 
-        self.get_obs()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_axis(0, slice[0], &file, "obs"))
-            .transpose()?;
-        self.get_var()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_axis(0, slice[1], &file, "var"))
-            .transpose()?;
-        self.uns()
-            .lock()
-            .as_mut()
-            .map(|x| x.export(&file, "uns"))
-            .transpose()?;
-        self.obsm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select(&[slice[0]], &file, "obsm"))
-            .transpose()?;
-        self.obsp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select(&[slice[0]], &file, "obsp"))
-            .transpose()?;
-        self.varm()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select(&[slice[1]], &file, "varm"))
-            .transpose()?;
-        self.varp()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select(&[slice[1]], &file, "varp"))
-            .transpose()?;
-        self.layers()
-            .lock()
-            .as_mut()
-            .map(|x| x.export_select(slice.as_slice(), &file, "layers"))
-            .transpose()?;
-        file.close()?;
-        Ok(())
+        let n_obs = SelectInfoElemBounds::new(&obs_idx, self.n_obs()).len();
+        let n_vars = SelectInfoElemBounds::new(&var_idx, self.n_vars()).len();
+        adata.set_n_obs(n_obs)?;
+        adata.set_n_vars(n_vars)?;
+
+        if !self.get_obs().is_none() {
+            adata.set_obs_names(self.obs_names().select(obs_idx))?;
+            let obs = Selectable::select_axis(&self.read_obs()?, 0, obs_idx);
+            adata.set_obs(obs)?;
+        }
+        if !self.get_var().is_none() {
+            adata.set_var_names(self.var_names().select(var_idx))?;
+            let var = Selectable::select_axis(&self.read_var()?, 0, var_idx);
+            adata.set_var(var)?;
+        }
+
+        if let Some(x) = self.x().slice::<ArrayData, _>(&selection)? {
+            adata.set_x(x)?;
+        }
+
+        adata.set_obsm(
+            self.obsm()
+                .iter_item_slice::<ArrayData, _>(&[obs_idx.clone(), full.clone()]),
+        )?;
+        adata.set_obsp(
+            self.obsp()
+                .iter_item_slice::<ArrayData, _>(&[obs_idx.clone(), obs_idx.clone()]),
+        )?;
+        adata.set_varm(
+            self.varm()
+                .iter_item_slice::<ArrayData, _>(&[var_idx.clone(), full]),
+        )?;
+        adata.set_varp(
+            self.varp()
+                .iter_item_slice::<ArrayData, _>(&[var_idx.clone(), var_idx.clone()]),
+        )?;
+        adata.set_uns(self.uns().iter_item::<Data>())?;
+        adata.set_layers(self.layers().iter_item_slice::<ArrayData, _>(&selection))?;
+
+        adata.close()
     }
 
     /// Get the filename of the AnnData file.

@@ -1,12 +1,15 @@
 use crate::{
-    anndata::new_mapping, backend::{iter_containers, AttributeOp, Backend, GroupOp}, container::base::*, data::*, ElemCollectionOp
+    ElemCollectionOp,
+    backend::{AttributeOp, Backend, GroupOp, iter_containers},
+    container::base::*,
+    data::*,
 };
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{Result, bail, ensure};
 use itertools::Itertools;
 use log::warn;
 use parking_lot::{Mutex, MutexGuard};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
@@ -64,14 +67,6 @@ impl<B: Backend> InnerElemCollection<B> {
 
     pub fn remove_data(&mut self, key: &str) -> Result<()> {
         self.remove(key).map(|x| x.clear()).transpose()?;
-        Ok(())
-    }
-
-    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        let group = new_mapping(location, name)?;
-        for (key, val) in self.iter() {
-            val.inner().export::<O, _>(&group, key)?;
-        }
         Ok(())
     }
 }
@@ -383,58 +378,6 @@ impl<B: Backend> InnerAxisArrays<B> {
     pub fn remove_data(&mut self, key: &str) -> Result<()> {
         self.remove(key).map(|x| x.clear()).transpose()?;
         Ok(())
-    }
-
-    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        let group = new_mapping(location, name)?;
-        for (key, val) in self.iter() {
-            val.inner().export::<O, _>(&group, key)?;
-        }
-        Ok(())
-    }
-
-    pub fn export_select<O, G>(
-        &self,
-        selection: &[&SelectInfoElem],
-        location: &G,
-        name: &str,
-    ) -> Result<()>
-    where
-        O: Backend,
-        G: GroupOp<O>,
-    {
-        if selection.into_iter().all(|x| x.as_ref().is_full()) {
-            self.export::<O, _>(location, name)
-        } else {
-        let group = new_mapping(location, name)?;
-            match self.axis {
-                Axis::Row => {
-                    if selection.len() != 1 {
-                        bail!("selection dimension must be 1 for row AxisArrays");
-                    }
-                    self.iter().try_for_each(|(k, x)| {
-                        x.inner().export_axis::<O, _>(0, selection[0], &group, k)
-                    })
-                }
-                Axis::RowColumn => {
-                    if selection.len() != 2 {
-                        bail!("selection dimension must be 2 for row/column AxisArrays");
-                    }
-                    self.iter().try_for_each(|(k, x)| {
-                        x.inner().export_select::<O, _>(selection, &group, k)
-                    })
-                }
-                Axis::Pairwise => {
-                    if selection.len() != 1 {
-                        bail!("selection dimension must be 1 for pairwise AxisArrays");
-                    }
-                    let s = vec![selection[0], selection[0]];
-                    self.iter().try_for_each(|(k, x)| {
-                        x.inner().export_select::<O, _>(s.as_ref(), &group, k)
-                    })
-                }
-            }
-        }
     }
 
     pub(crate) fn subset(&mut self, selection: &[&SelectInfoElem]) -> Result<()> {

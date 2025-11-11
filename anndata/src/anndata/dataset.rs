@@ -302,7 +302,7 @@ impl<B: Backend> AnnDataSet<B> {
 
     /// Convert AnnDataSet to AnnData object
     pub fn to_adata<O: Backend, P: AsRef<Path>>(&self, out: P, copy_x: bool) -> Result<AnnData<O>> {
-        self.annotation.write::<O, _>(&out)?;
+        self.annotation.write::<O, _>(&out, None)?;
         let adata = AnnData::open(O::open_rw(&out)?)?;
         if copy_x {
             adata.set_x_from_iter::<_, ArrayData>(

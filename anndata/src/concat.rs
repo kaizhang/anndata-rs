@@ -20,6 +20,14 @@ pub enum JoinType {
     Outer,
 }
 
+/// Concatenate multiple AnnData objects into one.
+/// 
+/// # Arguments
+/// - `adatas`: A slice of AnnData objects to concatenate.
+/// - `join`: The type of join to perform on the variables (`var`).
+/// - `label`: An optional label for the keys column in `obs`.
+/// - `keys`: An optional slice of keys to label each AnnData object in `obs`.
+/// - `out`: The output AnnData object to store the concatenated result.
 pub fn concat<A, O, S>(
     adatas: &[A],
     join: JoinType,

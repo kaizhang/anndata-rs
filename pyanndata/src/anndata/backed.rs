@@ -505,12 +505,16 @@ impl AnnData {
     ///     File name of the output `.h5ad` file.
     /// backend: Literal['hdf5', 'zarr']
     ///     The backend to use. "hdf5" or "zarr" are supported.
+    /// chunk_size : int | None
+    ///     If None, writes the entire data matrix at once. Otherwise,
+    ///     rites the data matrix in chunks of the specified size.
+    ///     This can be useful for saving large datasets that do not fit into memory.
     #[pyo3(
-        signature = (filename, backend=H5::NAME),
-        text_signature = "($self, filename, backend='hdf5')",
+        signature = (filename, backend=H5::NAME, chunk_size=None),
+        text_signature = "($self, filename, backend='hdf5', chunk_size=None)",
     )]
-    pub fn write(&self, filename: PathBuf, backend: &str) -> Result<()> {
-        self.0.write(filename, backend)
+    pub fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()> {
+        self.0.write(filename, backend, chunk_size)
     }
 
     /// Copy the AnnData object.
@@ -521,16 +525,20 @@ impl AnnData {
     ///     File name of the output `.h5ad` file.
     /// backend: Literal['hdf5', 'zarr']
     ///     The backend to use. "hdf5" or "zarr" are supported.
+    /// chunk_size : int | None
+    ///     If None, writes the entire data matrix at once. Otherwise,
+    ///     rites the data matrix in chunks of the specified size.
+    ///     This can be useful for saving large datasets that do not fit into memory.
     ///
     /// Returns
     /// -------
     /// AnnData
     #[pyo3(
-        signature = (filename, backend=H5::NAME),
-        text_signature = "($self, filename, backend='hdf5')",
+        signature = (filename, backend=H5::NAME, chunk_size=None),
+        text_signature = "($self, filename, backend='hdf5', chunk_size=None)",
     )]
-    fn copy(&self, filename: PathBuf, backend: &str) -> Result<Self> {
-        self.0.copy(filename, backend)
+    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<Self> {
+        self.0.copy(filename, backend, chunk_size)
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
@@ -552,6 +560,7 @@ impl AnnData {
     }
 }
 
+/// A trait for AnnData with abstract backend. Each concrete backend should implement this trait.
 trait AnnDataTrait: Send + Sync + Downcast {
     fn shape(&self) -> (usize, usize);
     fn obs_names(&self) -> DataFrameIndex;
@@ -592,8 +601,8 @@ trait AnnDataTrait: Send + Sync + Downcast {
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
-    fn write(&self, filename: PathBuf, backend: &str) -> Result<()>;
-    fn copy(&self, filename: PathBuf, backend: &str) -> Result<AnnData>;
+    fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()>;
+    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<AnnData>;
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
@@ -980,15 +989,15 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         self.adata.inner().get_x().chunked(chunk_size).into()
     }
 
-    fn write(&self, filename: PathBuf, backend: &str) -> Result<()> {
+    fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()> {
         match backend {
-            H5::NAME => self.adata.inner().write::<H5, _>(filename),
+            H5::NAME => self.adata.inner().write::<H5, _>(filename, chunk_size),
             x => bail!("Unsupported backend: {}", x),
         }
     }
 
-    fn copy(&self, filename: PathBuf, backend: &str) -> Result<AnnData> {
-        AnnDataTrait::write(self, filename.clone(), backend)?;
+    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<AnnData> {
+        AnnDataTrait::write(self, filename.clone(), backend, chunk_size)?;
         AnnData::new_from(filename, "r+", backend)
     }
 

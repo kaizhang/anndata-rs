@@ -60,10 +60,12 @@ impl<T> Slot<T> {
         self.0.lock().is_none()
     }
 
+    /// Get a locked reference to the inner Option data.
     pub fn lock(&self) -> MutexGuard<'_, Option<T>> {
         self.0.lock()
     }
 
+    /// Get a locked reference to the inner data.
     pub fn inner(&self) -> Inner<'_, T> {
         Inner(self.0.lock())
     }
@@ -83,6 +85,7 @@ impl<T> Slot<T> {
         let _ = self.extract();
     }
 
+    /// Swap the data between two slots.
     pub fn swap(&self, other: &Self) {
         let mut self_lock = self.0.lock();
         let mut other_lock = other.0.lock();
@@ -90,6 +93,7 @@ impl<T> Slot<T> {
     }
 }
 
+/// Locked inner data of a slot.
 pub struct Inner<'a, T>(pub MutexGuard<'a, Option<T>>);
 
 impl<T> Deref for Inner<'_, T> {
@@ -199,50 +203,6 @@ impl<B: Backend> InnerDataFrameElem<B> {
                 Ok(&self.element.as_ref().unwrap())
             }
         }
-    }
-
-    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        let df = match self.element {
-            Some(ref df) => df.clone(),
-            None => DataFrame::read(&self.container)?,
-        };
-        let mut container = df.write(location, name)?;
-        self.index.overwrite(&mut container)
-    }
-
-    pub fn export_select<O, G>(
-        &mut self,
-        selection: &[&SelectInfoElem],
-        location: &G,
-        name: &str,
-    ) -> Result<()>
-    where
-        O: Backend,
-        G: GroupOp<O>,
-    {
-        if selection.as_ref().into_iter().all(|x| x.is_full()) {
-            self.export::<O, _>(location, name)
-        } else {
-            let mut container = self.select(selection)?.write(location, name)?;
-            self.index.select(&selection[0]).overwrite(&mut container)
-        }
-    }
-
-    pub fn export_axis<O, S, G>(
-        &mut self,
-        axis: usize,
-        selection: S,
-        location: &G,
-        name: &str,
-    ) -> Result<()>
-    where
-        O: Backend,
-        S: AsRef<SelectInfoElem>,
-        G: GroupOp<O>,
-    {
-        let full = SelectInfoElem::full();
-        let slice = selection.as_ref().set_axis(axis, 2, &full);
-        self.export_select(slice.as_slice(), location, name)
     }
 
     pub fn select<S>(&mut self, selection: &[S]) -> Result<DataFrame>
@@ -397,16 +357,6 @@ impl<B: Backend> InnerElem<B> {
     }
 }
 
-impl<B: Backend> InnerElem<B> {
-    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        match self.element.as_ref() {
-            Some(data) => data.write(location, name)?,
-            None => Data::read(&self.container)?.write(location, name)?,
-        };
-        Ok(())
-    }
-}
-
 pub type Elem<B> = Slot<InnerElem<B>>;
 
 impl<B: Backend> TryFrom<DataContainer<B>> for Elem<B> {
@@ -499,14 +449,6 @@ impl<B: Backend> InnerArrayElem<B> {
         Ok(())
     }
 
-    pub fn export<O: Backend, G: GroupOp<O>>(&self, location: &G, name: &str) -> Result<()> {
-        match self.element.as_ref() {
-            Some(data) => data.write(location, name)?,
-            None => ArrayData::read(&self.container)?.write(location, name)?,
-        };
-        Ok(())
-    }
-
     pub fn select<S>(&mut self, selection: &[S]) -> Result<ArrayData>
     where
         S: AsRef<SelectInfoElem>,
@@ -530,42 +472,6 @@ impl<B: Backend> InnerArrayElem<B> {
             .as_ref()
             .set_axis(axis, self.shape().ndim(), &full);
         self.select(slice.as_slice())
-    }
-
-    pub fn export_select<O, G>(
-        &mut self,
-        selection: &[&SelectInfoElem],
-        location: &G,
-        name: &str,
-    ) -> Result<()>
-    where
-        O: Backend,
-        G: GroupOp<O>,
-    {
-        if selection.as_ref().into_iter().all(|x| x.is_full()) {
-            self.export::<O, _>(location, name)
-        } else {
-            self.select::<_>(selection)?.write(location, name)?;
-            Ok(())
-        }
-    }
-
-    pub fn export_axis<O, G>(
-        &mut self,
-        axis: usize,
-        selection: &SelectInfoElem,
-        location: &G,
-        name: &str,
-    ) -> Result<()>
-    where
-        O: Backend,
-        G: GroupOp<O>,
-    {
-        let full = SelectInfoElem::full();
-        let slice = selection
-            .as_ref()
-            .set_axis(axis, self.shape().ndim(), &full);
-        self.export_select::<O, _>(slice.as_slice(), location, name)
     }
 
     pub(crate) fn subset<S>(&mut self, selection: &[S]) -> Result<()>
