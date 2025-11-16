@@ -428,6 +428,32 @@ impl AnnData {
         self.0.subset(py, &[i, j], out, inplace, backend)
     }
 
+    /// Split the AnnData object into multiple AnnData objects based on grouping keys.
+    /// The length of the grouping keys must match the number of observations.
+    /// 
+    /// Parameters
+    /// ----------
+    /// key: str | list[str]
+    ///     Grouping key(s). Can be a single column name or a list of column names in `obs`.
+    /// out_dir: Path
+    ///     Output directory to save the split AnnData files.
+    /// 
+    /// Returns
+    /// -------
+    /// dict[str, AnnData]
+    ///     A dictionary mapping each unique key to its corresponding AnnData object.
+    #[pyo3(
+        signature = (key, out_dir="./".into()),
+        text_signature = "($self, key, out_dir='./')",
+    )]
+    pub fn split_by(
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, Self>> {
+        self.0.split_by(key, out_dir)
+    }
+
     /// Return an iterator over the rows of the data matrix X.
     ///
     /// Parameters
@@ -598,6 +624,12 @@ trait AnnDataTrait: Send + Sync + Downcast {
         inplace: bool,
         backend: Option<&str>,
     ) -> Result<Option<Bound<'py, PyAny>>>;
+
+    fn split_by(
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, AnnData>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
@@ -983,6 +1015,26 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
             }
             Ok(Some(adata.into_pyobject(py)?.into_any()))
         }
+    }
+
+    fn split_by(
+            &self,
+            key: Bound<'_, PyAny>,
+            out_dir: PathBuf,
+        ) -> Result<HashMap<String, AnnData>> {
+        let inner = self.adata.inner();
+
+        let keys = if let Ok(key) = key.extract::<String>() {
+            let obs = inner.read_obs()?;
+            obs.column(&key)?.str()?.into_iter().map(|x| x.unwrap().to_string()).collect()
+        } else {
+            key.extract::<Vec<String>>()?
+        };
+ 
+        let split_data = inner.split_by(&keys, &out_dir)?;
+        split_data.into_iter()
+            .map(|(k, v)| Ok((k, AnnData::from(v))))
+            .collect()
     }
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {

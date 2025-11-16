@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use super::CsrNonCanonical;
 
-pub(crate) struct ExtendableDataset<B: Backend, T> {
+pub struct ExtendableDataset<B: Backend, T> {
     dataset: B::Dataset,
     capacity: Shape,
     size: Shape,

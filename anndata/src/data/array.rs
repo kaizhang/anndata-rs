@@ -5,7 +5,7 @@ pub mod slice;
 mod sparse;
 pub mod utils;
 
-pub use chunks::ArrayChunk;
+pub use chunks::{MatrixBuilder, ArrayChunk};
 pub use dataframe::DataFrameIndex;
 pub use dense::{ArrayConvert, CategoricalArray, DynArray, DynCowArray, DynScalar};
 pub use slice::{SelectInfo, SelectInfoBounds, SelectInfoElem, SelectInfoElemBounds, Shape};

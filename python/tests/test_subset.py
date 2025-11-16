@@ -17,6 +17,20 @@ def h5ad(dir=Path("./")):
     return str(dir / Path(str(uuid.uuid4()) + ".h5ad"))
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_split(tmp_path, backend):
+    adata = AnnData(filename = h5ad(tmp_path), backend=backend)
+    adata.obs_names = [str(i) for i in range(100)]
+    adata.var_names = [str(i) for i in range(50)]
+    groups = ["A"] * 30 + ["B"] * 50 + ["C"] * 20
+
+    adata.X = random(100, 50, 0.1, format="csr", dtype=np.int64)
+    adatas = adata.split_by(groups, out_dir=tmp_path / "split")
+
+    np.testing.assert_array_equal(adatas['A'].X[:].todense(), adata.X[0:30, :].todense())
+    np.testing.assert_array_equal(adatas['B'].X[:].todense(), adata.X[30:80, :].todense())
+    np.testing.assert_array_equal(adatas['C'].X[:].todense(), adata.X[80:100, :].todense())
+
+@pytest.mark.parametrize("backend", BACKENDS)
 @given(
     x = arrays(integer_dtypes(endianness='='), (47, 79)),
     indices = st.lists(st.integers(min_value=0, max_value=46), min_size=0, max_size=50),
