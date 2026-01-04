@@ -13,7 +13,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use itertools::Itertools;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -260,29 +260,43 @@ impl<B: Backend> AnnData<B> {
     /// # Arguments
     ///
     /// * `filename` - The path to the output file.
+    /// * `partial` - If Some, writes only the specified fields. If None, writes all fields.
+    ///             This can be useful for saving space when only a subset of the data is needed.
+    ///             Possible fields are: "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers".
     /// * `chunk_size` - If None, writes the entire data matrix at once. Otherwise,
     ///                  writes the data matrix in chunks of the specified size.
     ///              This can be useful for saving large datasets that do not fit into memory.
     pub fn write<O: Backend, P: AsRef<Path>>(
         &self,
         filename: P,
+        partial: Option<HashSet<String>>,
         chunk_size: Option<usize>,
     ) -> Result<()> {
+        let saved_fields = match partial {
+            Some(set) => set,
+            None => [
+                "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        };
+
         let adata = AnnData::<O>::new(filename)?;
 
         adata.set_n_obs(self.n_obs())?;
         adata.set_n_vars(self.n_vars())?;
 
-        if !self.get_obs().is_none() {
+        if !self.get_obs().is_none() && saved_fields.contains("obs") {
             adata.set_obs_names(self.obs_names())?;
             adata.set_obs(self.read_obs()?)?;
         }
-        if !self.get_var().is_none() {
+        if !self.get_var().is_none() && saved_fields.contains("var") {
             adata.set_var_names(self.var_names())?;
             adata.set_var(self.read_var()?)?;
         }
 
-        if !self.x().is_none() {
+        if !self.x().is_none() && saved_fields.contains("X") {
             if let Some(chunk_size) = chunk_size {
                 adata.set_x_from_iter(self.x().iter::<ArrayData>(chunk_size).map(|x| x.0))?;
             } else {
@@ -290,12 +304,24 @@ impl<B: Backend> AnnData<B> {
             }
         }
 
-        adata.set_obsm(self.obsm().iter_item::<ArrayData>())?;
-        adata.set_obsp(self.obsp().iter_item::<ArrayData>())?;
-        adata.set_varm(self.varm().iter_item::<ArrayData>())?;
-        adata.set_varp(self.varp().iter_item::<ArrayData>())?;
-        adata.set_uns(self.uns().iter_item::<Data>())?;
-        adata.set_layers(self.layers().iter_item::<ArrayData>())?;
+        if saved_fields.contains("obsm") {
+            adata.set_obsm(self.obsm().iter_item::<ArrayData>())?;
+        }
+        if saved_fields.contains("obsp") {
+            adata.set_obsp(self.obsp().iter_item::<ArrayData>())?;
+        }
+        if saved_fields.contains("varm") {
+            adata.set_varm(self.varm().iter_item::<ArrayData>())?;
+        }
+        if saved_fields.contains("varp") {  
+            adata.set_varp(self.varp().iter_item::<ArrayData>())?;
+        }
+        if saved_fields.contains("uns") {   
+            adata.set_uns(self.uns().iter_item::<Data>())?;
+        }
+        if saved_fields.contains("layers") {
+            adata.set_layers(self.layers().iter_item::<ArrayData>())?;
+        }
 
         adata.close()
     }

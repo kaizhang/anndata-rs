@@ -2,18 +2,19 @@ use crate::anndata::PyAnnData;
 use crate::container::{
     PyArrayElem, PyAxisArrays, PyChunkedArray, PyDataFrameElem, PyElemCollection,
 };
-use crate::data::{isinstance_of_pandas, to_select_elem, PyArrayData, PyData};
+use crate::data::{PyArrayData, PyData, isinstance_of_pandas, to_select_elem};
 
 use anndata::container::Slot;
 use anndata::data::{DataFrameIndex, SelectInfoElem, SelectInfoElemBounds};
 use anndata::{self, ArrayElemOp, AxisArraysOp, Data, ElemCollectionOp, Selectable};
 use anndata::{AnnDataOp, ArrayData, Backend};
 use anndata_hdf5::H5;
-use anyhow::{bail, Result};
-use downcast_rs::{impl_downcast, Downcast};
+use anyhow::{Result, bail};
+use downcast_rs::{Downcast, impl_downcast};
 use pyo3::prelude::*;
+use pyo3::types::PyIterator;
 use pyo3_polars::PyDataFrame;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::PathBuf;
 
@@ -430,14 +431,14 @@ impl AnnData {
 
     /// Split the AnnData object into multiple AnnData objects based on grouping keys.
     /// The length of the grouping keys must match the number of observations.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// key: str | list[str]
     ///     Grouping key(s). Can be a single column name or a list of column names in `obs`.
     /// out_dir: Path
     ///     Output directory to save the split AnnData files.
-    /// 
+    ///
     /// Returns
     /// -------
     /// dict[str, AnnData]
@@ -531,16 +532,24 @@ impl AnnData {
     ///     File name of the output `.h5ad` file.
     /// backend: Literal['hdf5', 'zarr']
     ///     The backend to use. "hdf5" or "zarr" are supported.
+    /// partial : list[str] | None
+    ///     A list of fields to copy. If None, copies all fields. Possible fields are:
+    ///     "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers".
     /// chunk_size : int | None
     ///     If None, writes the entire data matrix at once. Otherwise,
     ///     rites the data matrix in chunks of the specified size.
     ///     This can be useful for saving large datasets that do not fit into memory.
     #[pyo3(
-        signature = (filename, backend=H5::NAME, chunk_size=None),
-        text_signature = "($self, filename, backend='hdf5', chunk_size=None)",
+        signature = (filename, backend=H5::NAME, partial=None, chunk_size=None),
+        text_signature = "($self, filename, backend='hdf5', partial=None, chunk_size=None)",
     )]
-    pub fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()> {
-        self.0.write(filename, backend, chunk_size)
+    pub fn write(&self, filename: PathBuf, backend: &str, partial: Option<Bound<PyIterator>>, chunk_size: Option<usize>) -> Result<()> {
+        let partial = partial.map(|p| {
+            p.into_iter()
+                .map(|x| x.unwrap().extract::<String>().unwrap())
+                .collect::<HashSet<_>>()
+        });
+        self.0.write(filename, backend, partial, chunk_size)
     }
 
     /// Copy the AnnData object.
@@ -551,6 +560,9 @@ impl AnnData {
     ///     File name of the output `.h5ad` file.
     /// backend: Literal['hdf5', 'zarr']
     ///     The backend to use. "hdf5" or "zarr" are supported.
+    /// partial : list[str] | None
+    ///     A list of fields to copy. If None, copies all fields. Possible fields are:
+    ///     "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers".
     /// chunk_size : int | None
     ///     If None, writes the entire data matrix at once. Otherwise,
     ///     rites the data matrix in chunks of the specified size.
@@ -560,11 +572,16 @@ impl AnnData {
     /// -------
     /// AnnData
     #[pyo3(
-        signature = (filename, backend=H5::NAME, chunk_size=None),
-        text_signature = "($self, filename, backend='hdf5', chunk_size=None)",
+        signature = (filename, backend=H5::NAME, partial=None, chunk_size=None),
+        text_signature = "($self, filename, backend='hdf5', partial=None, chunk_size=None)",
     )]
-    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<Self> {
-        self.0.copy(filename, backend, chunk_size)
+    fn copy(&self, filename: PathBuf, backend: &str, partial: Option<Bound<PyIterator>>, chunk_size: Option<usize>) -> Result<Self> {
+        let partial = partial.map(|p| {
+            p.into_iter()
+                .map(|x| x.unwrap().extract::<String>().unwrap())
+                .collect::<HashSet<_>>()
+        });
+        self.0.copy(filename, backend, partial, chunk_size)
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
@@ -625,16 +642,25 @@ trait AnnDataTrait: Send + Sync + Downcast {
         backend: Option<&str>,
     ) -> Result<Option<Bound<'py, PyAny>>>;
 
-    fn split_by(
-        &self,
-        key: Bound<'_, PyAny>,
-        out_dir: PathBuf,
-    ) -> Result<HashMap<String, AnnData>>;
+    fn split_by(&self, key: Bound<'_, PyAny>, out_dir: PathBuf)
+    -> Result<HashMap<String, AnnData>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
-    fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()>;
-    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<AnnData>;
+    fn write(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<HashSet<String>>,
+        chunk_size: Option<usize>,
+    ) -> Result<()>;
+    fn copy(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<HashSet<String>>,
+        chunk_size: Option<usize>,
+    ) -> Result<AnnData>;
     fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
@@ -1018,21 +1044,26 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
     }
 
     fn split_by(
-            &self,
-            key: Bound<'_, PyAny>,
-            out_dir: PathBuf,
-        ) -> Result<HashMap<String, AnnData>> {
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, AnnData>> {
         let inner = self.adata.inner();
 
         let keys = if let Ok(key) = key.extract::<String>() {
             let obs = inner.read_obs()?;
-            obs.column(&key)?.str()?.into_iter().map(|x| x.unwrap().to_string()).collect()
+            obs.column(&key)?
+                .str()?
+                .into_iter()
+                .map(|x| x.unwrap().to_string())
+                .collect()
         } else {
             key.extract::<Vec<String>>()?
         };
- 
+
         let split_data = inner.split_by(&keys, &out_dir)?;
-        split_data.into_iter()
+        split_data
+            .into_iter()
             .map(|(k, v)| Ok((k, AnnData::from(v))))
             .collect()
     }
@@ -1041,15 +1072,30 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         self.adata.inner().get_x().chunked(chunk_size).into()
     }
 
-    fn write(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<()> {
+    fn write(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<HashSet<String>>,
+        chunk_size: Option<usize>,
+    ) -> Result<()> {
         match backend {
-            H5::NAME => self.adata.inner().write::<H5, _>(filename, chunk_size),
+            H5::NAME => self
+                .adata
+                .inner()
+                .write::<H5, _>(filename, partial, chunk_size),
             x => bail!("Unsupported backend: {}", x),
         }
     }
 
-    fn copy(&self, filename: PathBuf, backend: &str, chunk_size: Option<usize>) -> Result<AnnData> {
-        AnnDataTrait::write(self, filename.clone(), backend, chunk_size)?;
+    fn copy(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<HashSet<String>>,
+        chunk_size: Option<usize>,
+    ) -> Result<AnnData> {
+        AnnDataTrait::write(self, filename.clone(), backend, partial, chunk_size)?;
         AnnData::new_from(filename, "r+", backend)
     }
 
