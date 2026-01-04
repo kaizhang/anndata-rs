@@ -543,11 +543,23 @@ impl AnnData {
         signature = (filename, backend=H5::NAME, partial=None, chunk_size=None),
         text_signature = "($self, filename, backend='hdf5', partial=None, chunk_size=None)",
     )]
-    pub fn write(&self, filename: PathBuf, backend: &str, partial: Option<Bound<PyIterator>>, chunk_size: Option<usize>) -> Result<()> {
+    pub fn write(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<Bound<PyAny>>,
+        chunk_size: Option<usize>,
+    ) -> Result<()> {
         let partial = partial.map(|p| {
-            p.into_iter()
-                .map(|x| x.unwrap().extract::<String>().unwrap())
-                .collect::<HashSet<_>>()
+            let mut set = HashSet::new();
+            if let Ok(s) = p.extract::<String>() {
+                set.insert(s);
+            } else {
+                p.try_iter().unwrap().for_each(|x| {
+                    set.insert(x.unwrap().extract::<String>().unwrap());
+                })
+            }
+            set
         });
         self.0.write(filename, backend, partial, chunk_size)
     }
@@ -575,23 +587,35 @@ impl AnnData {
         signature = (filename, backend=H5::NAME, partial=None, chunk_size=None),
         text_signature = "($self, filename, backend='hdf5', partial=None, chunk_size=None)",
     )]
-    fn copy(&self, filename: PathBuf, backend: &str, partial: Option<Bound<PyIterator>>, chunk_size: Option<usize>) -> Result<Self> {
+    fn copy(
+        &self,
+        filename: PathBuf,
+        backend: &str,
+        partial: Option<Bound<PyAny>>,
+        chunk_size: Option<usize>,
+    ) -> Result<Self> {
         let partial = partial.map(|p| {
-            p.into_iter()
-                .map(|x| x.unwrap().extract::<String>().unwrap())
-                .collect::<HashSet<_>>()
+            let mut set = HashSet::new();
+            if let Ok(s) = p.extract::<String>() {
+                set.insert(s);
+            } else {
+                p.try_iter().unwrap().for_each(|x| {
+                    set.insert(x.unwrap().extract::<String>().unwrap());
+                })
+            }
+            set
         });
         self.0.copy(filename, backend, partial, chunk_size)
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
-    /// 
+    ///
     /// Parameters
     /// ----------
     /// partial : list[str] | None
     ///     A list of fields to copy. If None, copies all fields. Possible fields are:
     ///     "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers".
- 
+
     /// Returns
     /// -------
     /// AnnData
@@ -599,11 +623,21 @@ impl AnnData {
         signature = (partial=None),
         text_signature = "($self, partial=None)",
     )]
-    pub fn to_memory<'py>(&self, py: Python<'py>, partial: Option<Bound<PyIterator>>) -> Result<PyAnnData<'py>> {
+    pub fn to_memory<'py>(
+        &self,
+        py: Python<'py>,
+        partial: Option<Bound<PyAny>>,
+    ) -> Result<PyAnnData<'py>> {
         let partial = partial.map(|p| {
-            p.into_iter()
-                .map(|x| x.unwrap().extract::<String>().unwrap())
-                .collect::<HashSet<_>>()
+            let mut set = HashSet::new();
+            if let Ok(s) = p.extract::<String>() {
+                set.insert(s);
+            } else {
+                p.try_iter().unwrap().for_each(|x| {
+                    set.insert(x.unwrap().extract::<String>().unwrap());
+                })
+            }
+            set
         });
         self.0.to_memory(py, partial)
     }
@@ -675,7 +709,11 @@ trait AnnDataTrait: Send + Sync + Downcast {
         partial: Option<HashSet<String>>,
         chunk_size: Option<usize>,
     ) -> Result<AnnData>;
-    fn to_memory<'py>(&self, py: Python<'py>, partial: Option<HashSet<String>>) -> Result<PyAnnData<'py>>;
+    fn to_memory<'py>(
+        &self,
+        py: Python<'py>,
+        partial: Option<HashSet<String>>,
+    ) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
     fn backend(&self) -> &str;
@@ -1113,8 +1151,16 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         AnnData::new_from(filename, "r+", backend)
     }
 
-    fn to_memory<'py>(&self, py: Python<'py>, partial: Option<HashSet<String>>) -> Result<PyAnnData<'py>> {
-        Ok(PyAnnData::from_anndata(py, self.adata.inner().deref(), partial)?)
+    fn to_memory<'py>(
+        &self,
+        py: Python<'py>,
+        partial: Option<HashSet<String>>,
+    ) -> Result<PyAnnData<'py>> {
+        Ok(PyAnnData::from_anndata(
+            py,
+            self.adata.inner().deref(),
+            partial,
+        )?)
     }
 
     fn filename(&self) -> PathBuf {

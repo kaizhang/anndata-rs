@@ -52,10 +52,10 @@ impl<'py> PyAnnData<'py> {
     pub fn from_anndata<B: Backend>(py: Python<'py>, inner: &anndata::AnnData<B>, partial: Option<HashSet<String>>) -> Result<Self> {
         let partial = partial.unwrap_or_default();
         let adata = PyAnnData::new(py)?;
+        adata.set_n_obs(inner.n_obs())?;
+        adata.set_n_vars(inner.n_vars())?;
 
         if partial.is_empty() || partial.contains("X") {
-            adata.set_n_obs(inner.n_obs())?;
-            adata.set_n_vars(inner.n_vars())?;
             if let Some(x) = inner.x().get::<ArrayData>()? {
                 adata.set_x(x)?;
             }
