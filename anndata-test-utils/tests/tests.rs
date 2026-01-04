@@ -14,7 +14,7 @@ fn test_complex_dataframe() {
     with_tmp_dir(|dir| {
         let file = dir.join("test.h5");
         let adata = AnnData::<H5>::open(H5::open(&input).unwrap()).unwrap();
-        adata.write::<H5, _>(file, None).unwrap();
+        adata.write::<H5, _>(file, None, None).unwrap();
     })
 }
 

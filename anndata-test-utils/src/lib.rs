@@ -37,7 +37,7 @@ pub fn test_save<B: Backend>() {
             )
         });
         proptest!(ProptestConfig::with_cases(100), |((adata, slice_obs, slice_var) in anndatas)| {
-            adata.write::<B, _>(&output, None).unwrap();
+            adata.write::<B, _>(&output, None, None).unwrap();
             let adata_in = AnnData::<B>::open(B::open(&output).unwrap()).unwrap();
             prop_assert!(anndata_eq(&adata, &adata_in).unwrap());
             adata_in.close().unwrap();
