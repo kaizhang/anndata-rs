@@ -1,5 +1,6 @@
 use crate::data::{isinstance_of_pyanndata, isinstance_of_polars, PyArrayData, PyData};
 
+use std::collections::HashSet;
 use std::ops::Deref;
 use polars::prelude::DataFrame;
 use pyo3::prelude::*;
@@ -48,58 +49,70 @@ impl<'py> PyAnnData<'py> {
             .extract()
     }
 
-    pub fn from_anndata<B: Backend>(py: Python<'py>, inner: &anndata::AnnData<B>) -> Result<Self> {
+    pub fn from_anndata<B: Backend>(py: Python<'py>, inner: &anndata::AnnData<B>, partial: Option<HashSet<String>>) -> Result<Self> {
+        let partial = partial.unwrap_or_default();
         let adata = PyAnnData::new(py)?;
-        {
-            // Set X
+
+        if partial.is_empty() || partial.contains("X") {
             adata.set_n_obs(inner.n_obs())?;
             adata.set_n_vars(inner.n_vars())?;
             if let Some(x) = inner.x().get::<ArrayData>()? {
                 adata.set_x(x)?;
             }
         }
-        {
-            // Set obs and var
+
+        if partial.is_empty() || partial.contains("obs") {
             adata.set_obs_names(inner.obs_names())?;
-            adata.set_var_names(inner.var_names())?;
             adata.set_obs(inner.read_obs()?)?;
+        }
+
+        if partial.is_empty() || partial.contains("var") {
+            adata.set_var_names(inner.var_names())?;
             adata.set_var(inner.read_var()?)?;
         }
-        {
-            // Set uns
+
+        if partial.is_empty() || partial.contains("uns") {
             inner
                 .uns().keys()
                 .into_iter()
                 .try_for_each(|k| adata.uns().add(&k, inner.uns().get_item::<Data>(&k)?.unwrap()))?;
         }
-        {
-            // Set obsm
+
+        if partial.is_empty() || partial.contains("obsm") {
             inner
                 .obsm().keys()
                 .into_iter()
                 .try_for_each(|k| adata.obsm().add(&k, inner.obsm().get_item::<ArrayData>(&k)?.unwrap()))?;
         }
-        {
-            // Set obsp
+
+        if partial.is_empty() || partial.contains("obsp") {
             inner
                 .obsp().keys()
                 .into_iter()
                 .try_for_each(|k| adata.obsp().add(&k, inner.obsp().get_item::<ArrayData>(&k)?.unwrap()))?;
         }
-        {
-            // Set varm
+
+        if partial.is_empty() || partial.contains("varm") {
             inner
                 .varm().keys()
                 .into_iter()
                 .try_for_each(|k| adata.varm().add(&k, inner.varm().get_item::<ArrayData>(&k)?.unwrap()))?;
         }
-        {
-            // Set varp
+
+        if partial.is_empty() || partial.contains("varp") {
             inner
                 .varp().keys()
                 .into_iter()
                 .try_for_each(|k| adata.varp().add(&k, inner.varp().get_item::<ArrayData>(&k)?.unwrap()))?;
         }
+
+        if partial.is_empty() || partial.contains("layers") {
+            inner
+                .layers().keys()
+                .into_iter()
+                .try_for_each(|k| adata.layers().add(&k, inner.layers().get_item::<ArrayData>(&k)?.unwrap()))?;
+        }
+
         Ok(adata)
     }
 }

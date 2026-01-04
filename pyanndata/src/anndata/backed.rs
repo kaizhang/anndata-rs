@@ -585,13 +585,27 @@ impl AnnData {
     }
 
     /// Return a new AnnData object with all backed arrays loaded into memory.
-    ///
+    /// 
+    /// Parameters
+    /// ----------
+    /// partial : list[str] | None
+    ///     A list of fields to copy. If None, copies all fields. Possible fields are:
+    ///     "X", "obs", "var", "obsm", "obsp", "varm", "varp", "uns", "layers".
+ 
     /// Returns
     /// -------
     /// AnnData
-    #[pyo3(text_signature = "($self)")]
-    pub fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>> {
-        self.0.to_memory(py)
+    #[pyo3(
+        signature = (partial=None),
+        text_signature = "($self, partial=None)",
+    )]
+    pub fn to_memory<'py>(&self, py: Python<'py>, partial: Option<Bound<PyIterator>>) -> Result<PyAnnData<'py>> {
+        let partial = partial.map(|p| {
+            p.into_iter()
+                .map(|x| x.unwrap().extract::<String>().unwrap())
+                .collect::<HashSet<_>>()
+        });
+        self.0.to_memory(py, partial)
     }
 
     fn __repr__(&self) -> String {
@@ -661,7 +675,7 @@ trait AnnDataTrait: Send + Sync + Downcast {
         partial: Option<HashSet<String>>,
         chunk_size: Option<usize>,
     ) -> Result<AnnData>;
-    fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>>;
+    fn to_memory<'py>(&self, py: Python<'py>, partial: Option<HashSet<String>>) -> Result<PyAnnData<'py>>;
 
     fn filename(&self) -> PathBuf;
     fn backend(&self) -> &str;
@@ -1099,8 +1113,8 @@ impl<B: Backend> AnnDataTrait for InnerAnnData<B> {
         AnnData::new_from(filename, "r+", backend)
     }
 
-    fn to_memory<'py>(&self, py: Python<'py>) -> Result<PyAnnData<'py>> {
-        Ok(PyAnnData::from_anndata(py, self.adata.inner().deref())?)
+    fn to_memory<'py>(&self, py: Python<'py>, partial: Option<HashSet<String>>) -> Result<PyAnnData<'py>> {
+        Ok(PyAnnData::from_anndata(py, self.adata.inner().deref(), partial)?)
     }
 
     fn filename(&self) -> PathBuf {
