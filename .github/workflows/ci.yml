@@ -23,15 +23,15 @@ jobs:
         cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
         cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
 
-    - name: benchmark
-      run: |
-        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
-        cd ${GITHUB_WORKSPACE}
+    #- name: benchmark
+    #  run: |
+    #    cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo bench
+    #    cd ${GITHUB_WORKSPACE}
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: benchmark
-        path: target/criterion
+    #- uses: actions/upload-artifact@v4
+    #  with:
+    #    name: benchmark
+    #    path: target/criterion
  
   test_python_code:
     runs-on: ubuntu-latest

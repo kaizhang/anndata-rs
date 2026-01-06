@@ -1,22 +1,22 @@
 use crate::{
-    anndata::AnnData,
-    backend::Backend,
-    container::{
-        Axis, AxisArrays, Dim, Slot, StackedArrayElem, StackedAxisArrays, StackedDataFrame,
+    ArrayElem,
+    anndata::{
+        AnnData,
+        elem_io::{open_df, open_obsm},
     },
-    data::index::VecVecIndex,
+    backend::{Backend, DataContainer, GroupOp, StoreOp},
+    container::{Axis, Dim, Slot, StackedArrayElem, StackedAxisArrays, StackedDataFrame},
     data::*,
     traits::{AnnDataOp, ElemCollectionOp},
 };
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
-use indexmap::map::IndexMap;
+use anyhow::{Context, Result};
 use itertools::Itertools;
 use polars::{
     df,
     prelude::{Column, DataFrame},
 };
-use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use smallvec::SmallVec;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -38,12 +38,7 @@ impl<B: Backend> std::fmt::Display for AnnDataSet<B> {
         )?;
         let adatas = self.anndatas.inner();
         if adatas.len() > 0 {
-            write!(
-                f,
-                "\ncontains {} AnnData objects with keys: '{}'",
-                adatas.len(),
-                adatas.keys().join("', '")
-            )?;
+            write!(f, "\ncontains {} AnnData objects", adatas.len(),)?;
         }
         if let Some(obs) = self
             .annotation
@@ -141,71 +136,93 @@ impl<B: Backend> AnnDataSet<B> {
         S: ToString,
         P: AsRef<Path>,
     {
-        let anndatas = StackedAnnData::new(data)?;
-        let n_obs = anndatas.n_obs;
-        let n_vars = anndatas.n_vars;
-
+        let mut adatas = data.into_iter().peekable();
         let mut annotation = AnnData::new(filename)?;
-        annotation.n_obs = Dim::new(n_obs);
-        annotation.n_vars = Dim::new(n_vars);
-        {
-            // Set UNS. UNS includes children anndata locations and shared elements.
-            let (keys, filenames): (Vec<_>, Vec<_>) = anndatas
-                .iter()
-                .map(|(k, v)| (k.clone(), v.filename().display().to_string()))
-                .unzip();
-            let data = df!("keys" => keys, "file_path" => filenames)?;
-            annotation.uns().add("AnnDataSet", data)?;
 
-            // Add shared uns elements.
-            let shared_keys: HashSet<String> = anndatas
-                .values()
-                .map(|x| x.uns().keys().into_iter().collect::<HashSet<_>>())
-                .reduce(|a, b| a.intersection(&b).cloned().collect())
-                .unwrap_or(HashSet::new());
-            for key in shared_keys {
-                if anndatas
-                    .values()
-                    .map(|x| x.uns().get_item::<Data>(&key).unwrap().unwrap())
-                    .all_equal()
-                {
-                    annotation.uns().add(
-                        &key,
-                        anndatas
-                            .values()
-                            .next()
-                            .unwrap()
-                            .uns()
-                            .get_item::<Data>(&key)?
-                            .unwrap(),
-                    )?;
-                }
-            }
+        // Set VAR.
+        let var_names = adatas.peek().expect("no AnnData objects").1.var_names();
+        let n_vars = var_names.len();
+        annotation.n_vars = Dim::new(n_vars);
+        if !var_names.is_empty() {
+            annotation.set_var_names(var_names.clone())?;
         }
-        {
-            // Set OBS.
-            let obs_names: DataFrameIndex = anndatas
-                .values()
-                .flat_map(|x| x.obs_names().into_iter())
-                .collect();
-            if !obs_names.is_empty() && obs_names.len() == n_obs {
-                annotation.set_obs_names(obs_names)?;
-            }
-            let keys = anndatas
+
+        let mut n_obs = 0;
+        let mut file_keys = Vec::new();
+        let mut files = Vec::new();
+        let mut add_keys = Vec::new();
+        let mut xs = SmallVec::new();
+        let mut obs_names = Vec::new();
+        let mut obs = Vec::new();
+        let mut obsm = Vec::new();
+        let mut uns = Vec::new();
+
+        for (key, adata) in adatas {
+            assert!(
+                adata.var_names() == var_names,
+                "var_names mismatch when stacking AnnData objects"
+            );
+
+            n_obs += adata.n_obs();
+            xs.push(adata.get_x().clone());
+            adata
+                .obs_names()
+                .into_iter()
+                .for_each(|x| obs_names.push(x.clone()));
+            obs.push(adata.obs.clone());
+            obsm.push(adata.obsm.clone());
+            uns.push(adata.uns.clone());
+
+            add_keys.extend(vec![key.to_string(); adata.n_obs()]);
+            file_keys.push(key.to_string());
+            files.push(adata.file);
+        }
+
+        // Set OBS.
+        annotation.n_obs = Dim::new(n_obs);
+        if !obs_names.is_empty() && obs_names.len() == n_obs {
+            annotation.set_obs_names(obs_names.into())?;
+        }
+        annotation.set_obs(df!(add_key => add_keys)?)?;
+
+        // Set UNS. UNS includes children anndata locations and shared elements.
+        let filenames: Vec<_> = files
+            .iter()
+            .map(|x| x.filename().display().to_string())
+            .collect();
+        annotation.uns().add(
+            "AnnDataSet",
+            df!("keys" => file_keys, "file_path" => filenames)?,
+        )?;
+
+        // Add shared uns elements.
+        let shared_keys: HashSet<String> = uns
+            .iter()
+            .map(|x| x.keys().into_iter().collect::<HashSet<_>>())
+            .reduce(|a, b| a.intersection(&b).cloned().collect())
+            .unwrap_or(HashSet::new());
+        for key in shared_keys {
+            if uns
                 .iter()
-                .map(|(k, v)| vec![k.clone(); v.n_obs()])
-                .flatten()
-                .collect::<Vec<_>>();
-            annotation.set_obs(df!(add_key => keys)?)?;
-        }
-        {
-            // Set VAR.
-            let adata = anndatas.values().next().unwrap();
-            let var_names = adata.var_names();
-            if !var_names.is_empty() {
-                annotation.set_var_names(var_names)?;
+                .map(|x| x.get_item::<Data>(&key).unwrap().unwrap())
+                .all_equal()
+            {
+                annotation.uns().add(
+                    &key,
+                    uns.iter().next().unwrap().get_item::<Data>(&key)?.unwrap(),
+                )?;
             }
         }
+
+        let anndatas = StackedAnnData {
+            files,
+            n_obs,
+            n_vars,
+            x: StackedArrayElem::new(xs)?,
+            obs: StackedDataFrame::new(obs)?,
+            obsm: StackedAxisArrays::new(Axis::Row, obsm)?,
+        };
+
         Ok(Self {
             annotation,
             anndatas: Slot::new(anndatas),
@@ -229,75 +246,23 @@ impl<B: Backend> AnnDataSet<B> {
             Some(Err(dir)) => update_anndata_location_dir(&annotation, dir)?,
         };
 
-        let anndatas: Vec<(String, AnnData<B>)> = adata_files
+        let files: Vec<_> = adata_files
             .into_iter()
-            .map(|(k, path)| {
-                let fl = if path.is_absolute() {
+            .map(|(_, path)| {
+                if path.is_absolute() {
                     B::open(path)
                 } else {
                     B::open(file_path.parent().unwrap_or(Path::new("./")).join(path))
-                }?;
-                Ok((k, AnnData::open(fl)?))
+                }
             })
             .collect::<Result<_>>()?;
 
+        let n_obs = annotation.n_obs();
+        let n_vars = annotation.n_vars();
         Ok(Self {
             annotation,
-            anndatas: Slot::new(StackedAnnData::new(anndatas.into_iter())?),
+            anndatas: Slot::new(StackedAnnData::new(files, n_obs, n_vars)?),
         })
-    }
-
-    /// AnnDataSet will not move data across underlying AnnData objects. So the
-    /// orders of rows in the resultant AnnDataSet object may not be consistent
-    /// with the input `obs_indices`. This function will return a vector that can
-    /// be used to reorder the `obs_indices` to match the final order of rows in
-    /// the AnnDataSet.
-    pub fn write_select<O: Backend, S: AsRef<[SelectInfoElem]>, P: AsRef<Path>>(
-        &self,
-        selection: S,
-        dir: P,
-    ) -> Result<Option<Vec<usize>>> {
-        selection.as_ref()[0]
-            .bound_check(self.n_obs())
-            .map_err(|e| anyhow!("AnnDataSet obs {}", e))?;
-        selection.as_ref()[1]
-            .bound_check(self.n_vars())
-            .map_err(|e| anyhow!("AnnDataSet var {}", e))?;
-
-        let file = dir.as_ref().join("_dataset.h5ads");
-        let anndata_dir = dir.as_ref().join("anndatas");
-        std::fs::create_dir_all(&anndata_dir)?;
-
-        let (files, obs_idx_order) =
-            self.anndatas
-                .inner()
-                .write_select::<O, _, _>(&selection, &anndata_dir, ".h5ad")?;
-
-        if let Some(order) = obs_idx_order.as_ref() {
-            let idx = SelectInfoElemBounds::new(&selection.as_ref()[0], self.n_obs()).to_vec();
-            let new_idx = order.iter().map(|i| idx[*i]).collect::<SelectInfoElem>();
-            self.annotation
-                .write_select::<O, _, _>([new_idx, selection.as_ref()[1].clone()], &file)?;
-        } else {
-            self.annotation.write_select::<O, _, _>(selection, &file)?;
-        };
-
-        let adata: AnnData<O> = AnnData::open(O::open_rw(&file)?)?;
-
-        let parent_dir = if anndata_dir.is_absolute() {
-            anndata_dir
-        } else {
-            Path::new("anndatas").to_path_buf()
-        };
-
-        let (keys, filenames): (Vec<_>, Vec<_>) = files
-            .into_iter()
-            .map(|(k, v)| (k, parent_dir.join(v.as_str()).to_str().unwrap().to_string()))
-            .unzip();
-        let file_loc = df!("keys" => keys, "file_path" => filenames)?;
-        adata.uns().add("AnnDataSet", file_loc)?;
-        adata.close()?;
-        Ok(obs_idx_order)
     }
 
     /// Convert AnnDataSet to AnnData object
@@ -334,7 +299,7 @@ impl<B: Backend> AnnDataSet<B> {
                 self.anndatas.inner().x.chunked(500).map(|x| x.0),
             )?;
         }
-        for ann in self.anndatas.extract().unwrap().elems.into_values() {
+        for ann in self.anndatas.extract().unwrap().files.into_iter() {
             ann.close()?;
         }
         Ok(self.annotation)
@@ -342,7 +307,7 @@ impl<B: Backend> AnnDataSet<B> {
 
     pub fn close(self) -> Result<()> {
         self.annotation.close()?;
-        for ann in self.anndatas.extract().unwrap().elems.into_values() {
+        for ann in self.anndatas.extract().unwrap().files.into_iter() {
             ann.close()?;
         }
         Ok(())
@@ -430,8 +395,7 @@ fn update_anndata_location_dir<B: Backend, P: AsRef<Path>>(
 }
 
 pub struct StackedAnnData<B: Backend> {
-    index: VecVecIndex,
-    elems: IndexMap<String, AnnData<B>>,
+    files: Vec<B::Store>,
     pub(crate) n_obs: usize,
     pub(crate) n_vars: usize,
     pub(crate) x: StackedArrayElem<B>,
@@ -453,48 +417,28 @@ impl<B: Backend> std::fmt::Display for StackedAnnData<B> {
 }
 
 impl<B: Backend> StackedAnnData<B> {
-    fn new<'a, T, S>(iter: T) -> Result<Self>
-    where
-        T: IntoIterator<Item = (S, AnnData<B>)>,
-        S: ToString,
-    {
-        let adatas: IndexMap<String, AnnData<B>> =
-            iter.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-        ensure!(!adatas.is_empty(), "no AnnData objects to stack");
+    fn new(files: Vec<B::Store>, n_obs: usize, n_vars: usize) -> Result<Self> {
+        let mut xs = SmallVec::new();
+        let mut obs = Vec::new();
+        let mut obsm = Vec::new();
+        for file in &files {
+            let x = if file.exists("X")? {
+                ArrayElem::try_from(DataContainer::open(file, "X")?)?
+            } else {
+                Slot::none()
+            };
+            xs.push(x);
 
-        if let Some((_, first)) = adatas.first() {
-            let lock = first.var.lock();
-            let var_names = lock.as_ref().map(|x| &x.index);
-            if !adatas
-                .par_values()
-                .skip(1)
-                .all(|x| x.var.lock().as_ref().map(|x| &x.index).eq(&var_names))
-            {
-                bail!("var names mismatch");
-            }
+            obs.push(open_df(file, "obs")?);
+            obsm.push(open_obsm(file.open_group("obsm")?, None)?);
         }
-
-        let x = StackedArrayElem::new(adatas.values().map(|x| x.get_x().clone()).collect())?;
-
-        let obs = if adatas.values().any(|x| x.obs.is_none()) {
-            StackedDataFrame::new(Vec::new())
-        } else {
-            StackedDataFrame::new(adatas.values().map(|x| x.obs.clone()).collect())
-        }?;
-
-        let obsm = {
-            let arrays: Vec<AxisArrays<_>> = adatas.values().map(|x| x.obsm.clone()).collect();
-            StackedAxisArrays::new(Axis::Row, arrays)?
-        };
-
         Ok(Self {
-            index: adatas.values().map(|x| x.n_obs()).collect(),
-            n_obs: adatas.values().map(|x| x.n_obs()).sum(),
-            n_vars: adatas.values().next().unwrap().n_vars(),
-            elems: adatas,
-            x,
-            obs,
-            obsm,
+            files,
+            n_obs,
+            n_vars,
+            x: StackedArrayElem::new(xs)?,
+            obs: StackedDataFrame::new(obs)?,
+            obsm: StackedAxisArrays::new(Axis::Row, obsm)?,
         })
     }
 
@@ -519,9 +463,10 @@ impl<B: Backend> StackedAnnData<B> {
     }
 
     pub fn len(&self) -> usize {
-        self.elems.len()
+        self.files.len()
     }
 
+    /*
     pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData<B>> {
         self.elems.keys()
     }
@@ -533,43 +478,7 @@ impl<B: Backend> StackedAnnData<B> {
     pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData<B>> {
         self.elems.iter()
     }
-
-    /// Write a part of stacked AnnData objects to disk, return the key and
-    /// file name (without parent paths)
-    pub fn write_select<O, S, P>(
-        &self,
-        selection: S,
-        dir: P,
-        suffix: &str,
-    ) -> Result<(IndexMap<String, String>, Option<Vec<usize>>)>
-    where
-        O: Backend,
-        S: AsRef<[SelectInfoElem]>,
-        P: AsRef<Path> + std::marker::Sync,
-    {
-        let slice = selection.as_ref();
-        ensure!(slice.len() == 2, "selection must be 2D");
-
-        let (slices, mapping) = self.index.split_select(&slice[0]);
-
-        let files: Result<_> = self
-            .elems
-            .iter()
-            .enumerate()
-            .map(|(i, (k, adata))| {
-                let name = k.to_owned() + suffix;
-                let file = dir.as_ref().join(&name);
-                let select = if let Some(s) = slices.get(&i) {
-                    [s.clone(), slice[1].clone()]
-                } else {
-                    [Vec::new().into(), slice[1].clone()]
-                };
-                adata.write_select::<O, _, _>(select, file)?;
-                Ok((k.clone(), name))
-            })
-            .collect();
-        Ok((files?, mapping))
-    }
+    */
 }
 
 fn as_str_vec(series: &Column) -> Vec<String> {

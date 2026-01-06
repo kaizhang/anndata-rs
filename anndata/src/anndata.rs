@@ -1,13 +1,11 @@
 mod dataset;
+pub(crate) mod elem_io;
 
 pub use dataset::{AnnDataSet, StackedAnnData};
+use elem_io::{new_mapping, open_layers, open_obsm, open_obsp, open_varm, open_varp};
 
 use crate::{
-    ArrayElemOp, AxisArraysOp, ElemCollectionOp,
-    backend::{Backend, DataContainer, DataType, GroupOp, StoreOp},
-    container::{ArrayElem, Axis, AxisArrays, DataFrameElem, Dim, ElemCollection, Slot},
-    data::*,
-    traits::AnnDataOp,
+    ArrayElemOp, AxisArraysOp, ElemCollectionOp, backend::{Backend, DataContainer, DataType, GroupOp, StoreOp}, container::{ArrayElem, AxisArrays, DataFrameElem, Dim, ElemCollection, Slot}, data::*, traits::AnnDataOp
 };
 
 use anyhow::{Result, ensure};
@@ -104,41 +102,6 @@ impl<B: Backend> std::fmt::Display for AnnData<B> {
     }
 }
 
-pub(crate) fn new_mapping<G: GroupOp<B>, B: Backend>(store: &G, name: &str) -> Result<B::Group> {
-    let mut g = store.new_group(name)?;
-    MAPPING_ENCODING.save(&mut g)?;
-    Ok(g)
-}
-
-// Helper function to create a new observation matrix (obsm)
-pub(crate) fn new_obsm<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
-    AxisArrays::new(group, Axis::Row, n_obs, None)
-}
-
-// Helper function to create a new pairwise observation matrix (obsp)
-pub(crate) fn new_obsp<B: Backend>(group: B::Group, n_obs: &Dim) -> Result<AxisArrays<B>> {
-    AxisArrays::new(group, Axis::Pairwise, n_obs, None)
-}
-
-// Helper function to create a new variable matrix (varm)
-pub(crate) fn new_varm<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
-    AxisArrays::new(group, Axis::Row, n_vars, None)
-}
-
-// Helper function to create a new pairwise variable matrix (varp)
-pub(crate) fn new_varp<B: Backend>(group: B::Group, n_vars: &Dim) -> Result<AxisArrays<B>> {
-    AxisArrays::new(group, Axis::Pairwise, n_vars, None)
-}
-
-// Helper function to create new layers of data
-pub(crate) fn new_layers<B: Backend>(
-    group: B::Group,
-    n_obs: &Dim,
-    n_vars: &Dim,
-) -> Result<AxisArrays<B>> {
-    AxisArrays::new(group, Axis::RowColumn, n_obs, Some(n_vars))
-}
-
 impl<B: Backend> AnnData<B> {
     /// Get the data matrix.
     pub fn get_x(&self) -> &ArrayElem<B> {
@@ -189,22 +152,22 @@ impl<B: Backend> AnnData<B> {
         };
 
         let obsm = match file.open_group("obsm").or(new_mapping(&file, "obsm")) {
-            Ok(group) => new_obsm(group, &n_obs)?,
+            Ok(group) => open_obsm(group, Some(&n_obs))?,
             _ => AxisArrays::empty(),
         };
 
         let obsp = match file.open_group("obsp").or(new_mapping(&file, "obsp")) {
-            Ok(group) => new_obsp(group, &n_obs)?,
+            Ok(group) => open_obsp(group, Some(&n_obs))?,
             _ => AxisArrays::empty(),
         };
 
         let varm = match file.open_group("varm").or(new_mapping(&file, "varm")) {
-            Ok(group) => new_varm(group, &n_vars)?,
+            Ok(group) => open_varm(group, Some(&n_vars))?,
             _ => AxisArrays::empty(),
         };
 
         let varp = match file.open_group("varp").or(new_mapping(&file, "varp")) {
-            Ok(group) => new_varp(group, &n_vars)?,
+            Ok(group) => open_varp(group, Some(&n_vars))?,
             _ => AxisArrays::empty(),
         };
 
@@ -214,7 +177,7 @@ impl<B: Backend> AnnData<B> {
         };
 
         let layers = match file.open_group("layers").or(new_mapping(&file, "layers")) {
-            Ok(group) => new_layers(group, &n_obs, &n_vars)?,
+            Ok(group) => open_layers(group, Some(&n_obs), Some(&n_vars))?,
             _ => AxisArrays::empty(),
         };
 
@@ -243,12 +206,12 @@ impl<B: Backend> AnnData<B> {
             x: Slot::none(),
             obs: Slot::none(),
             var: Slot::none(),
-            obsm: new_obsm(new_mapping(&file, "obsm")?, &n_obs)?,
-            obsp: new_obsp(new_mapping(&file, "obsp")?, &n_obs)?,
-            varm: new_varm(new_mapping(&file, "varm")?, &n_vars)?,
-            varp: new_varp(new_mapping(&file, "varp")?, &n_vars)?,
+            obsm: open_obsm(new_mapping(&file, "obsm")?, Some(&n_obs))?,
+            obsp: open_obsp(new_mapping(&file, "obsp")?, Some(&n_obs))?,
+            varm: open_varm(new_mapping(&file, "varm")?, Some(&n_vars))?,
+            varp: open_varp(new_mapping(&file, "varp")?, Some(&n_vars))?,
             uns: ElemCollection::new(new_mapping(&file, "uns")?)?,
-            layers: new_layers(new_mapping(&file, "layers")?, &n_obs, &n_vars)?,
+            layers: open_layers(new_mapping(&file, "layers")?, Some(&n_obs), Some(&n_vars))?,
             file,
             n_obs,
             n_vars,
@@ -313,10 +276,10 @@ impl<B: Backend> AnnData<B> {
         if saved_fields.contains("varm") {
             adata.set_varm(self.varm().iter_item::<ArrayData>())?;
         }
-        if saved_fields.contains("varp") {  
+        if saved_fields.contains("varp") {
             adata.set_varp(self.varp().iter_item::<ArrayData>())?;
         }
-        if saved_fields.contains("uns") {   
+        if saved_fields.contains("uns") {
             adata.set_uns(self.uns().iter_item::<Data>())?;
         }
         if saved_fields.contains("layers") {
@@ -473,14 +436,18 @@ impl<B: Backend> AnnData<B> {
 
     /// Split the AnnData object into multiple AnnData objects based on grouping keys.
     /// The length of the grouping keys must match the number of observations.
-    /// 
+    ///
     /// # Arguments:
     /// * `keys` - A slice of grouping keys.
     /// * `out_dir` - The output directory to save the split AnnData files.
-    /// 
+    ///
     /// # Returns:
     /// A HashMap mapping each unique key to its corresponding AnnData object.
-    pub fn split_by<P: AsRef<Path>>(&self, keys: &[String], out_dir: P) -> Result<HashMap<String, AnnData<B>>> {
+    pub fn split_by<P: AsRef<Path>>(
+        &self,
+        keys: &[String],
+        out_dir: P,
+    ) -> Result<HashMap<String, AnnData<B>>> {
         let n_vars = self.n_vars();
         ensure!(
             keys.len() == self.n_obs(),
@@ -512,7 +479,7 @@ impl<B: Backend> AnnData<B> {
             let var = self.read_var()?;
             let obs = self.read_obs()?;
             adatas.iter().try_for_each(|(_, (adata, idx))| {
-                let idx =  SelectInfoElem::from(idx);
+                let idx = SelectInfoElem::from(idx);
                 if !obs_names.is_empty() {
                     adata.set_obs_names(obs_names.select(&idx))?;
                 }
@@ -528,30 +495,34 @@ impl<B: Backend> AnnData<B> {
         // Copy X
         if let Some(dtype) = self.x().dtype() {
             let mut x_builders: HashMap<_, _> = match dtype {
-                DataType::Array(t) => {
-                    adatas.iter().map(|(key, (adata, _))| {
+                DataType::Array(t) => adatas
+                    .iter()
+                    .map(|(key, (adata, _))| {
                         (key, MatrixBuilder::new_dense(&adata.file, "X", t).unwrap())
-                    }).collect()
-                }
-                DataType::CsrMatrix(t) => {
-                    adatas.iter().map(|(key, (adata, _))| {
+                    })
+                    .collect(),
+                DataType::CsrMatrix(t) => adatas
+                    .iter()
+                    .map(|(key, (adata, _))| {
                         (key, MatrixBuilder::new_sparse(&adata.file, "X", t).unwrap())
-                    }).collect()
-                }
+                    })
+                    .collect(),
                 _ => anyhow::bail!("Unsupported data type for X"),
             };
 
-            self.x().iter::<ArrayData>(10000).for_each(|(chunk, start, end)| {
-                let mut idx = HashMap::new();
-                keys[start..end].iter().enumerate().for_each(|(i, key)| {
-                    idx.entry(key).or_insert(Vec::new()).push(i);
-                });
+            self.x()
+                .iter::<ArrayData>(10000)
+                .for_each(|(chunk, start, end)| {
+                    let mut idx = HashMap::new();
+                    keys[start..end].iter().enumerate().for_each(|(i, key)| {
+                        idx.entry(key).or_insert(Vec::new()).push(i);
+                    });
 
-                idx.into_iter().for_each(|(key, rows)| {
-                    let arr = chunk.select_axis(0, SelectInfoElem::from(&rows));
-                    x_builders.get_mut(&key).unwrap().add(arr).unwrap();
+                    idx.into_iter().for_each(|(key, rows)| {
+                        let arr = chunk.select_axis(0, SelectInfoElem::from(&rows));
+                        x_builders.get_mut(&key).unwrap().add(arr).unwrap();
+                    });
                 });
-            });
 
             x_builders.into_iter().try_for_each(|(key, builder)| {
                 adatas.get(key).unwrap().0.x.swap(&builder.finish()?);
@@ -559,10 +530,9 @@ impl<B: Backend> AnnData<B> {
             })?;
         }
 
-        adatas.into_iter()
-            .map(|(key, (adata, _))| {
-                Ok((key.to_string(), adata))
-            })
+        adatas
+            .into_iter()
+            .map(|(key, (adata, _))| Ok((key.to_string(), adata)))
             .collect()
     }
 }

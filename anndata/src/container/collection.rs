@@ -173,7 +173,10 @@ pub enum Axis {
 }
 
 /// Nullable dimension. None means that the dimension is not set.
-/// Dimension can be set only once.
+/// Dimension can be set only once. Once set, it cannot be changed.
+/// Dim is wrapped in Arc<Mutex<>> to allow sharing between multiple AxisArrays
+/// and other anndata structures.
+/// Dim is used to ensure that the shapes of arrays added to AnnData are consistent.
 #[derive(Debug, Clone)]
 pub struct Dim(Arc<Mutex<Option<usize>>>);
 
@@ -215,6 +218,7 @@ impl Display for Dim {
     }
 }
 
+/// A lock guard for Dim.
 pub struct DimLock<'a>(MutexGuard<'a, Option<usize>>);
 
 impl DimLock<'_> {
@@ -245,10 +249,10 @@ impl DimLock<'_> {
 }
 
 pub struct InnerAxisArrays<B: Backend> {
-    pub axis: Axis,
-    pub(crate) container: B::Group,
-    pub(crate) dim1: Dim,
-    pub(crate) dim2: Option<Dim>,
+    axis: Axis,
+    container: B::Group,
+    dim1: Option<Dim>, // If dim1 is None, mutating AxisArrays is not allowed.
+    dim2: Option<Dim>, // If dim2 is None, mutating RowColumn AxisArrays is not allowed.
     data: HashMap<String, ArrayElem<B>>,
 }
 
@@ -289,8 +293,21 @@ impl<B: Backend> std::fmt::Display for InnerAxisArrays<B> {
 }
 
 impl<B: Backend> InnerAxisArrays<B> {
+    /// Return the length of the first dimension.
     pub fn size(&self) -> usize {
-        self.dim1.get()
+        if let Some(dim) = &self.dim1 {
+            dim.get()
+        } else {
+            self.data.values().next().map_or(0, |x| x.inner().shape()[0])
+        }
+    }
+
+    fn dim1(&mut self) -> &Dim {
+        self.dim1.as_ref().expect("Dim1 is not set!")
+    }
+
+    fn dim2(&mut self) -> &Dim {
+        self.dim2.as_ref().expect("Dim2 is not set!")
     }
 
     pub fn add_data<D: Into<ArrayData>>(&mut self, key: &str, data: D) -> Result<()> {
@@ -299,11 +316,11 @@ impl<B: Backend> InnerAxisArrays<B> {
         let shape = data.shape();
         match self.axis {
             Axis::Row => {
-                self.dim1.try_set(shape[0])?;
+                self.dim1().try_set(shape[0])?;
             }
             Axis::RowColumn => {
-                self.dim1.try_set(shape[0])?;
-                self.dim2.as_ref().unwrap().try_set(shape[1])?;
+                self.dim1().try_set(shape[0])?;
+                self.dim2().try_set(shape[1])?;
             }
             Axis::Pairwise => {
                 ensure!(
@@ -311,7 +328,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                     "expecting a square array, but receive a {:?} array",
                     shape
                 );
-                self.dim1.try_set(shape[0])?;
+                self.dim1().try_set(shape[0])?;
             }
         }
 
@@ -339,7 +356,7 @@ impl<B: Backend> InnerAxisArrays<B> {
         let shape = { elem.inner().shape().clone() };
         match self.axis {
             Axis::Row => {
-                if let Err(e) = self.dim1.try_set(shape[0]) {
+                if let Err(e) = self.dim1().try_set(shape[0]) {
                     elem.clear()?;
                     bail!(e)
                 } else {
@@ -349,8 +366,7 @@ impl<B: Backend> InnerAxisArrays<B> {
             }
             Axis::RowColumn => {
                 if let Err(e) = self
-                    .dim1
-                    .try_set(shape[0])
+                    .dim1().try_set(shape[0])
                     .and(self.dim2.as_ref().unwrap().try_set(shape[1]))
                 {
                     elem.clear()?;
@@ -364,7 +380,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                 if shape[0] != shape[1] {
                     elem.clear()?;
                     bail!("expecting a square array, but receive a {:?} array", shape)
-                } else if let Err(e) = self.dim1.try_set(shape[0]) {
+                } else if let Err(e) = self.dim1().try_set(shape[0]) {
                     elem.clear()?;
                     bail!(e)
                 } else {
@@ -388,7 +404,9 @@ impl<B: Backend> InnerAxisArrays<B> {
                 }
                 self.values()
                     .try_for_each(|x| x.inner().subset_axis(0, selection[0]))?;
-                if let Some(mut lock) = self.dim1.try_lock() {
+
+                // We use try_lock here to avoid deadlock in case dim1 is shared with other structures.
+                if let Some(mut lock) = self.dim1.as_ref().unwrap().try_lock() {
                     lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
             }
@@ -398,7 +416,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                 }
                 self.values()
                     .try_for_each(|x| x.inner().subset(selection))?;
-                if let Some(mut lock) = self.dim1.try_lock() {
+                if let Some(mut lock) = self.dim1.as_ref().unwrap().try_lock() {
                     lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
                 if let Some(mut lock) = self.dim2.as_ref().unwrap().try_lock() {
@@ -416,7 +434,7 @@ impl<B: Backend> InnerAxisArrays<B> {
                     slice[1] = selection[0];
                     x.inner().subset(slice.as_slice())
                 })?;
-                if let Some(mut lock) = self.dim1.try_lock() {
+                if let Some(mut lock) = self.dim1.as_ref().unwrap().try_lock() {
                     lock.set(SelectInfoElemBounds::new(selection[0], lock.get()).len());
                 }
             }
@@ -463,7 +481,7 @@ impl<B: Backend> AxisArrays<B> {
         self.is_none() || self.inner().data.is_empty()
     }
 
-    pub fn new(group: B::Group, axis: Axis, dim1: &Dim, dim2: Option<&Dim>) -> Result<Self> {
+    pub fn new(group: B::Group, axis: Axis, dim1: Option<&Dim>, dim2: Option<&Dim>) -> Result<Self> {
         let data: HashMap<_, _> = iter_containers::<B>(&group)
             .map(|(k, v)| (k, ArrayElem::try_from(v).unwrap()))
             .collect();
@@ -493,15 +511,19 @@ impl<B: Backend> AxisArrays<B> {
         }
 
         if let Some(s) = shapes.get(0) {
-            dim1.try_set(s[0])?;
+            if let Some(d) = dim1 {
+                d.try_set(s[0])?;
+            }
             if let Axis::RowColumn = axis {
-                dim2.unwrap().try_set(s[1])?;
+                if let Some(d) = dim2 {
+                    d.try_set(s[1])?;
+                }
             }
         }
 
         let arrays = InnerAxisArrays {
             container: group,
-            dim1: dim1.clone(),
+            dim1: dim1.cloned(),
             dim2: dim2.cloned(),
             axis,
             data,

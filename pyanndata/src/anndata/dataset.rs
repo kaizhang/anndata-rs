@@ -322,59 +322,6 @@ impl AnnDataSet {
         self.0.set_varp(varp)
     }
 
-    /// Subsetting the AnnDataSet object.
-    ///
-    /// Note
-    /// ----
-    /// AnnDataSet will not move data across underlying AnnData objects. So the
-    /// orders of rows in the resultant AnnDataSet object may not be consistent
-    /// with the input `obs_indices`. This function will return a vector that can
-    /// be used to reorder the `obs_indices` to match the final order of rows in
-    /// the AnnDataSet.
-    ///
-    /// Parameters
-    /// ----------
-    /// obs_indices
-    ///     obs indices
-    /// var_indices
-    ///     var indices
-    /// out
-    ///     Name of the directory used to store the new files. If provided,
-    ///     the result will be saved to the directory and the original files
-    ///     remains unchanged.
-    /// backend: str | None
-    ///
-    /// Returns
-    /// -------
-    /// Tuple[AnnDataSet, list[int] | None]
-    ///     A new AnnDataSet object will be returned.
-    ///     If the order of input `obs_indices` has been changed, it will
-    ///     return the indices that would sort the `obs_indices` array.
-    #[pyo3(
-        signature = (obs_indices=None, var_indices=None, out=None, backend=None),
-        text_signature = "($self, obs_indices=None, var_indices=None, out=None, backend=None)"
-    )]
-    pub fn subset(
-        &self,
-        obs_indices: Option<&Bound<'_, PyAny>>,
-        var_indices: Option<&Bound<'_, PyAny>>,
-        out: Option<PathBuf>,
-        backend: Option<&str>,
-    ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
-        if out.is_none() {
-            bail!("AnnDataSet cannot be subsetted in place. Please provide an output directory.");
-        }
-        let out = out.unwrap();
-        let backend = get_backend(&out, backend);
-        let i = obs_indices
-            .map(|x| self.select_obs(x).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        let j = var_indices
-            .map(|x| self.select_var(x).unwrap())
-            .unwrap_or(SelectInfoElem::full());
-        self.0.subset(&[i, j], out, backend)
-    }
-
     /// View into the component AnnData objects.
     ///
     /// Returns
@@ -495,13 +442,6 @@ trait AnnDataSetTrait: Send + Sync + Downcast {
     fn set_varp(&self, varp: Option<HashMap<String, PyArrayData>>) -> Result<()>;
 
     fn get_adatas(&self) -> StackedAnnData;
-
-    fn subset(
-        &self,
-        slice: &[SelectInfoElem],
-        out: PathBuf,
-        backend: &str,
-    ) -> Result<(AnnDataSet, Option<Vec<usize>>)>;
 
     fn to_adata<'py>(
         &self,
@@ -714,25 +654,6 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
 
     fn get_adatas(&self) -> StackedAnnData {
         self.inner().adatas().clone().into()
-    }
-
-    fn subset(
-        &self,
-        slice: &[SelectInfoElem],
-        out: PathBuf,
-        backend: &str,
-    ) -> Result<(AnnDataSet, Option<Vec<usize>>)> {
-        match backend {
-            H5::NAME => {
-                let order = self.inner().write_select::<H5, _, _>(slice, &out)?;
-                let file = H5::open_rw(out.join("_dataset.h5ads"))?;
-                Ok((
-                    anndata::AnnDataSet::<H5>::open::<PathBuf>(file, None)?.into(),
-                    order,
-                ))
-            }
-            x => bail!("Unsupported backend: {}", x),
-        }
     }
 
     fn to_adata<'py>(
