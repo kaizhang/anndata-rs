@@ -130,7 +130,7 @@ impl<B: Backend> AnnDataSet<B> {
         &self.annotation
     }
 
-    pub fn new<'a, T, S, P>(data: T, filename: P, add_key: &str) -> Result<Self>
+    pub fn new<'a, T, S, P>(data: T, filename: P, add_key: &str, use_absolute_path: bool) -> Result<Self>
     where
         T: IntoIterator<Item = (S, AnnData<B>)>,
         S: ToString,
@@ -188,7 +188,13 @@ impl<B: Backend> AnnDataSet<B> {
         // Set UNS. UNS includes children anndata locations and shared elements.
         let filenames: Vec<_> = files
             .iter()
-            .map(|x| x.filename().display().to_string())
+            .map(|x| {
+                let mut filename = x.filename();
+                if use_absolute_path {
+                    filename = std::fs::canonicalize(filename).unwrap()
+                }
+                filename.display().to_string()
+            })
             .collect();
         annotation.uns().add(
             "AnnDataSet",
@@ -465,20 +471,6 @@ impl<B: Backend> StackedAnnData<B> {
     pub fn len(&self) -> usize {
         self.files.len()
     }
-
-    /*
-    pub fn keys(&self) -> indexmap::map::Keys<'_, String, AnnData<B>> {
-        self.elems.keys()
-    }
-
-    pub fn values(&self) -> indexmap::map::Values<'_, String, AnnData<B>> {
-        self.elems.values()
-    }
-
-    pub fn iter(&self) -> indexmap::map::Iter<'_, String, AnnData<B>> {
-        self.elems.iter()
-    }
-    */
 }
 
 fn as_str_vec(series: &Column) -> Vec<String> {

@@ -20,6 +20,7 @@ pub fn test_basic<B: Backend>() {
             [("ann1", ann1), ("ann2", ann2)],
             dir.join("dataset"),
             "sample",
+            false,
         )
         .unwrap();
     })

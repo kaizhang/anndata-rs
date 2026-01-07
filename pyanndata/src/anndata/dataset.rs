@@ -33,6 +33,8 @@ use super::get_backend;
         File name of the output file containing the AnnDataSet object.
     add_key: str
         The column name in obs to store the keys
+    use_abolute_path: bool
+        Whether to store absolute paths of the component anndata files.
     backend: Literal['hdf5', 'zarr']
         The backend to use for the AnnDataSet object.
 
@@ -141,11 +143,12 @@ pub enum AnnDataFile<'py> {
 #[pymethods]
 impl AnnDataSet {
     #[new]
-    #[pyo3(signature = (adatas, *, filename, add_key="sample", backend=None))]
+    #[pyo3(signature = (adatas, *, filename, add_key="sample", use_absolute_path=false, backend=None))]
     pub fn new(
         adatas: Vec<(String, AnnDataFile)>,
         filename: PathBuf,
         add_key: &str,
+        use_absolute_path: bool,
         backend: Option<&str>,
     ) -> Result<Self> {
         let backend = get_backend(&filename, backend);
@@ -160,7 +163,7 @@ impl AnnDataSet {
                     };
                     (key, adata)
                 });
-                Ok(anndata::AnnDataSet::new(anndatas, filename, add_key)?.into())
+                Ok(anndata::AnnDataSet::new(anndatas, filename, add_key, use_absolute_path)?.into())
             }
             _ => todo!(),
         }
