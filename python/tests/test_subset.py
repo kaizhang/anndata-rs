@@ -21,12 +21,18 @@ def test_split(tmp_path, backend):
     adata = AnnData(filename = h5ad(tmp_path), backend=backend)
     adata.obs_names = [str(i) for i in range(100)]
     adata.var_names = [str(i) for i in range(50)]
-    groups = ["A"] * 30 + ["B"] * 50 + ["C"] * 20
 
     adata.X = random(100, 50, 0.1, format="csr", dtype=np.int64)
-    adatas = adata.split_by(groups, out_dir=tmp_path / "split")
 
+    groups = ["A"] * 30 + ["B"] * 50 + ["C"] * 20
+    adatas = adata.split_obs_by(groups, out_dir=tmp_path / "split1")
     np.testing.assert_array_equal(adatas['A'].X[:].todense(), adata.X[0:30, :].todense())
+    np.testing.assert_array_equal(adatas['B'].X[:].todense(), adata.X[30:80, :].todense())
+    np.testing.assert_array_equal(adatas['C'].X[:].todense(), adata.X[80:100, :].todense())
+
+    groups = [None] * 30 + ["B"] * 50 + ["C"] * 20
+    adatas = adata.split_obs_by(groups, out_dir=tmp_path / "split2")
+    assert len(adatas) == 2
     np.testing.assert_array_equal(adatas['B'].X[:].todense(), adata.X[30:80, :].todense())
     np.testing.assert_array_equal(adatas['C'].X[:].todense(), adata.X[80:100, :].todense())
 
