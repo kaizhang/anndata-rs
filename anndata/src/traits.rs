@@ -1,3 +1,5 @@
+use std::{collections::HashMap, path::Path};
+
 use crate::{
     anndata::elem_io::{open_layers, new_mapping, open_obsm, open_obsp, open_varm, open_varp},
     backend::DataType,
@@ -166,6 +168,112 @@ pub trait AnnDataOp {
     fn del_varp(&self) -> Result<()>;
     /// Deletes the layers.
     fn del_layers(&self) -> Result<()>;
+
+    /// Split the AnnDataSet object into multiple AnnData objects based on grouping keys.
+    /// The length of the grouping keys must match the number of observations.
+    ///
+    /// # Arguments:
+    /// * `keys` - A slice of grouping keys. If key is None, the corresponding observation will not be included in any split AnnData.
+    /// * `out_dir` - The output directory to save the split AnnData files.
+    ///
+    /// # Returns:
+    /// A HashMap mapping each unique key to its corresponding AnnData object.
+    fn split_obs_by<B: Backend, P: AsRef<Path>>(
+        &self,
+        keys: &[Option<String>],
+        out_dir: P,
+    ) -> Result<HashMap<String, AnnData<B>>> {
+        let n_vars = self.n_vars();
+        ensure!(
+            keys.len() == self.n_obs(),
+            "Length of grouping keys must match number of observations"
+        );
+
+        let mut indices = HashMap::new();
+        keys.iter().enumerate().for_each(|(i, key)| {
+            if let Some(key) = key {
+                indices.entry(key).or_insert(Vec::new()).push(i);
+            }
+        });
+
+        // Create anndata files
+        std::fs::create_dir_all(&out_dir)?;
+        let adatas = indices
+            .into_iter()
+            .map(|(key, idx)| {
+                let path = out_dir.as_ref().join(format!("{}.h5ad", key));
+                let adata = AnnData::<B>::new(&path)?;
+                adata.set_n_obs(idx.len())?;
+                adata.set_n_vars(n_vars)?;
+                Ok((key, (adata, idx)))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+
+        // Copy obs and var
+        {
+            let obs_names = self.obs_names();
+            let var_names = self.var_names();
+            let var = self.read_var()?;
+            let obs = self.read_obs()?;
+            adatas.iter().try_for_each(|(_, (adata, idx))| {
+                let idx = SelectInfoElem::from(idx);
+                if !obs_names.is_empty() {
+                    adata.set_obs_names(obs_names.select(&idx))?;
+                }
+                if !var_names.is_empty() {
+                    adata.set_var_names(var_names.clone())?;
+                }
+                adata.set_var(var.clone())?;
+                adata.set_obs(Selectable::select_axis(&obs, 0, idx))?;
+                anyhow::Ok(())
+            })?;
+        }
+
+        // Copy X
+        if let Some(dtype) = self.x().dtype() {
+            let mut x_builders: HashMap<_, _> = match dtype {
+                DataType::Array(t) => adatas
+                    .iter()
+                    .map(|(key, (adata, _))| {
+                        (key, MatrixBuilder::new_dense(&adata.file, "X", t).unwrap())
+                    })
+                    .collect(),
+                DataType::CsrMatrix(t) => adatas
+                    .iter()
+                    .map(|(key, (adata, _))| {
+                        (key, MatrixBuilder::new_sparse(&adata.file, "X", t).unwrap())
+                    })
+                    .collect(),
+                _ => anyhow::bail!("Unsupported data type for X"),
+            };
+
+            self.x()
+                .iter::<ArrayData>(10000)
+                .for_each(|(chunk, start, end)| {
+                    let mut idx = HashMap::new();
+                    keys[start..end].iter().enumerate().for_each(|(i, key)| {
+                        idx.entry(key).or_insert(Vec::new()).push(i);
+                    });
+
+                    idx.into_iter().for_each(|(key, rows)| {
+                        if let Some(key) = key {
+                            let arr = chunk.select_axis(0, SelectInfoElem::from(&rows));
+                            x_builders.get_mut(&key).unwrap().add(arr).unwrap();
+                        }
+                    });
+                });
+
+            x_builders.into_iter().try_for_each(|(key, builder)| {
+                adatas.get(key).unwrap().0.x.swap(&builder.finish()?);
+                anyhow::Ok(())
+            })?;
+        }
+
+        adatas
+            .into_iter()
+            .map(|(key, (adata, _))| Ok((key.to_string(), adata)))
+            .collect()
+    }
 }
 
 impl<T: AnnDataOp> AnnDataOp for &T {

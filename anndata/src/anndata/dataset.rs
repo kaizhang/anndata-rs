@@ -130,7 +130,12 @@ impl<B: Backend> AnnDataSet<B> {
         &self.annotation
     }
 
-    pub fn new<'a, T, S, P>(data: T, filename: P, add_key: &str, use_absolute_path: bool) -> Result<Self>
+    pub fn new<'a, T, S, P>(
+        data: T,
+        filename: P,
+        add_key: &str,
+        use_absolute_path: bool,
+    ) -> Result<Self>
     where
         T: IntoIterator<Item = (S, AnnData<B>)>,
         S: ToString,

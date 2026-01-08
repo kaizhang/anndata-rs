@@ -358,6 +358,34 @@ impl AnnDataSet {
         self.0.to_adata(py, &[i, j], copy_x, file, backend)
     }
 
+    /// Split the AnnDataSet object into multiple AnnData objects based on grouping keys.
+    /// The length of the grouping keys must match the number of observations.
+    ///
+    /// Parameters
+    /// ----------
+    /// key: str | list[str]
+    ///     Grouping key(s). Can be a single column name or a list of column names in `obs`.
+    ///     The grouping keys may contain `None` values, in which case the corresponding
+    ///     observations are ignored.
+    /// out_dir: Path
+    ///     Output directory to save the split AnnData files.
+    ///
+    /// Returns
+    /// -------
+    /// dict[str, AnnData]
+    ///     A dictionary mapping each unique key to its corresponding AnnData object.
+    #[pyo3(
+        signature = (key, out_dir="./".into()),
+        text_signature = "($self, key, out_dir='./')",
+    )]
+    pub fn split_obs_by(
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, AnnData>> {
+        self.0.split_obs_by(key, out_dir)
+    }
+
     /// Parameters
     /// ----------
     /// chunk_size : int
@@ -454,6 +482,12 @@ trait AnnDataSetTrait: Send + Sync + Downcast {
         file: Option<PathBuf>,
         backend: Option<&str>,
     ) -> Result<Bound<'py, PyAny>>;
+
+    fn split_obs_by(
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, AnnData>>;
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray;
 
@@ -761,6 +795,31 @@ impl<B: Backend> AnnDataSetTrait for Slot<anndata::AnnDataSet<B>> {
             }
             Ok(adata.into_pyobject(py)?)
         }
+    }
+
+    fn split_obs_by(
+        &self,
+        key: Bound<'_, PyAny>,
+        out_dir: PathBuf,
+    ) -> Result<HashMap<String, AnnData>> {
+        let inner = self.inner();
+
+        let keys = if let Ok(key) = key.extract::<String>() {
+            let obs = inner.read_obs()?;
+            obs.column(&key)?
+                .str()?
+                .into_iter()
+                .map(|x| x.map(|s| s.to_string()))
+                .collect()
+        } else {
+            key.extract::<Vec<Option<String>>>()?
+        };
+
+        let split_data = inner.split_obs_by::<H5, _>(&keys, &out_dir)?;
+        split_data
+            .into_iter()
+            .map(|(k, v)| Ok((k, AnnData::from(v))))
+            .collect()
     }
 
     fn chunked_x(&self, chunk_size: usize) -> PyChunkedArray {
