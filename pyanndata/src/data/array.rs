@@ -86,37 +86,19 @@ pub(super) fn to_array(ob: &Bound<'_, PyAny>) -> PyResult<DynArray> {
     Ok(arr)
 }
 
-pub(super) fn to_csr(ob: &Bound<'_, PyAny>) -> PyResult<DynCsrMatrix> {
-    fn extract_csr_indicies(indicies: Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
-        let res = match indicies
-            .getattr("dtype")?
-            .getattr("name")?
-            .extract::<&str>()?
-        {
-            "int32" => indicies
-                .extract::<PyReadonlyArrayDyn<i32>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            "int64" => indicies
-                .extract::<PyReadonlyArrayDyn<i64>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            other => panic!("CSR indicies type '{}' is not supported", other),
-        };
-        Ok(res)
-    }
+fn extract_array_as_usize(arr: Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+    arr.call_method1("astype", ("uintp",))?
+        .extract::<Vec<usize>>()
+}
 
+pub(super) fn to_csr(ob: &Bound<'_, PyAny>) -> PyResult<DynCsrMatrix> {
     if !isinstance_of_csr(ob)? {
         return Err(PyTypeError::new_err("not a csr matrix"));
     }
 
     let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
-    let indices = extract_csr_indicies(ob.getattr("indices")?)?;
-    let indptr = extract_csr_indicies(ob.getattr("indptr")?)?;
+    let indices = extract_array_as_usize(ob.getattr("indices")?)?;
+    let indptr = extract_array_as_usize(ob.getattr("indptr")?)?;
     let ty = ob.getattr("data")?.getattr("dtype")?.getattr("name")?;
     let ty = ty.extract::<&str>()?;
 
@@ -139,36 +121,13 @@ pub(super) fn to_csr(ob: &Bound<'_, PyAny>) -> PyResult<DynCsrMatrix> {
 }
 
 pub(super) fn to_csr_noncanonical(ob: &Bound<'_, PyAny>) -> PyResult<DynCsrNonCanonical> {
-    fn extract_csr_indicies(indicies: Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
-        let res = match indicies
-            .getattr("dtype")?
-            .getattr("name")?
-            .extract::<&str>()?
-        {
-            "int32" => indicies
-                .extract::<PyReadonlyArrayDyn<i32>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            "int64" => indicies
-                .extract::<PyReadonlyArrayDyn<i64>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            other => panic!("CSR indicies type '{}' is not supported", other),
-        };
-        Ok(res)
-    }
-
     if !isinstance_of_csr(ob)? {
         return Err(PyTypeError::new_err("not a csr matrix"));
     }
 
     let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
-    let indices = extract_csr_indicies(ob.getattr("indices")?)?;
-    let indptr = extract_csr_indicies(ob.getattr("indptr")?)?;
+    let indices = extract_array_as_usize(ob.getattr("indices")?)?;
+    let indptr = extract_array_as_usize(ob.getattr("indptr")?)?;
     let ty = ob.getattr("data")?.getattr("dtype")?.getattr("name")?;
     let ty = ty.extract::<&str>()?;
 
@@ -190,36 +149,13 @@ pub(super) fn to_csr_noncanonical(ob: &Bound<'_, PyAny>) -> PyResult<DynCsrNonCa
 }
 
 pub(super) fn to_csc(ob: &Bound<'_, PyAny>) -> PyResult<DynCscMatrix> {
-    fn extract_csc_indicies(indicies: Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
-        let res = match indicies
-            .getattr("dtype")?
-            .getattr("name")?
-            .extract::<&str>()?
-        {
-            "int32" => indicies
-                .extract::<PyReadonlyArrayDyn<i32>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            "int64" => indicies
-                .extract::<PyReadonlyArrayDyn<i64>>()?
-                .as_array()
-                .iter()
-                .map(|x| (*x).try_into().unwrap())
-                .collect(),
-            other => panic!("CSC indicies type '{}' is not supported", other),
-        };
-        Ok(res)
-    }
-
     if !isinstance_of_csc(ob)? {
         return Err(PyTypeError::new_err("not a csc matrix"));
     }
 
     let shape: Vec<usize> = ob.getattr("shape")?.extract()?;
-    let indices = extract_csc_indicies(ob.getattr("indices")?)?;
-    let indptr = extract_csc_indicies(ob.getattr("indptr")?)?;
+    let indices = extract_array_as_usize(ob.getattr("indices")?)?;
+    let indptr = extract_array_as_usize(ob.getattr("indptr")?)?;
     let ty = ob.getattr("data")?.getattr("dtype")?.getattr("name")?;
     let ty = ty.extract::<&str>()?;
 

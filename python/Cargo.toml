@@ -15,7 +15,10 @@ pyo3-log = "0.12"
 
 [dependencies.pyo3]
 version = "0.25"
-features = ["extension-module", "multiple-pymethods"]
+features = ["multiple-pymethods"]
+
+[features]
+extension-module = ["pyo3/extension-module", "pyanndata/extension-module"]
 
 [lib]
 name = "anndata_rs"

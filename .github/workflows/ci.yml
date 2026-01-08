@@ -18,10 +18,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Test Rust package
-      run: |
-        cd ${GITHUB_WORKSPACE}/anndata-hdf5 && cargo test --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/anndata && cargo test --no-fail-fast
-        cd ${GITHUB_WORKSPACE}/anndata-test-utils && cargo test --no-fail-fast
+      run: cargo test --no-fail-fast
 
     #- name: benchmark
     #  run: |
