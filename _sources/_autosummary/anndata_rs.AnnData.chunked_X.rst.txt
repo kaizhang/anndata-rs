@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.chunked\_X
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.chunked_X

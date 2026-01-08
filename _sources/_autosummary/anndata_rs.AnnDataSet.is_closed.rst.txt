@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.is\_closed
+=================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnDataSet.is_closed

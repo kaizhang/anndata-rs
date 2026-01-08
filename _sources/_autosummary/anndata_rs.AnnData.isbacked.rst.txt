@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.isbacked
+============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnData.isbacked

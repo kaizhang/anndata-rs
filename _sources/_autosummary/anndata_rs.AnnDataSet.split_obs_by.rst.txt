@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.split\_obs\_by
+=====================================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnDataSet.split_obs_by

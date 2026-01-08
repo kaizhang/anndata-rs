@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.obsp
+===========================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnDataSet.obsp

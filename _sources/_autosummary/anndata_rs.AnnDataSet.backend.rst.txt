@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.backend
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. autoattribute:: AnnDataSet.backend

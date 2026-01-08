@@ -1,0 +1,6 @@
+anndata\_rs.AnnDataSet.var\_ix
+==============================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnDataSet.var_ix

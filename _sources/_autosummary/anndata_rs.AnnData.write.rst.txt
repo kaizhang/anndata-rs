@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.write
+=========================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.write

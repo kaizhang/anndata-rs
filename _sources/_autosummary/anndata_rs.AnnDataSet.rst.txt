@@ -1,0 +1,49 @@
+﻿anndata\_rs.AnnDataSet
+======================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: AnnDataSet
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.AnnDataSet.X
+      ~anndata_rs.AnnDataSet.adatas
+      ~anndata_rs.AnnDataSet.backend
+      ~anndata_rs.AnnDataSet.isbacked
+      ~anndata_rs.AnnDataSet.n_obs
+      ~anndata_rs.AnnDataSet.n_vars
+      ~anndata_rs.AnnDataSet.obs
+      ~anndata_rs.AnnDataSet.obs_names
+      ~anndata_rs.AnnDataSet.obsm
+      ~anndata_rs.AnnDataSet.obsp
+      ~anndata_rs.AnnDataSet.shape
+      ~anndata_rs.AnnDataSet.uns
+      ~anndata_rs.AnnDataSet.var
+      ~anndata_rs.AnnDataSet.var_names
+      ~anndata_rs.AnnDataSet.varm
+      ~anndata_rs.AnnDataSet.varp
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.AnnDataSet.chunked_X
+      ~anndata_rs.AnnDataSet.close
+      ~anndata_rs.AnnDataSet.is_closed
+      ~anndata_rs.AnnDataSet.obs_ix
+      ~anndata_rs.AnnDataSet.split_obs_by
+      ~anndata_rs.AnnDataSet.to_adata
+      ~anndata_rs.AnnDataSet.var_ix
+   
+   

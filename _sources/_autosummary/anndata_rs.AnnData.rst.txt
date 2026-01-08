@@ -1,0 +1,54 @@
+﻿anndata\_rs.AnnData
+===================
+
+.. currentmodule:: anndata_rs
+
+.. autoclass:: AnnData
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.AnnData.X
+      ~anndata_rs.AnnData.backend
+      ~anndata_rs.AnnData.filename
+      ~anndata_rs.AnnData.isbacked
+      ~anndata_rs.AnnData.layers
+      ~anndata_rs.AnnData.n_obs
+      ~anndata_rs.AnnData.n_vars
+      ~anndata_rs.AnnData.obs
+      ~anndata_rs.AnnData.obs_names
+      ~anndata_rs.AnnData.obsm
+      ~anndata_rs.AnnData.obsp
+      ~anndata_rs.AnnData.shape
+      ~anndata_rs.AnnData.uns
+      ~anndata_rs.AnnData.var
+      ~anndata_rs.AnnData.var_names
+      ~anndata_rs.AnnData.varm
+      ~anndata_rs.AnnData.varp
+   
+   
+
+   
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+      :toctree: .
+   
+      ~anndata_rs.AnnData.chunked_X
+      ~anndata_rs.AnnData.close
+      ~anndata_rs.AnnData.copy
+      ~anndata_rs.AnnData.is_closed
+      ~anndata_rs.AnnData.obs_ix
+      ~anndata_rs.AnnData.open
+      ~anndata_rs.AnnData.split_obs_by
+      ~anndata_rs.AnnData.subset
+      ~anndata_rs.AnnData.to_memory
+      ~anndata_rs.AnnData.var_ix
+      ~anndata_rs.AnnData.write
+   
+   

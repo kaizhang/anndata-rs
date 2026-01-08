@@ -1,0 +1,6 @@
+anndata\_rs.AnnData.subset
+==========================
+
+.. currentmodule:: anndata_rs
+
+.. automethod:: AnnData.subset

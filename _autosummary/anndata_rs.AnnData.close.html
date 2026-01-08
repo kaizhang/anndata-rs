@@ -1,0 +1,154 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>anndata_rs.AnnData.close &mdash; AnnData 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="anndata_rs.AnnData.copy" href="anndata_rs.AnnData.copy.html" />
+    <link rel="prev" title="anndata_rs.AnnData.chunked_X" href="anndata_rs.AnnData.chunked_X.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            AnnData
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#core-anndata-classes">Core AnnData classes</a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="anndata_rs.AnnData.html">anndata_rs.AnnData</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.html#anndata_rs.AnnData"><code class="docutils literal notranslate"><span class="pre">AnnData</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.X.html">anndata_rs.AnnData.X</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.backend.html">anndata_rs.AnnData.backend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.filename.html">anndata_rs.AnnData.filename</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.isbacked.html">anndata_rs.AnnData.isbacked</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.layers.html">anndata_rs.AnnData.layers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.n_obs.html">anndata_rs.AnnData.n_obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.n_vars.html">anndata_rs.AnnData.n_vars</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs.html">anndata_rs.AnnData.obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs_names.html">anndata_rs.AnnData.obs_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obsm.html">anndata_rs.AnnData.obsm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obsp.html">anndata_rs.AnnData.obsp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.shape.html">anndata_rs.AnnData.shape</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.uns.html">anndata_rs.AnnData.uns</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var.html">anndata_rs.AnnData.var</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var_names.html">anndata_rs.AnnData.var_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.varm.html">anndata_rs.AnnData.varm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.varp.html">anndata_rs.AnnData.varp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.chunked_X.html">anndata_rs.AnnData.chunked_X</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">anndata_rs.AnnData.close</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.copy.html">anndata_rs.AnnData.copy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.is_closed.html">anndata_rs.AnnData.is_closed</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs_ix.html">anndata_rs.AnnData.obs_ix</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.open.html">anndata_rs.AnnData.open</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.split_obs_by.html">anndata_rs.AnnData.split_obs_by</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.subset.html">anndata_rs.AnnData.subset</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.to_memory.html">anndata_rs.AnnData.to_memory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var_ix.html">anndata_rs.AnnData.var_ix</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.write.html">anndata_rs.AnnData.write</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="anndata_rs.AnnDataSet.html">anndata_rs.AnnDataSet</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#io">IO</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">AnnData</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../api.html">API</a></li>
+          <li class="breadcrumb-item"><a href="anndata_rs.AnnData.html">anndata_rs.AnnData</a></li>
+      <li class="breadcrumb-item active">anndata_rs.AnnData.close</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/kaizhang/anndata-rs/blob/main/python/docs/_autosummary/anndata_rs.AnnData.close.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="anndata-rs-anndata-close">
+<h1>anndata_rs.AnnData.close<a class="headerlink" href="#anndata-rs-anndata-close" title="Link to this heading"></a></h1>
+<dl class="py method">
+<dt class="sig sig-object py" id="anndata_rs.AnnData.close">
+<span class="sig-prename descclassname"><span class="pre">AnnData.</span></span><span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#anndata_rs.AnnData.close" title="Link to this definition"></a></dt>
+<dd><p>Close the AnnData object.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="anndata_rs.AnnData.chunked_X.html" class="btn btn-neutral float-left" title="anndata_rs.AnnData.chunked_X" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="anndata_rs.AnnData.copy.html" class="btn btn-neutral float-right" title="anndata_rs.AnnData.copy" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Kai Zhang.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

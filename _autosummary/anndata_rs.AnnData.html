@@ -1,0 +1,281 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>anndata_rs.AnnData &mdash; AnnData 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="anndata_rs.AnnData.X" href="anndata_rs.AnnData.X.html" />
+    <link rel="prev" title="API" href="../api.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            AnnData
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#core-anndata-classes">Core AnnData classes</a><ul class="current">
+<li class="toctree-l3 current"><a class="current reference internal" href="#">anndata_rs.AnnData</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#anndata_rs.AnnData"><code class="docutils literal notranslate"><span class="pre">AnnData</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.X.html">anndata_rs.AnnData.X</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.backend.html">anndata_rs.AnnData.backend</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.filename.html">anndata_rs.AnnData.filename</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.isbacked.html">anndata_rs.AnnData.isbacked</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.layers.html">anndata_rs.AnnData.layers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.n_obs.html">anndata_rs.AnnData.n_obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.n_vars.html">anndata_rs.AnnData.n_vars</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs.html">anndata_rs.AnnData.obs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs_names.html">anndata_rs.AnnData.obs_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obsm.html">anndata_rs.AnnData.obsm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obsp.html">anndata_rs.AnnData.obsp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.shape.html">anndata_rs.AnnData.shape</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.uns.html">anndata_rs.AnnData.uns</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var.html">anndata_rs.AnnData.var</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var_names.html">anndata_rs.AnnData.var_names</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.varm.html">anndata_rs.AnnData.varm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.varp.html">anndata_rs.AnnData.varp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.chunked_X.html">anndata_rs.AnnData.chunked_X</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.close.html">anndata_rs.AnnData.close</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.copy.html">anndata_rs.AnnData.copy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.is_closed.html">anndata_rs.AnnData.is_closed</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.obs_ix.html">anndata_rs.AnnData.obs_ix</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.open.html">anndata_rs.AnnData.open</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.split_obs_by.html">anndata_rs.AnnData.split_obs_by</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.subset.html">anndata_rs.AnnData.subset</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.to_memory.html">anndata_rs.AnnData.to_memory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.var_ix.html">anndata_rs.AnnData.var_ix</a></li>
+<li class="toctree-l4"><a class="reference internal" href="anndata_rs.AnnData.write.html">anndata_rs.AnnData.write</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="anndata_rs.AnnDataSet.html">anndata_rs.AnnDataSet</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#io">IO</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">AnnData</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../api.html">API</a></li>
+      <li class="breadcrumb-item active">anndata_rs.AnnData</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/kaizhang/anndata-rs/blob/main/python/docs/_autosummary/anndata_rs.AnnData.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="anndata-rs-anndata">
+<h1>anndata_rs.AnnData<a class="headerlink" href="#anndata-rs-anndata" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="anndata_rs.AnnData">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">anndata_rs.</span></span><span class="sig-name descname"><span class="pre">AnnData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="positional-only-separator o"><abbr title="Positional-only parameter separator (PEP 570)"><span class="pre">/</span></abbr></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">X</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">obs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">var</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">obsm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">varm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#anndata_rs.AnnData" title="Link to this definition"></a></dt>
+<dd><p>An annotated data matrix.</p>
+<p><code class="code docutils literal notranslate"><span class="pre">AnnData</span></code> stores a data matrix <code class="code docutils literal notranslate"><span class="pre">X</span></code> together with annotations of
+observations <code class="code docutils literal notranslate"><span class="pre">obs</span></code> (<code class="code docutils literal notranslate"><span class="pre">obsm</span></code>, <code class="code docutils literal notranslate"><span class="pre">obsp</span></code>), variables <code class="code docutils literal notranslate"><span class="pre">var</span></code> (<code class="code docutils literal notranslate"><span class="pre">varm</span></code>, <code class="code docutils literal notranslate"><span class="pre">varp</span></code>),
+and unstructured annotations <code class="code docutils literal notranslate"><span class="pre">uns</span></code>.
+<code class="code docutils literal notranslate"><span class="pre">AnnData</span></code> is stored as a HDF5 file. Opening/creating an AnnData object
+does not read data from the HDF5 file. Data is copied to memory only when
+individual element is requested (or when cache is turned on).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>X</strong> – A #observations × #variables data matrix. A view of the data is used if the
+data type matches, otherwise, a copy is made.</p></li>
+<li><p><strong>obs</strong> – Key-indexed one-dimensional observations annotation of length #observations.</p></li>
+<li><p><strong>var</strong> – Key-indexed one-dimensional variables annotation of length #variables.</p></li>
+<li><p><strong>uns</strong> – Key-indexed unstructured annotation.</p></li>
+<li><p><strong>obsm</strong> – Key-indexed multi-dimensional observations annotation of length #observations.
+If passing a <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>, it needs to have a structured datatype.</p></li>
+<li><p><strong>varm</strong> – Key-indexed multi-dimensional variables annotation of length #variables.
+If passing a <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>, it needs to have a structured datatype.</p></li>
+<li><p><strong>filename</strong> – Name of backing file.</p></li>
+<li><p><strong>backend</strong> – The backend to use. “hdf5” or “zarr” are supported.</p></li>
+</ul>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a backed AnnData. You can use <a class="reference internal" href="anndata_rs.AnnData.to_memory.html#anndata_rs.AnnData.to_memory" title="anndata_rs.AnnData.to_memory"><code class="xref py py-func docutils literal notranslate"><span class="pre">to_memory()</span></code></a> to convert
+it to an in-memory AnnData object. See
+<a class="reference external" href="https://anndata.readthedocs.io/en/latest/index.html">here</a>
+for the documentation of in-memory AnnData objects.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p><a class="reference internal" href="anndata_rs.read.html#anndata_rs.read" title="anndata_rs.read"><code class="xref py py-obj docutils literal notranslate"><span class="pre">read</span></code></a>, <a class="reference internal" href="anndata_rs.read_mtx.html#anndata_rs.read_mtx" title="anndata_rs.read_mtx"><code class="xref py py-obj docutils literal notranslate"><span class="pre">read_mtx</span></code></a>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">read_csv</span></code></p>
+</div>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.X.html#anndata_rs.AnnData.X" title="anndata_rs.AnnData.X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">X</span></code></a></p></td>
+<td><p>Data matrix of shape n_obs × n_vars.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.backend.html#anndata_rs.AnnData.backend" title="anndata_rs.AnnData.backend"><code class="xref py py-obj docutils literal notranslate"><span class="pre">backend</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.filename.html#anndata_rs.AnnData.filename" title="anndata_rs.AnnData.filename"><code class="xref py py-obj docutils literal notranslate"><span class="pre">filename</span></code></a></p></td>
+<td><p>Filename of the backing .h5ad file.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.isbacked.html#anndata_rs.AnnData.isbacked" title="anndata_rs.AnnData.isbacked"><code class="xref py py-obj docutils literal notranslate"><span class="pre">isbacked</span></code></a></p></td>
+<td><p>Whether the AnnData object is backed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.layers.html#anndata_rs.AnnData.layers" title="anndata_rs.AnnData.layers"><code class="xref py py-obj docutils literal notranslate"><span class="pre">layers</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.n_obs.html#anndata_rs.AnnData.n_obs" title="anndata_rs.AnnData.n_obs"><code class="xref py py-obj docutils literal notranslate"><span class="pre">n_obs</span></code></a></p></td>
+<td><p>Number of observations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.n_vars.html#anndata_rs.AnnData.n_vars" title="anndata_rs.AnnData.n_vars"><code class="xref py py-obj docutils literal notranslate"><span class="pre">n_vars</span></code></a></p></td>
+<td><p>Number of variables/features.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.obs.html#anndata_rs.AnnData.obs" title="anndata_rs.AnnData.obs"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obs</span></code></a></p></td>
+<td><p>Observation annotations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.obs_names.html#anndata_rs.AnnData.obs_names" title="anndata_rs.AnnData.obs_names"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obs_names</span></code></a></p></td>
+<td><p>Names of observations.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.obsm.html#anndata_rs.AnnData.obsm" title="anndata_rs.AnnData.obsm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obsm</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.obsp.html#anndata_rs.AnnData.obsp" title="anndata_rs.AnnData.obsp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obsp</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.shape.html#anndata_rs.AnnData.shape" title="anndata_rs.AnnData.shape"><code class="xref py py-obj docutils literal notranslate"><span class="pre">shape</span></code></a></p></td>
+<td><p>Shape of data matrix (<code class="code docutils literal notranslate"><span class="pre">n_obs</span></code>, <code class="code docutils literal notranslate"><span class="pre">n_vars</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.uns.html#anndata_rs.AnnData.uns" title="anndata_rs.AnnData.uns"><code class="xref py py-obj docutils literal notranslate"><span class="pre">uns</span></code></a></p></td>
+<td><p>Unstructured annotation (ordered dictionary).</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.var.html#anndata_rs.AnnData.var" title="anndata_rs.AnnData.var"><code class="xref py py-obj docutils literal notranslate"><span class="pre">var</span></code></a></p></td>
+<td><p>Variable annotations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.var_names.html#anndata_rs.AnnData.var_names" title="anndata_rs.AnnData.var_names"><code class="xref py py-obj docutils literal notranslate"><span class="pre">var_names</span></code></a></p></td>
+<td><p>Names of variables.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.varm.html#anndata_rs.AnnData.varm" title="anndata_rs.AnnData.varm"><code class="xref py py-obj docutils literal notranslate"><span class="pre">varm</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.varp.html#anndata_rs.AnnData.varp" title="anndata_rs.AnnData.varp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">varp</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.chunked_X.html#anndata_rs.AnnData.chunked_X" title="anndata_rs.AnnData.chunked_X"><code class="xref py py-obj docutils literal notranslate"><span class="pre">chunked_X</span></code></a>([chunk_size])</p></td>
+<td><p>Return an iterator over the rows of the data matrix X.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.close.html#anndata_rs.AnnData.close" title="anndata_rs.AnnData.close"><code class="xref py py-obj docutils literal notranslate"><span class="pre">close</span></code></a>()</p></td>
+<td><p>Close the AnnData object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.copy.html#anndata_rs.AnnData.copy" title="anndata_rs.AnnData.copy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">copy</span></code></a>(filename[, backend, partial, chunk_size])</p></td>
+<td><p>Copy the AnnData object.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.is_closed.html#anndata_rs.AnnData.is_closed" title="anndata_rs.AnnData.is_closed"><code class="xref py py-obj docutils literal notranslate"><span class="pre">is_closed</span></code></a>()</p></td>
+<td><p>If the AnnData object has been closed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.obs_ix.html#anndata_rs.AnnData.obs_ix" title="anndata_rs.AnnData.obs_ix"><code class="xref py py-obj docutils literal notranslate"><span class="pre">obs_ix</span></code></a>(names)</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.open.html#anndata_rs.AnnData.open" title="anndata_rs.AnnData.open"><code class="xref py py-obj docutils literal notranslate"><span class="pre">open</span></code></a>([mode])</p></td>
+<td><p>Reopen a closed AnnData object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.split_obs_by.html#anndata_rs.AnnData.split_obs_by" title="anndata_rs.AnnData.split_obs_by"><code class="xref py py-obj docutils literal notranslate"><span class="pre">split_obs_by</span></code></a>(key[, out_dir])</p></td>
+<td><p>Split the AnnData object into multiple AnnData objects based on grouping keys.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.subset.html#anndata_rs.AnnData.subset" title="anndata_rs.AnnData.subset"><code class="xref py py-obj docutils literal notranslate"><span class="pre">subset</span></code></a>([obs_indices, var_indices, out, ...])</p></td>
+<td><p>Subsetting the AnnData object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.to_memory.html#anndata_rs.AnnData.to_memory" title="anndata_rs.AnnData.to_memory"><code class="xref py py-obj docutils literal notranslate"><span class="pre">to_memory</span></code></a>([partial])</p></td>
+<td><p>Return a new AnnData object with all backed arrays loaded into memory.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="anndata_rs.AnnData.var_ix.html#anndata_rs.AnnData.var_ix" title="anndata_rs.AnnData.var_ix"><code class="xref py py-obj docutils literal notranslate"><span class="pre">var_ix</span></code></a>(names)</p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="anndata_rs.AnnData.write.html#anndata_rs.AnnData.write" title="anndata_rs.AnnData.write"><code class="xref py py-obj docutils literal notranslate"><span class="pre">write</span></code></a>(filename[, backend, partial, chunk_size])</p></td>
+<td><p>Write .h5ad-formatted hdf5 file.</p></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../api.html" class="btn btn-neutral float-left" title="API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="anndata_rs.AnnData.X.html" class="btn btn-neutral float-right" title="anndata_rs.AnnData.X" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Kai Zhang.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
