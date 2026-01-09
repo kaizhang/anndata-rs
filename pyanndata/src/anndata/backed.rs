@@ -650,6 +650,18 @@ impl AnnData {
     fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    fn __len__(&self) -> usize {
+        self.n_obs()
+    }
+    
+    fn __getitem__<'py>(&self, py: Python<'py>, key: &Bound<'py, PyAny>) -> Result<Option<Bound<'py, PyAny>>> { 
+        let i = Some(key)
+            .map(|x| self.select_obs(x).unwrap())
+            .unwrap_or(SelectInfoElem::full());
+        
+        self.0.subset(py, &[i, SelectInfoElem::full()], None, false, Some(self.0.backend()))
+    }
 }
 
 /// A trait for AnnData with abstract backend. Each concrete backend should implement this trait.
